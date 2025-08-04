@@ -172,7 +172,11 @@ func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	}
 
 	var result map[string]interface{}
-	json.Unmarshal(bodyFile, &result)
+	err = json.Unmarshal(bodyFile, &result)
+	if err != nil {
+		tflog.Error(ctx, "Error converting json result")
+		return
+	}
 
 	values, test := result["values"].(map[string]interface{})
 	if !test {
