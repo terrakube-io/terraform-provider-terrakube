@@ -201,5 +201,7 @@ func (p *TerrakubeProvider) DataSources(ctx context.Context) []func() datasource
 		NewVcsDataSource,
 		NewSshDataSource,
 		NewWorkspaceDataSource,
+		NewOutputDataSource,
+		NewTeamDataSource,
 	}
 }

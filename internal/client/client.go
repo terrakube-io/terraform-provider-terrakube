@@ -48,6 +48,12 @@ type TeamTokenEntity struct {
 	Value       string `json:"token"`
 }
 
+type HistoryEntity struct {
+	ID           string `jsonapi:"primary,history"`
+	JobReference string `jsonapi:"attr,jobReference,omitempty"`
+	Output       string `jsonapi:"attr,output,omitempty"`
+}
+
 type WorkspaceEntity struct {
 	ID               string     `jsonapi:"primary,workspace"`
 	Name             string     `jsonapi:"attr,name"`
