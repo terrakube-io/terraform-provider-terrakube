@@ -29,11 +29,11 @@ data "terrakube_team" "example" {
 
 ### Read-Only
 
-- `managecollection` (Boolean) Manages collection
-- `managejob` (Boolean) Manage Jobs
-- `managemodule` (Boolean) Manage modules
-- `manageprovider` (Boolean) Manage providers
-- `managestate` (Boolean) Manage states
-- `managetemplate` (Boolean) Manage templatess
-- `managevcs` (Boolean) Manage vcs
-- `manageworkspace` (Boolean) Manage workspaces
+- `manage_collection` (Boolean) Manages collection
+- `manage_job` (Boolean) Manage Jobs
+- `manage_module` (Boolean) Manage modules
+- `manage_provider` (Boolean) Manage providers
+- `manage_state` (Boolean) Manage states
+- `manage_template` (Boolean) Manage templatess
+- `manage_vcs` (Boolean) Manage vcs
+- `manage_workspace` (Boolean) Manage workspaces
