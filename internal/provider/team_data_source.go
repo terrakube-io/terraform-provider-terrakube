@@ -25,14 +25,14 @@ var (
 type TeamDataSourceModel struct {
 	Organization     types.String `tfsdk:"organization"`
 	Name             types.String `tfsdk:"name"`
-	ManageCollection types.Bool   `tfsdk:"managecollection"`
-	ManageJob        types.Bool   `tfsdk:"managejob"`
-	ManageModule     types.Bool   `tfsdk:"managemodule"`
-	ManageProvider   types.Bool   `tfsdk:"manageprovider"`
-	ManageState      types.Bool   `tfsdk:"managestate"`
-	ManageTemplate   types.Bool   `tfsdk:"managetemplate"`
-	ManageVcs        types.Bool   `tfsdk:"managevcs"`
-	ManageWorkspace  types.Bool   `tfsdk:"manageworkspace"`
+	ManageCollection types.Bool   `tfsdk:"manage_collection"`
+	ManageJob        types.Bool   `tfsdk:"manage_job"`
+	ManageModule     types.Bool   `tfsdk:"manage_module"`
+	ManageProvider   types.Bool   `tfsdk:"manage_provider"`
+	ManageState      types.Bool   `tfsdk:"manage_state"`
+	ManageTemplate   types.Bool   `tfsdk:"manage_template"`
+	ManageVcs        types.Bool   `tfsdk:"manage_vcs"`
+	ManageWorkspace  types.Bool   `tfsdk:"manage_workspace"`
 }
 
 type TeamDataSource struct {
@@ -95,35 +95,35 @@ func (d *TeamDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, r
 				Required:    true,
 				Description: "Team Name",
 			},
-			"managecollection": schema.BoolAttribute{
+			"manage_collection": schema.BoolAttribute{
 				Computed:    true,
 				Description: "Manages collection",
 			},
-			"managejob": schema.BoolAttribute{
+			"manage_job": schema.BoolAttribute{
 				Computed:    true,
 				Description: "Manage Jobs",
 			},
-			"managemodule": schema.BoolAttribute{
+			"manage_module": schema.BoolAttribute{
 				Computed:    true,
 				Description: "Manage modules",
 			},
-			"manageprovider": schema.BoolAttribute{
+			"manage_provider": schema.BoolAttribute{
 				Computed:    true,
 				Description: "Manage providers",
 			},
-			"managestate": schema.BoolAttribute{
+			"manage_state": schema.BoolAttribute{
 				Computed:    true,
 				Description: "Manage states",
 			},
-			"managetemplate": schema.BoolAttribute{
+			"manage_template": schema.BoolAttribute{
 				Computed:    true,
 				Description: "Manage templatess",
 			},
-			"managevcs": schema.BoolAttribute{
+			"manage_vcs": schema.BoolAttribute{
 				Computed:    true,
 				Description: "Manage vcs",
 			},
-			"manageworkspace": schema.BoolAttribute{
+			"manage_workspace": schema.BoolAttribute{
 				Computed:    true,
 				Description: "Manage workspaces",
 			},
