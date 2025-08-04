@@ -172,10 +172,18 @@ func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	}
 
 	var result map[string]interface{}
-	json.Unmarshal([]byte(bodyFile), &result)
+	json.Unmarshal(bodyFile, &result)
 
-	values := result["values"].(map[string]interface{})
-	outputs := values["outputs"].(map[string]interface{})
+	values, test := result["values"].(map[string]interface{})
+	if !test {
+		tflog.Error(ctx, "Error converting values from json result")
+		return
+	}
+	outputs, test := values["outputs"].(map[string]interface{})
+	if !test {
+		tflog.Error(ctx, "Error converting values.outputs from json result")
+		return
+	}
 
 	sensitiveTypes := map[string]attr.Type{}
 	sensitiveValues := map[string]attr.Value{}
@@ -183,17 +191,22 @@ func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	nonSensitiveValues := map[string]attr.Value{}
 
 	//walk trhough json outputs
-	for x, _ := range outputs {
-		myOutput := outputs[x].(map[string]interface{})
-		attrType, _ := inferAttrType(myOutput["value"])
-		attrValue, _ := convertToAttrValue(myOutput["value"], attrType)
+	for x := range outputs {
+		myOutput, test := outputs[x].(map[string]interface{})
+		if !test {
+			tflog.Error(ctx, "Error converting values.outputs.xx from json result")
+			return
+		} else {
+			attrType, _ := inferAttrType(myOutput["value"])
+			attrValue, _ := convertToAttrValue(myOutput["value"], attrType)
 
-		sensitiveTypes[x] = attrType
-		sensitiveValues[x] = attrValue
+			sensitiveTypes[x] = attrType
+			sensitiveValues[x] = attrValue
 
-		if myOutput["sensitive"] == false {
-			nonSensitiveTypes[x] = attrType
-			nonSensitiveValues[x] = attrValue
+			if myOutput["sensitive"] == false {
+				nonSensitiveTypes[x] = attrType
+				nonSensitiveValues[x] = attrValue
+			}
 		}
 	}
 
