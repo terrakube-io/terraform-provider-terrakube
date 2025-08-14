@@ -36,7 +36,7 @@ func main() {
 	flag.Parse()
 
 	opts := providerserver.ServeOpts{
-		Address: "registry.terraform.io/AzBuilder/terrakube",
+		Address: "registry.terraform.io/terrakube-io/terrakube",
 		Debug:   debug,
 	}
 
