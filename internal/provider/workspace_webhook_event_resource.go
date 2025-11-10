@@ -144,11 +144,11 @@ func (r *WorkspaceWebhookEventResource) Schema(ctx context.Context, req resource
 			},
 			"event": schema.StringAttribute{
 				Optional:    true,
-				Description: "The event type that triggers a run, currently only `PUSH` is supported.",
+				Description: "The event type that triggers a run. Supported values: `PUSH`, `PULL_REQUEST`, `RELEASE`.",
 				Computed:    true,
 				Default:     stringdefault.StaticString("PUSH"),
 				Validators: []validator.String{
-					stringvalidator.OneOf("PUSH"),
+					stringvalidator.OneOf("PUSH", "PULL_REQUEST", "RELEASE"),
 				},
 			},
 		},

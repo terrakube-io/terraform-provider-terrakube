@@ -22,7 +22,7 @@ Create a webhook event attached to a webhook. Defines when and how the webhook s
 ### Optional
 
 - `branch` (List of String) A list of branches that trigger a run. Support regex for more complex matching.
-- `event` (String) The event type that triggers a run, currently only `PUSH` is supported.
+- `event` (String) The event type that triggers a run. Supported values: `PUSH`, `PULL_REQUEST`, `RELEASE`.
 - `path` (List of String) The file paths in regex that trigger a run.
 - `priority` (Number) The priority of this webhook event
 - `template_id` (String) The template id to use for the run.
