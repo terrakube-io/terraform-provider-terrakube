@@ -171,7 +171,7 @@ func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRe
 	//result is back
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	
+
 	plan.ID = types.StringValue(newOrganization.ID)
 	plan.Name = types.StringValue(newOrganization.Name)
 	plan.Description = types.StringValue(newOrganization.Description)
