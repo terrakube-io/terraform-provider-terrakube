@@ -14,9 +14,10 @@ Creates an Organization on Terrakube instance.
 
 ```terraform
 resource "terrakube_organization" "organization" {
-  name            = "sample-organization"
-  description     = "sample organization description"
-  executionModule = "remote"
+  name           = "sample-organization"
+  description    = "sample organization description"
+  execution_mode = "remote"
+  icon           = "FaBicycle:#1818ff"
 }
 ```
 
@@ -28,6 +29,10 @@ resource "terrakube_organization" "organization" {
 - `description` (String) Organization description
 - `execution_mode` (String) Select default execution mode for the organization (remote or local)
 - `name` (String) Organization name
+
+### Optional
+
+- `icon` (String) Organization icon in format name:color
 
 ### Read-Only
 

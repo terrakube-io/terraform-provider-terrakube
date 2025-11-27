@@ -28,4 +28,6 @@ data "terrakube_organization" "org" {
 ### Read-Only
 
 - `description` (String) Organization description information
+- `execution_mode` (String) Select default execution mode for the organization (remote or local)
+- `icon` (String) Organization icon in format name:color
 - `id` (String) Organization Id

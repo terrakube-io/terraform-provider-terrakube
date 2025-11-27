@@ -5,11 +5,12 @@ import (
 )
 
 type OrganizationEntity struct {
-	ID            string `jsonapi:"primary,organization"`
-	Name          string `jsonapi:"attr,name"`
-	Description   string `jsonapi:"attr,description"`
-	ExecutionMode string `jsonapi:"attr,executionMode"`
-	Disabled      bool   `jsonapi:"attr,disabled"`
+	ID            string  `jsonapi:"primary,organization"`
+	Name          string  `jsonapi:"attr,name"`
+	Description   string  `jsonapi:"attr,description"`
+	ExecutionMode string  `jsonapi:"attr,executionMode"`
+	Disabled      bool    `jsonapi:"attr,disabled"`
+	Icon          *string `jsonapi:"attr,icon"`
 }
 
 type OrganizationTemplateEntity struct {

@@ -6,14 +6,15 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"fmt"
-	"github.com/google/jsonapi"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"terraform-provider-terrakube/internal/client"
+
+	"github.com/google/jsonapi"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -37,6 +38,7 @@ type OrganizationResourceModel struct {
 	Name          types.String `tfsdk:"name"`
 	Description   types.String `tfsdk:"description"`
 	ExecutionMode types.String `tfsdk:"execution_mode"`
+	Icon          types.String `tfsdk:"icon"`
 }
 
 func NewOrganizationResource() resource.Resource {
@@ -70,6 +72,10 @@ func (r *OrganizationResource) Schema(ctx context.Context, req resource.SchemaRe
 			"execution_mode": schema.StringAttribute{
 				Required:    true,
 				Description: "Select default execution mode for the organization (remote or local)",
+			},
+			"icon": schema.StringAttribute{
+				Optional:    true,
+				Description: "Organization icon in format name:color",
 			},
 		},
 	}
@@ -122,6 +128,10 @@ func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRe
 		Description:   plan.Description.ValueString(),
 		ExecutionMode: plan.ExecutionMode.ValueString(),
 	}
+	if !plan.Icon.IsNull() {
+		icon := plan.Icon.ValueString()
+		bodyRequest.Icon = &icon
+	}
 
 	var out = new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, bodyRequest)
@@ -149,6 +159,7 @@ func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRe
 	if err != nil {
 		tflog.Error(ctx, "Error reading organization resource response")
 	}
+
 	newOrganization := &client.OrganizationEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newOrganization)
@@ -157,13 +168,17 @@ func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRe
 		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
 		return
 	}
+	//result is back
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
+	
 	plan.ID = types.StringValue(newOrganization.ID)
 	plan.Name = types.StringValue(newOrganization.Name)
 	plan.Description = types.StringValue(newOrganization.Description)
 	plan.ExecutionMode = types.StringValue(newOrganization.ExecutionMode)
+	if newOrganization.Icon != nil {
+		plan.Icon = types.StringValue(*newOrganization.Icon)
+	}
 
 	tflog.Info(ctx, "Organization Resource Created", map[string]any{"success": true})
 
@@ -210,6 +225,13 @@ func (r *OrganizationResource) Read(ctx context.Context, req resource.ReadReques
 
 	state.Description = types.StringValue(organization.Description)
 	state.ExecutionMode = types.StringValue(organization.ExecutionMode)
+	state.Name = types.StringValue(organization.Name)
+
+	if organization.Icon != nil {
+		state.Icon = types.StringValue(*organization.Icon)
+	} else {
+		state.Icon = types.StringNull()
+	}
 	state.ID = types.StringValue(organization.ID)
 
 	// Set refreshed state
@@ -237,6 +259,12 @@ func (r *OrganizationResource) Update(ctx context.Context, req resource.UpdateRe
 		ExecutionMode: plan.ExecutionMode.ValueString(),
 		Name:          plan.Name.ValueString(),
 		ID:            state.ID.ValueString(),
+	}
+	if !plan.Icon.IsNull() {
+		icon := plan.Icon.ValueString()
+		bodyRequest.Icon = &icon
+	} else {
+		bodyRequest.Icon = nil
 	}
 
 	var out = new(bytes.Buffer)

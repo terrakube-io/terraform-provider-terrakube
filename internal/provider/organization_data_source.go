@@ -23,9 +23,11 @@ var (
 )
 
 type OrganizationDataSourceModel struct {
-	ID          types.String `tfsdk:"id"`
-	Name        types.String `tfsdk:"name"`
-	Description types.String `tfsdk:"description"`
+	ID            types.String `tfsdk:"id"`
+	Name          types.String `tfsdk:"name"`
+	Description   types.String `tfsdk:"description"`
+	ExecutionMode types.String `tfsdk:"execution_mode"`
+	Icon          types.String `tfsdk:"icon"`
 }
 
 type OrganizationDataSource struct {
@@ -92,6 +94,14 @@ func (d *OrganizationDataSource) Schema(_ context.Context, _ datasource.SchemaRe
 				Computed:    true,
 				Description: "Organization description information",
 			},
+			"execution_mode": schema.StringAttribute{
+				Computed:    true,
+				Description: "Select default execution mode for the organization (remote or local)",
+			},
+			"icon": schema.StringAttribute{
+				Computed:    true,
+				Description: "Organization icon in format name:color",
+			},
 		},
 	}
 }
@@ -132,6 +142,12 @@ func (d *OrganizationDataSource) Read(ctx context.Context, req datasource.ReadRe
 		state.ID = types.StringValue(data.ID)
 		state.Name = types.StringValue(data.Name)
 		state.Description = types.StringValue(data.Description)
+		state.ExecutionMode = types.StringValue(data.ExecutionMode)
+		if data.Icon != nil {
+			state.Icon = types.StringValue(*data.Icon)
+		} else {
+			state.Icon = types.StringNull()
+		}
 	}
 
 	diags := resp.State.Set(ctx, &state)
