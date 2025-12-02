@@ -280,7 +280,7 @@ func (r *CollectionItemResource) Read(ctx context.Context, req resource.ReadRequ
 			if err != nil {
 				resp.Diagnostics.AddError("Error unmarshal second payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
 			} else {
-				tflog.Info(ctx, fmt.Sprintf("Succesfully found the new id for this variable %s => %s", state.ID.ValueString(), collectionItem.ID))
+				tflog.Info(ctx, fmt.Sprintf("Successfully found the new id for this variable %s => %s", state.ID.ValueString(), collectionItem.ID))
 			}
 		} else {
 			tflog.Debug(ctx, "Detailed response contains an error")
