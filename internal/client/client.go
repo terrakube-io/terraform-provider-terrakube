@@ -229,3 +229,11 @@ type WorkspaceScheduleEntity struct {
 	Schedule   string `jsonapi:"attr,cron"`
 	TemplateId string `jsonapi:"attr,templateReference"`
 }
+
+type ErrorDetailEntity struct {
+	DetailedError string `json:"detail"`
+}
+
+type ErrorsEntity struct {
+	Errors []ErrorDetailEntity `json:"errors"`
+}

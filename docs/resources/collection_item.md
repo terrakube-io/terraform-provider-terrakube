@@ -48,7 +48,7 @@ resource "terrakube_collection_item" "sample2" {
 - `key` (String) Variable key
 - `organization_id` (String) Terrakube organization id
 - `sensitive` (Boolean) Sensitive variables are never shown in the UI or API. They may appear in Terraform logs if your configuration is designed to output them.
-- `value` (String) Variable value
+- `value` (String, Sensitive) Variable value
 
 ### Read-Only
 
