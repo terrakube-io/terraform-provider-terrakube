@@ -127,10 +127,7 @@ func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRe
 		Name:          plan.Name.ValueString(),
 		Description:   plan.Description.ValueStringPointer(),
 		ExecutionMode: plan.ExecutionMode.ValueString(),
-	}
-	if !plan.Icon.IsNull() {
-		icon := plan.Icon.ValueString()
-		bodyRequest.Icon = &icon
+		Icon:          plan.Icon.ValueStringPointer(),
 	}
 
 	var out = new(bytes.Buffer)
@@ -176,9 +173,7 @@ func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRe
 	plan.Name = types.StringValue(newOrganization.Name)
 	plan.Description = types.StringPointerValue(newOrganization.Description)
 	plan.ExecutionMode = types.StringValue(newOrganization.ExecutionMode)
-	if newOrganization.Icon != nil {
-		plan.Icon = types.StringValue(*newOrganization.Icon)
-	}
+	plan.Icon = types.StringPointerValue(newOrganization.Icon)
 
 	tflog.Info(ctx, "Organization Resource Created", map[string]any{"success": true})
 
@@ -226,12 +221,7 @@ func (r *OrganizationResource) Read(ctx context.Context, req resource.ReadReques
 	state.Description = types.StringPointerValue(organization.Description)
 	state.ExecutionMode = types.StringValue(organization.ExecutionMode)
 	state.Name = types.StringValue(organization.Name)
-
-	if organization.Icon != nil {
-		state.Icon = types.StringValue(*organization.Icon)
-	} else {
-		state.Icon = types.StringNull()
-	}
+	state.Icon = types.StringPointerValue(organization.Icon)
 	state.ID = types.StringValue(organization.ID)
 
 	// Set refreshed state
@@ -258,13 +248,8 @@ func (r *OrganizationResource) Update(ctx context.Context, req resource.UpdateRe
 		Description:   plan.Description.ValueStringPointer(),
 		ExecutionMode: plan.ExecutionMode.ValueString(),
 		Name:          plan.Name.ValueString(),
+		Icon:          plan.Icon.ValueStringPointer(),
 		ID:            state.ID.ValueString(),
-	}
-	if !plan.Icon.IsNull() {
-		icon := plan.Icon.ValueString()
-		bodyRequest.Icon = &icon
-	} else {
-		bodyRequest.Icon = nil
 	}
 
 	var out = new(bytes.Buffer)
