@@ -82,7 +82,7 @@ func (r *VcsResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 				Description: "The name of the VCS connection",
 			},
 			"description": schema.StringAttribute{
-				Optional:    true,
+				Required:    true,
 				Description: "The description of the VCS connection",
 			},
 			"vcs_type": schema.StringAttribute{
@@ -206,7 +206,7 @@ func (r *VcsResource) Create(ctx context.Context, req resource.CreateRequest, re
 
 	bodyRequest := &client.VcsEntity{
 		Name:           plan.Name.ValueString(),
-		Description:    plan.Description.ValueStringPointer(),
+		Description:    plan.Description.ValueString(),
 		VcsType:        plan.VcsType.ValueString(),
 		ConnectionType: plan.ConnectionType.ValueString(),
 		ClientId:       plan.ClientId.ValueString(),
@@ -255,7 +255,7 @@ func (r *VcsResource) Create(ctx context.Context, req resource.CreateRequest, re
 
 	plan.ID = types.StringValue(vcs.ID)
 	plan.Name = types.StringValue(vcs.Name)
-	plan.Description = types.StringPointerValue(vcs.Description)
+	plan.Description = types.StringValue(vcs.Description)
 	plan.VcsType = types.StringValue(vcs.VcsType)
 	plan.ClientId = types.StringValue(vcs.ClientId)
 	plan.Endpoint = types.StringValue(vcs.Endpoint)
@@ -319,7 +319,7 @@ func (r *VcsResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 
 	state.ID = types.StringValue(vcs.ID)
 	state.Name = types.StringValue(vcs.Name)
-	state.Description = types.StringPointerValue(vcs.Description)
+	state.Description = types.StringValue(vcs.Description)
 	state.VcsType = types.StringValue(vcs.VcsType)
 	state.ConnectionType = types.StringValue(vcs.ConnectionType)
 	state.ClientId = types.StringValue(vcs.ClientId)
@@ -354,7 +354,7 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	bodyRequest := &client.VcsEntity{
 		ID:             plan.ID.ValueString(),
 		Name:           plan.Name.ValueString(),
-		Description:    plan.Description.ValueStringPointer(),
+		Description:    plan.Description.ValueString(),
 		VcsType:        plan.VcsType.ValueString(),
 		ConnectionType: plan.ConnectionType.ValueString(),
 		ClientId:       plan.ClientId.ValueString(),
@@ -426,7 +426,7 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 
 	plan.ID = types.StringValue(state.ID.ValueString())
 	plan.Name = types.StringValue(vcs.Name)
-	plan.Description = types.StringPointerValue(vcs.Description)
+	plan.Description = types.StringValue(vcs.Description)
 	plan.ConnectionType = types.StringValue(vcs.ConnectionType)
 	plan.VcsType = types.StringValue(vcs.VcsType)
 	plan.ClientId = types.StringValue(vcs.ClientId)

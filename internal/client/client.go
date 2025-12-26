@@ -77,13 +77,13 @@ type WorkspaceTagEntity struct {
 }
 
 type WorkspaceVariableEntity struct {
-	ID          string  `jsonapi:"primary,variable"`
-	Key         string  `jsonapi:"attr,key"`
-	Value       string  `jsonapi:"attr,value"`
-	Description *string `jsonapi:"attr,description"`
-	Category    string  `jsonapi:"attr,category"`
-	Sensitive   bool    `jsonapi:"attr,sensitive"`
-	Hcl         bool    `jsonapi:"attr,hcl"`
+	ID          string `jsonapi:"primary,variable"`
+	Key         string `jsonapi:"attr,key"`
+	Value       string `jsonapi:"attr,value"`
+	Description string `jsonapi:"attr,description"`
+	Category    string `jsonapi:"attr,category"`
+	Sensitive   bool   `jsonapi:"attr,sensitive"`
+	Hcl         bool   `jsonapi:"attr,hcl"`
 }
 
 type WorkspaceAccessEntity struct {
@@ -95,27 +95,27 @@ type WorkspaceAccessEntity struct {
 }
 
 type OrganizationVariableEntity struct {
-	ID          string  `jsonapi:"primary,globalvar"`
-	Key         string  `jsonapi:"attr,key"`
-	Value       string  `jsonapi:"attr,value"`
-	Description *string `jsonapi:"attr,description"`
-	Category    string  `jsonapi:"attr,category"`
-	Sensitive   *bool   `jsonapi:"attr,sensitive,omitempty"`
-	Hcl         bool    `jsonapi:"attr,hcl"`
+	ID          string `jsonapi:"primary,globalvar"`
+	Key         string `jsonapi:"attr,key"`
+	Value       string `jsonapi:"attr,value"`
+	Description string `jsonapi:"attr,description"`
+	Category    string `jsonapi:"attr,category"`
+	Sensitive   *bool  `jsonapi:"attr,sensitive,omitempty"`
+	Hcl         bool   `jsonapi:"attr,hcl"`
 }
 
 type VcsEntity struct {
-	ID             string  `jsonapi:"primary,vcs"`
-	Name           string  `jsonapi:"attr,name"`
-	Description    *string `jsonapi:"attr,description"`
-	VcsType        string  `jsonapi:"attr,vcsType"`
-	ConnectionType string  `jsonapi:"attr,connectionType"`
-	ClientId       string  `jsonapi:"attr,clientId"`
-	ClientSecret   string  `jsonapi:"attr,clientSecret"`
-	PrivateKey     string  `jsonapi:"attr,privateKey"`
-	Endpoint       string  `jsonapi:"attr,endpoint"`
-	ApiUrl         string  `jsonapi:"attr,apiUrl"`
-	Status         string  `jsonapi:"attr,status"`
+	ID             string `jsonapi:"primary,vcs"`
+	Name           string `jsonapi:"attr,name"`
+	Description    string `jsonapi:"attr,description"`
+	VcsType        string `jsonapi:"attr,vcsType"`
+	ConnectionType string `jsonapi:"attr,connectionType"`
+	ClientId       string `jsonapi:"attr,clientId"`
+	ClientSecret   string `jsonapi:"attr,clientSecret"`
+	PrivateKey     string `jsonapi:"attr,privateKey"`
+	Endpoint       string `jsonapi:"attr,endpoint"`
+	ApiUrl         string `jsonapi:"attr,apiUrl"`
+	Status         string `jsonapi:"attr,status"`
 }
 
 type SshEntity struct {
