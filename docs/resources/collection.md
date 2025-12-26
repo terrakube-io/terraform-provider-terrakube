@@ -17,10 +17,13 @@ Create a collection and bind it to an organization.
 
 ### Required
 
-- `description` (String) Collection description
 - `name` (String) Collection name
 - `organization_id` (String) Terrakube organization id
 - `priority` (Number) Collection priority
+
+### Optional
+
+- `description` (String) Collection description
 
 ### Read-Only
 

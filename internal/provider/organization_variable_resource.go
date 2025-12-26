@@ -76,7 +76,7 @@ func (r *OrganizationVariableResource) Schema(ctx context.Context, req resource.
 				Description: "Variable value",
 			},
 			"description": schema.StringAttribute{
-				Required:    true,
+				Optional:    true,
 				Description: "Variable description",
 			},
 			"category": schema.StringAttribute{
@@ -140,7 +140,7 @@ func (r *OrganizationVariableResource) Create(ctx context.Context, req resource.
 	bodyRequest := &client.OrganizationVariableEntity{
 		Key:         plan.Key.ValueString(),
 		Value:       plan.Value.ValueString(),
-		Description: plan.Description.ValueString(),
+		Description: plan.Description.ValueStringPointer(),
 		Sensitive:   plan.Sensitive.ValueBoolPointer(),
 		Category:    plan.Category.ValueString(),
 		Hcl:         plan.Hcl.ValueBool(),
@@ -192,7 +192,7 @@ func (r *OrganizationVariableResource) Create(ctx context.Context, req resource.
 	}
 
 	plan.Key = types.StringValue(organizationVariable.Key)
-	plan.Description = types.StringValue(organizationVariable.Description)
+	plan.Description = types.StringPointerValue(organizationVariable.Description)
 	plan.Category = types.StringValue(organizationVariable.Category)
 	plan.Sensitive = types.BoolValue(*organizationVariable.Sensitive)
 	plan.Hcl = types.BoolValue(organizationVariable.Hcl)
@@ -250,7 +250,7 @@ func (r *OrganizationVariableResource) Read(ctx context.Context, req resource.Re
 	}
 
 	state.Key = types.StringValue(organizationVariable.Key)
-	state.Description = types.StringValue(organizationVariable.Description)
+	state.Description = types.StringPointerValue(organizationVariable.Description)
 	state.Category = types.StringValue(organizationVariable.Category)
 	state.Sensitive = types.BoolValue(*organizationVariable.Sensitive)
 	state.Hcl = types.BoolValue(organizationVariable.Hcl)
@@ -279,7 +279,7 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 	bodyRequest := &client.OrganizationVariableEntity{
 		Key:         plan.Key.ValueString(),
 		Value:       plan.Value.ValueString(),
-		Description: plan.Description.ValueString(),
+		Description: plan.Description.ValueStringPointer(),
 		Category:    plan.Category.ValueString(),
 		Hcl:         plan.Hcl.ValueBool(),
 		ID:          state.ID.ValueString(),
@@ -356,7 +356,7 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 		plan.Value = types.StringValue(organizationVariable.Value)
 	}
 
-	plan.Description = types.StringValue(organizationVariable.Description)
+	plan.Description = types.StringPointerValue(organizationVariable.Description)
 	plan.Category = types.StringValue(organizationVariable.Category)
 	plan.Sensitive = types.BoolValue(*organizationVariable.Sensitive)
 	plan.Hcl = types.BoolValue(organizationVariable.Hcl)

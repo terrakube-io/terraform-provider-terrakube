@@ -134,7 +134,7 @@ func (d *SshDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 	for _, ssh := range sshList {
 		data, _ := ssh.(*client.SshEntity)
 		state.ID = types.StringValue(data.ID)
-		state.Description = types.StringValue(data.Description)
+		state.Description = types.StringPointerValue(data.Description)
 	}
 
 	diags := resp.State.Set(ctx, &state)

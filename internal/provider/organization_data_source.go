@@ -141,7 +141,7 @@ func (d *OrganizationDataSource) Read(ctx context.Context, req datasource.ReadRe
 		data, _ := organization.(*client.OrganizationEntity)
 		state.ID = types.StringValue(data.ID)
 		state.Name = types.StringValue(data.Name)
-		state.Description = types.StringValue(data.Description)
+		state.Description = types.StringPointerValue(data.Description)
 		state.ExecutionMode = types.StringValue(data.ExecutionMode)
 		if data.Icon != nil {
 			state.Icon = types.StringValue(*data.Icon)

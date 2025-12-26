@@ -186,7 +186,7 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 
 	bodyRequest := &client.WorkspaceEntity{
 		Name:             plan.Name.ValueString(),
-		Description:      plan.Description.ValueString(),
+		Description:      plan.Description.ValueStringPointer(),
 		Source:           plan.Repository.ValueString(),
 		Branch:           plan.Branch.ValueString(),
 		IaCType:          plan.IaCType.ValueString(),
@@ -242,7 +242,7 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 
 	plan.ID = types.StringValue(newWorkspaceVcs.ID)
 	plan.Name = types.StringValue(newWorkspaceVcs.Name)
-	plan.Description = types.StringValue(newWorkspaceVcs.Description)
+	plan.Description = types.StringPointerValue(newWorkspaceVcs.Description)
 	plan.Repository = types.StringValue(newWorkspaceVcs.Source)
 	plan.Branch = types.StringValue(newWorkspaceVcs.Branch)
 	plan.IaCType = types.StringValue(newWorkspaceVcs.IaCType)
@@ -304,7 +304,7 @@ func (r *WorkspaceVcsResource) Read(ctx context.Context, req resource.ReadReques
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	state.Name = types.StringValue(workspace.Name)
-	state.Description = types.StringValue(workspace.Description)
+	state.Description = types.StringPointerValue(workspace.Description)
 	state.ExecutionMode = types.StringValue(workspace.ExecutionMode)
 	state.Repository = types.StringValue(workspace.Source)
 	state.Branch = types.StringValue(workspace.Branch)
@@ -343,7 +343,7 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 		IaCVersion:       plan.IaCVersion.ValueString(),
 		IaCType:          plan.IaCType.ValueString(),
 		ExecutionMode:    plan.ExecutionMode.ValueString(),
-		Description:      plan.Description.ValueString(),
+		Description:      plan.Description.ValueStringPointer(),
 		Source:           plan.Repository.ValueString(),
 		Branch:           plan.Branch.ValueString(),
 		Folder:           plan.Folder.ValueString(),
@@ -418,7 +418,7 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 
 	plan.ID = types.StringValue(state.ID.ValueString())
 	plan.Name = types.StringValue(workspace.Name)
-	plan.Description = types.StringValue(workspace.Description)
+	plan.Description = types.StringPointerValue(workspace.Description)
 	plan.Repository = types.StringValue(workspace.Source)
 	plan.Branch = types.StringValue(workspace.Branch)
 	plan.IaCType = types.StringValue(workspace.IaCType)
@@ -464,7 +464,7 @@ func (r *WorkspaceVcsResource) Delete(ctx context.Context, req resource.DeleteRe
 	bodyRequest := &client.WorkspaceEntity{
 		ID:               data.ID.ValueString(),
 		Name:             fmt.Sprintf("%s_DEL_%s", data.Name.ValueString(), string(b)), // FORCE A NAME CHANGE WITH THE SAME LOGIC THAT IN THE UI
-		Description:      data.Description.ValueString(),
+		Description:      data.Description.ValueStringPointer(),
 		Source:           data.Repository.ValueString(),
 		Branch:           data.Branch.ValueString(),
 		IaCType:          data.IaCType.ValueString(),

@@ -26,12 +26,12 @@ resource "terrakube_organization" "organization" {
 
 ### Required
 
-- `description` (String) Organization description
 - `execution_mode` (String) Select default execution mode for the organization (remote or local)
 - `name` (String) Organization name
 
 ### Optional
 
+- `description` (String) Organization description
 - `icon` (String) Organization icon in format name:color
 
 ### Read-Only

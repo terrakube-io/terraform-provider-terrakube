@@ -131,8 +131,8 @@ func (r *OrganizationTemplateResource) Create(ctx context.Context, req resource.
 
 	bodyRequest := &client.OrganizationTemplateEntity{
 		Name:        plan.Name.ValueString(),
-		Description: plan.Description.ValueString(),
-		Version:     plan.Version.ValueString(),
+		Description: plan.Description.ValueStringPointer(),
+		Version:     plan.Version.ValueStringPointer(),
 		Content:     base64.StdEncoding.EncodeToString([]byte(plan.Content.ValueString())),
 	}
 
@@ -175,8 +175,8 @@ func (r *OrganizationTemplateResource) Create(ctx context.Context, req resource.
 
 	plan.ID = types.StringValue(organizationTemplate.ID)
 	plan.Name = types.StringValue(organizationTemplate.Name)
-	plan.Description = types.StringValue(organizationTemplate.Description)
-	plan.Version = types.StringValue(organizationTemplate.Version)
+	plan.Description = types.StringPointerValue(organizationTemplate.Description)
+	plan.Version = types.StringPointerValue(organizationTemplate.Version)
 	contentDecoded, err := base64.StdEncoding.DecodeString(organizationTemplate.Content)
 	if err != nil {
 		resp.Diagnostics.AddError("Error decoding the content from Base64.", fmt.Sprintf("Error decode the tcl: %s", err))
@@ -228,8 +228,8 @@ func (r *OrganizationTemplateResource) Read(ctx context.Context, req resource.Re
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	state.Name = types.StringValue(organizationTemplate.Name)
-	state.Description = types.StringValue(organizationTemplate.Description)
-	state.Version = types.StringValue(organizationTemplate.Version)
+	state.Description = types.StringPointerValue(organizationTemplate.Description)
+	state.Version = types.StringPointerValue(organizationTemplate.Version)
 	contentDecoded, err := base64.StdEncoding.DecodeString(organizationTemplate.Content)
 	if err != nil {
 		resp.Diagnostics.AddError("Error decoding the content from Base64.", fmt.Sprintf("Error decode the tcl: %s", err))
@@ -260,8 +260,8 @@ func (r *OrganizationTemplateResource) Update(ctx context.Context, req resource.
 
 	bodyRequest := &client.OrganizationTemplateEntity{
 		Name:        plan.Name.ValueString(),
-		Description: plan.Description.ValueString(),
-		Version:     plan.Version.ValueString(),
+		Description: plan.Description.ValueStringPointer(),
+		Version:     plan.Version.ValueStringPointer(),
 		Content:     base64.StdEncoding.EncodeToString([]byte(plan.Content.ValueString())),
 		ID:          state.ID.ValueString(),
 	}
@@ -328,8 +328,8 @@ func (r *OrganizationTemplateResource) Update(ctx context.Context, req resource.
 
 	plan.ID = types.StringValue(state.ID.ValueString())
 	plan.Name = types.StringValue(organizationTemplate.Name)
-	plan.Description = types.StringValue(organizationTemplate.Description)
-	plan.Version = types.StringValue(organizationTemplate.Version)
+	plan.Description = types.StringPointerValue(organizationTemplate.Description)
+	plan.Version = types.StringPointerValue(organizationTemplate.Version)
 	contentDecoded, err := base64.StdEncoding.DecodeString(organizationTemplate.Content)
 	if err != nil {
 		resp.Diagnostics.AddError("Error decoding the content from Base64.", fmt.Sprintf("Error decode the tcl: %s", err))

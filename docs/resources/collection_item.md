@@ -43,12 +43,15 @@ resource "terrakube_collection_item" "sample2" {
 
 - `category` (String) Variable category (ENV or TERRAFORM). ENV variables are injected in workspace environment at runtime.
 - `collection_id` (String) Terrakube collection id
-- `description` (String) Variable description
 - `hcl` (Boolean) Parse this field as HashiCorp Configuration Language (HCL). This allows you to interpolate values at runtime.
 - `key` (String) Variable key
 - `organization_id` (String) Terrakube organization id
 - `sensitive` (Boolean) Sensitive variables are never shown in the UI or API. They may appear in Terraform logs if your configuration is designed to output them.
 - `value` (String, Sensitive) Variable value
+
+### Optional
+
+- `description` (String) Variable description
 
 ### Read-Only
 

@@ -80,7 +80,7 @@ func (r *WorkspaceVariableResource) Schema(ctx context.Context, req resource.Sch
 				Description: "Variable value",
 			},
 			"description": schema.StringAttribute{
-				Required:    true,
+				Optional:    true,
 				Description: "Variable description",
 			},
 			"category": schema.StringAttribute{
@@ -144,7 +144,7 @@ func (r *WorkspaceVariableResource) Create(ctx context.Context, req resource.Cre
 	bodyRequest := &client.WorkspaceVariableEntity{
 		Key:         plan.Key.ValueString(),
 		Value:       plan.Value.ValueString(),
-		Description: plan.Description.ValueString(),
+		Description: plan.Description.ValueStringPointer(),
 		Sensitive:   plan.Sensitive.ValueBool(),
 		Category:    plan.Category.ValueString(),
 		Hcl:         plan.Hcl.ValueBool(),
@@ -196,7 +196,7 @@ func (r *WorkspaceVariableResource) Create(ctx context.Context, req resource.Cre
 	}
 
 	plan.Key = types.StringValue(workspaceVariable.Key)
-	plan.Description = types.StringValue(workspaceVariable.Description)
+	plan.Description = types.StringPointerValue(workspaceVariable.Description)
 	plan.Category = types.StringValue(workspaceVariable.Category)
 	plan.Sensitive = types.BoolValue(workspaceVariable.Sensitive)
 	plan.Hcl = types.BoolValue(workspaceVariable.Hcl)
@@ -254,7 +254,7 @@ func (r *WorkspaceVariableResource) Read(ctx context.Context, req resource.ReadR
 	}
 
 	state.Key = types.StringValue(workspaceVariable.Key)
-	state.Description = types.StringValue(workspaceVariable.Description)
+	state.Description = types.StringPointerValue(workspaceVariable.Description)
 	state.Category = types.StringValue(workspaceVariable.Category)
 	state.Sensitive = types.BoolValue(workspaceVariable.Sensitive)
 	state.Hcl = types.BoolValue(workspaceVariable.Hcl)
@@ -283,7 +283,7 @@ func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.Upd
 	bodyRequest := &client.WorkspaceVariableEntity{
 		Key:         plan.Key.ValueString(),
 		Value:       plan.Value.ValueString(),
-		Description: plan.Description.ValueString(),
+		Description: plan.Description.ValueStringPointer(),
 		Category:    plan.Category.ValueString(),
 		Sensitive:   plan.Sensitive.ValueBool(),
 		Hcl:         plan.Hcl.ValueBool(),
@@ -358,7 +358,7 @@ func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.Upd
 
 	plan.ID = types.StringValue(state.ID.ValueString())
 	plan.Key = types.StringValue(workspaceVariable.Key)
-	plan.Description = types.StringValue(workspaceVariable.Description)
+	plan.Description = types.StringPointerValue(workspaceVariable.Description)
 	plan.Category = types.StringValue(workspaceVariable.Category)
 	plan.Sensitive = types.BoolValue(workspaceVariable.Sensitive)
 	plan.Hcl = types.BoolValue(workspaceVariable.Hcl)

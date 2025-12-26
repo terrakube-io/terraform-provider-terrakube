@@ -159,7 +159,7 @@ func (d *VcsDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 	for _, vcs := range vcss {
 		data, _ := vcs.(*client.VcsEntity)
 		state.ID = types.StringValue(data.ID)
-		state.Description = types.StringValue(data.Description)
+		state.Description = types.StringPointerValue(data.Description)
 		state.ClientId = types.StringValue(data.ClientId)
 		state.Endpoint = types.StringValue(data.Endpoint)
 		state.ApiUrl = types.StringValue(data.ApiUrl)
