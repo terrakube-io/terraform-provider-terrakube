@@ -136,7 +136,7 @@ func (r *SshResource) Create(ctx context.Context, req resource.CreateRequest, re
 
 	bodyRequest := &client.SshEntity{
 		Name:        plan.Name.ValueString(),
-		Description: plan.Description.ValueString(),
+		Description: plan.Description.ValueStringPointer(),
 		PrivateKey:  plan.PrivateKey.ValueString(),
 		SshType:     plan.SshType.ValueString(),
 	}
@@ -178,7 +178,7 @@ func (r *SshResource) Create(ctx context.Context, req resource.CreateRequest, re
 	plan.Name = types.StringValue(newSshKey.Name)
 	plan.PrivateKey = types.StringValue(plan.PrivateKey.ValueString())
 	plan.SshType = types.StringValue(newSshKey.SshType)
-	plan.Description = types.StringValue(newSshKey.Description)
+	plan.Description = types.StringPointerValue(newSshKey.Description)
 	tflog.Info(ctx, "Ssh Key Resource Created", map[string]any{"success": true})
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -225,7 +225,7 @@ func (r *SshResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	state.Name = types.StringValue(sshKey.Name)
 	state.PrivateKey = types.StringValue(state.PrivateKey.ValueString()) //value is not inside the response getting the value from the current state
 	state.SshType = types.StringValue(sshKey.SshType)
-	state.Description = types.StringValue(sshKey.Description)
+	state.Description = types.StringPointerValue(sshKey.Description)
 	state.ID = types.StringValue(sshKey.ID)
 
 	// Set refreshed state
@@ -252,7 +252,7 @@ func (r *SshResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	bodyRequest := &client.SshEntity{
 		ID:          plan.ID.ValueString(),
 		Name:        plan.Name.ValueString(),
-		Description: plan.Description.ValueString(),
+		Description: plan.Description.ValueStringPointer(),
 		PrivateKey:  plan.PrivateKey.ValueString(),
 		SshType:     plan.SshType.ValueString(),
 	}
@@ -314,7 +314,7 @@ func (r *SshResource) Update(ctx context.Context, req resource.UpdateRequest, re
 
 	plan.ID = types.StringValue(state.ID.ValueString())
 	plan.Name = types.StringValue(ssh.Name)
-	plan.Description = types.StringValue(ssh.Description)
+	plan.Description = types.StringPointerValue(ssh.Description)
 	plan.PrivateKey = types.StringValue(plan.PrivateKey.ValueString())
 	plan.SshType = types.StringValue(ssh.SshType)
 

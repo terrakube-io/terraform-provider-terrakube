@@ -72,7 +72,7 @@ func (r *CollectionReferenceResource) Schema(ctx context.Context, req resource.S
 				Description: "Terrakube collection id",
 			},
 			"description": schema.StringAttribute{
-				Required:    true,
+				Optional:    true,
 				Description: "Variable description",
 			},
 		},
@@ -122,7 +122,7 @@ func (r *CollectionReferenceResource) Create(ctx context.Context, req resource.C
 	}
 
 	bodyRequest := &client.CollectionReferenceEntity{
-		Description: plan.Description.ValueString(),
+		Description: plan.Description.ValueStringPointer(),
 		Workspace:   &client.WorkspaceEntity{ID: plan.WorkspaceId.ValueString()},
 		Collection:  &client.CollectionEntity{ID: plan.CollectionId.ValueString()},
 	}
@@ -166,7 +166,7 @@ func (r *CollectionReferenceResource) Create(ctx context.Context, req resource.C
 
 	plan.CollectionId = types.StringValue(collectionReference.Collection.ID)
 	plan.WorkspaceId = types.StringValue(collectionReference.Workspace.ID)
-	plan.Description = types.StringValue(collectionReference.Description)
+	plan.Description = types.StringPointerValue(collectionReference.Description)
 	plan.ID = types.StringValue(collectionReference.ID)
 
 	tflog.Info(ctx, "collection reference Resource Created", map[string]any{"success": true})
@@ -214,7 +214,7 @@ func (r *CollectionReferenceResource) Read(ctx context.Context, req resource.Rea
 
 	state.WorkspaceId = types.StringValue(collectionReference.Workspace.ID)
 	state.CollectionId = types.StringValue(collectionReference.Collection.ID)
-	state.Description = types.StringValue(collectionReference.Description)
+	state.Description = types.StringPointerValue(collectionReference.Description)
 	state.ID = types.StringValue(collectionReference.ID)
 
 	// Set refreshed state
@@ -238,7 +238,7 @@ func (r *CollectionReferenceResource) Update(ctx context.Context, req resource.U
 	}
 
 	bodyRequest := &client.CollectionReferenceEntity{
-		Description: plan.Description.ValueString(),
+		Description: plan.Description.ValueStringPointer(),
 		Workspace:   &client.WorkspaceEntity{ID: plan.WorkspaceId.ValueString()},
 		Collection:  &client.CollectionEntity{ID: plan.CollectionId.ValueString()},
 		ID:          state.ID.ValueString(),
@@ -303,7 +303,7 @@ func (r *CollectionReferenceResource) Update(ctx context.Context, req resource.U
 	}
 
 	plan.ID = types.StringValue(state.ID.ValueString())
-	plan.Description = types.StringValue(collectionReference.Description)
+	plan.Description = types.StringPointerValue(collectionReference.Description)
 	plan.WorkspaceId = types.StringValue(collectionReference.Workspace.ID)
 	plan.CollectionId = types.StringValue(collectionReference.Collection.ID)
 

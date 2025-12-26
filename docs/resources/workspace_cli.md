@@ -37,12 +37,15 @@ resource "terrakube_workspace_cli" "sample2" {
 
 ### Required
 
-- `description` (String) Workspace CLI description
 - `execution_mode` (String) Workspace CLI execution mode (remote or local). Remote execution will require setting up executor.
 - `iac_type` (String) Workspace CLI IaC type (Supported values terraform or tofu)
 - `iac_version` (String) Workspace CLI IaC type
 - `name` (String) Workspace CLI name
 - `organization_id` (String) Terrakube organization id
+
+### Optional
+
+- `description` (String) Workspace CLI description
 
 ### Read-Only
 

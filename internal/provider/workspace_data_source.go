@@ -197,7 +197,7 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 		data, _ := organization.(*client.OrganizationEntity)
 		state.OrganizationID = types.StringValue(data.ID)
 		state.ID = types.StringValue(data.ID)
-		state.Description = types.StringValue(data.Description)
+		state.Description = types.StringPointerValue(data.Description)
 	}
 
 	//now try to find the workspace
@@ -236,7 +236,7 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 	for _, workspace := range workspaces {
 		data, _ := workspace.(*client.WorkspaceEntity)
 		state.ID = types.StringValue(data.ID)
-		state.Description = types.StringValue(data.Description)
+		state.Description = types.StringPointerValue(data.Description)
 		state.Source = types.StringValue(data.Source)
 		state.Branch = types.StringValue(data.Branch)
 		state.Folder = types.StringValue(data.Folder)

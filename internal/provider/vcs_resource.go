@@ -82,7 +82,7 @@ func (r *VcsResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 				Description: "The name of the VCS connection",
 			},
 			"description": schema.StringAttribute{
-				Optional:    true,
+				Required:    true,
 				Description: "The description of the VCS connection",
 			},
 			"vcs_type": schema.StringAttribute{

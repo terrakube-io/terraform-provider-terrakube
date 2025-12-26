@@ -83,7 +83,7 @@ func (r *CollectionItemResource) Schema(ctx context.Context, req resource.Schema
 				Description: "Variable value",
 			},
 			"description": schema.StringAttribute{
-				Required:    true,
+				Optional:    true,
 				Description: "Variable description",
 			},
 			"category": schema.StringAttribute{
@@ -147,7 +147,7 @@ func (r *CollectionItemResource) Create(ctx context.Context, req resource.Create
 	bodyRequest := &client.CollectionItemEntity{
 		Key:         plan.Key.ValueString(),
 		Value:       plan.Value.ValueString(),
-		Description: plan.Description.ValueString(),
+		Description: plan.Description.ValueStringPointer(),
 		Sensitive:   plan.Sensitive.ValueBool(),
 		Category:    plan.Category.ValueString(),
 		Hcl:         plan.Hcl.ValueBool(),
@@ -199,7 +199,7 @@ func (r *CollectionItemResource) Create(ctx context.Context, req resource.Create
 	}
 
 	plan.Key = types.StringValue(collectionItem.Key)
-	plan.Description = types.StringValue(collectionItem.Description)
+	plan.Description = types.StringPointerValue(collectionItem.Description)
 	plan.Category = types.StringValue(collectionItem.Category)
 	plan.Sensitive = types.BoolValue(collectionItem.Sensitive)
 	plan.Hcl = types.BoolValue(collectionItem.Hcl)
@@ -302,7 +302,7 @@ func (r *CollectionItemResource) Read(ctx context.Context, req resource.ReadRequ
 	}
 
 	state.Key = types.StringValue(collectionItem.Key)
-	state.Description = types.StringValue(collectionItem.Description)
+	state.Description = types.StringPointerValue(collectionItem.Description)
 	state.Category = types.StringValue(collectionItem.Category)
 	state.Sensitive = types.BoolValue(collectionItem.Sensitive)
 	state.Hcl = types.BoolValue(collectionItem.Hcl)
@@ -331,7 +331,7 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 	bodyRequest := &client.CollectionItemEntity{
 		Key:         plan.Key.ValueString(),
 		Value:       plan.Value.ValueString(),
-		Description: plan.Description.ValueString(),
+		Description: plan.Description.ValueStringPointer(),
 		Category:    plan.Category.ValueString(),
 		Sensitive:   plan.Sensitive.ValueBool(),
 		Hcl:         plan.Hcl.ValueBool(),
@@ -406,7 +406,7 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 
 	plan.ID = types.StringValue(state.ID.ValueString())
 	plan.Key = types.StringValue(collectionItem.Key)
-	plan.Description = types.StringValue(collectionItem.Description)
+	plan.Description = types.StringPointerValue(collectionItem.Description)
 	plan.Category = types.StringValue(collectionItem.Category)
 	plan.Sensitive = types.BoolValue(collectionItem.Sensitive)
 	plan.Hcl = types.BoolValue(collectionItem.Hcl)

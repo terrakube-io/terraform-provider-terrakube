@@ -73,7 +73,7 @@ func (r *WorkspaceCliResource) Schema(ctx context.Context, req resource.SchemaRe
 				Description: "Workspace CLI name",
 			},
 			"description": schema.StringAttribute{
-				Required:    true,
+				Optional:    true,
 				Description: "Workspace CLI description",
 			},
 			"execution_mode": schema.StringAttribute{
@@ -136,7 +136,7 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 
 	bodyRequest := &client.WorkspaceEntity{
 		Name:          plan.Name.ValueString(),
-		Description:   plan.Description.ValueString(),
+		Description:   plan.Description.ValueStringPointer(),
 		Source:        "empty",
 		Branch:        "remote-content",
 		IaCType:       plan.IaCType.ValueString(),
@@ -184,7 +184,7 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 
 	plan.ID = types.StringValue(newWorkspaceCli.ID)
 	plan.Name = types.StringValue(newWorkspaceCli.Name)
-	plan.Description = types.StringValue(newWorkspaceCli.Description)
+	plan.Description = types.StringPointerValue(newWorkspaceCli.Description)
 	plan.IaCType = types.StringValue(newWorkspaceCli.IaCType)
 	plan.IaCVersion = types.StringValue(newWorkspaceCli.IaCVersion)
 	plan.ExecutionMode = types.StringValue(newWorkspaceCli.ExecutionMode)
@@ -233,7 +233,7 @@ func (r *WorkspaceCliResource) Read(ctx context.Context, req resource.ReadReques
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	state.Name = types.StringValue(workspace.Name)
-	state.Description = types.StringValue(workspace.Description)
+	state.Description = types.StringPointerValue(workspace.Description)
 	state.ExecutionMode = types.StringValue(workspace.ExecutionMode)
 	state.IaCType = types.StringValue(workspace.IaCType)
 	state.IaCVersion = types.StringValue(workspace.IaCVersion)
@@ -263,7 +263,7 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 		IaCVersion:    plan.IaCVersion.ValueString(),
 		IaCType:       plan.IaCType.ValueString(),
 		ExecutionMode: plan.ExecutionMode.ValueString(),
-		Description:   plan.Description.ValueString(),
+		Description:   plan.Description.ValueStringPointer(),
 		Source:        "empty",
 		Branch:        "remote-content",
 		Name:          plan.Name.ValueString(),
@@ -330,7 +330,7 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 
 	plan.ID = types.StringValue(state.ID.ValueString())
 	plan.Name = types.StringValue(workspace.Name)
-	plan.Description = types.StringValue(workspace.Description)
+	plan.Description = types.StringPointerValue(workspace.Description)
 	plan.IaCType = types.StringValue(workspace.IaCType)
 	plan.IaCVersion = types.StringValue(workspace.IaCVersion)
 	plan.ExecutionMode = types.StringValue(workspace.ExecutionMode)
@@ -368,7 +368,7 @@ func (r *WorkspaceCliResource) Delete(ctx context.Context, req resource.DeleteRe
 	bodyRequest := &client.WorkspaceEntity{
 		ID:            data.ID.ValueString(),
 		Name:          fmt.Sprintf("%s_DEL_%s", data.Name.ValueString(), string(b)), // FORCE A NAME CHANGE WITH THE SAME LOGIC THAT IN THE UI
-		Description:   data.Description.ValueString(),
+		Description:   data.Description.ValueStringPointer(),
 		Source:        "empty",
 		Branch:        "remote-content",
 		IaCType:       data.IaCType.ValueString(),

@@ -69,7 +69,7 @@ func (r *CollectionResource) Schema(ctx context.Context, req resource.SchemaRequ
 				Description: "Collection name",
 			},
 			"description": schema.StringAttribute{
-				Required:    true,
+				Optional:    true,
 				Description: "Collection description",
 			},
 			"priority": schema.Int32Attribute{
@@ -127,7 +127,7 @@ func (r *CollectionResource) Create(ctx context.Context, req resource.CreateRequ
 
 	bodyRequest := &client.CollectionEntity{
 		Name:        plan.Name.ValueString(),
-		Description: plan.Description.ValueString(),
+		Description: plan.Description.ValueStringPointer(),
 		Priority:    plan.Priority.ValueInt32(),
 	}
 
@@ -173,7 +173,7 @@ func (r *CollectionResource) Create(ctx context.Context, req resource.CreateRequ
 
 	plan.ID = types.StringValue(newCollection.ID)
 	plan.Name = types.StringValue(newCollection.Name)
-	plan.Description = types.StringValue(newCollection.Description)
+	plan.Description = types.StringPointerValue(newCollection.Description)
 	plan.Priority = types.Int32Value(newCollection.Priority)
 
 	tflog.Info(ctx, "Collection Resource Created", map[string]any{"success": true})
@@ -220,7 +220,7 @@ func (r *CollectionResource) Read(ctx context.Context, req resource.ReadRequest,
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	state.Name = types.StringValue(collection.Name)
-	state.Description = types.StringValue(collection.Description)
+	state.Description = types.StringPointerValue(collection.Description)
 	state.Priority = types.Int32Value(collection.Priority)
 
 	// Set refreshed state
@@ -245,7 +245,7 @@ func (r *CollectionResource) Update(ctx context.Context, req resource.UpdateRequ
 
 	bodyRequest := &client.CollectionEntity{
 		Name:        plan.Name.ValueString(),
-		Description: plan.Description.ValueString(),
+		Description: plan.Description.ValueStringPointer(),
 		Priority:    plan.Priority.ValueInt32(),
 		ID:          state.ID.ValueString(),
 	}
@@ -310,7 +310,7 @@ func (r *CollectionResource) Update(ctx context.Context, req resource.UpdateRequ
 
 	plan.ID = types.StringValue(state.ID.ValueString())
 	plan.Name = types.StringValue(collection.Name)
-	plan.Description = types.StringValue(collection.Description)
+	plan.Description = types.StringPointerValue(collection.Description)
 	plan.Priority = types.Int32Value(collection.Priority)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
