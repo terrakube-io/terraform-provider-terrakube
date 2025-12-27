@@ -120,12 +120,17 @@ func (d *OrganizationDataSource) Read(ctx context.Context, req datasource.ReadRe
 
 	resOrg, err := d.client.Do(reqOrg)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error executing organization datasource request, response status: %s, response body: %s, error: %s", resOrg.Status, resOrg.Body, err))
+		resp.Diagnostics.AddError("Request errored", fmt.Sprintf("error: %v", err))
+		return
 	}
-
 	body, err := io.ReadAll(resOrg.Body)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading organization response, response status: %s, response body: %s, error: %s", resOrg.Status, resOrg.Body, err))
+		resp.Diagnostics.AddError("Error reading body", fmt.Sprintf("status: %v, error: %v", resOrg.Status, err))
+		return
+	}
+	if resOrg.StatusCode >= 400 {
+		resp.Diagnostics.AddError("Request failed", fmt.Sprintf("status: %v, body: %v", resOrg.Status, string(body)))
+		return
 	}
 
 	var orgs []interface{}
