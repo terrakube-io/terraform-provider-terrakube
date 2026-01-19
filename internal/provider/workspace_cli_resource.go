@@ -216,6 +216,12 @@ func (r *WorkspaceCliResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 
+	if workspaceResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "Workspace CLI not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	bodyResponse, err := io.ReadAll(workspaceResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace cli resource response")

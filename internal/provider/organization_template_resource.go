@@ -211,6 +211,12 @@ func (r *OrganizationTemplateResource) Read(ctx context.Context, req resource.Re
 		return
 	}
 
+	if organizationTemplateResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "Organization template not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	bodyResponse, err := io.ReadAll(organizationTemplateResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading organization template resource response, response status: %s, response body: %s, error: %s", organizationTemplateResponse.Status, organizationTemplateResponse.Body, err))

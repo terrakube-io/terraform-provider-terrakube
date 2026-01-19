@@ -207,6 +207,12 @@ func (r *SshResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		return
 	}
 
+	if sshResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "SSH key not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	bodyResponse, err := io.ReadAll(sshResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, "Error reading ssh key resource response")

@@ -216,6 +216,12 @@ func (r *WorkspaceAccessResource) Read(ctx context.Context, req resource.ReadReq
 		return
 	}
 
+	if workspaceAccessResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "Workspace access not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	bodyResponse, err := io.ReadAll(workspaceAccessResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace access resource response")

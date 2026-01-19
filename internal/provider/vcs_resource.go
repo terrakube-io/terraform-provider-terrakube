@@ -301,6 +301,12 @@ func (r *VcsResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		return
 	}
 
+	if vcsResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "VCS not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	bodyResponse, err := io.ReadAll(vcsResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading organization variable resource response, error: %s, response status: %s", err, vcsResponse.Status))

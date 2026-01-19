@@ -256,6 +256,12 @@ func (r *ModuleResource) Read(ctx context.Context, req resource.ReadRequest, res
 		return
 	}
 
+	if moduleResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "Module not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	bodyResponse, err := io.ReadAll(moduleResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, "Error reading module resource response")

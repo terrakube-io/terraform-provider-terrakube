@@ -196,6 +196,12 @@ func (r *CollectionReferenceResource) Read(ctx context.Context, req resource.Rea
 		return
 	}
 
+	if collectionReferenceResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "Collection reference not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	bodyResponse, err := io.ReadAll(collectionReferenceResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, "Error reading collection item resource response")

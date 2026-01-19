@@ -287,6 +287,12 @@ func (r *WorkspaceVcsResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 
+	if workspaceResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "Workspace VCS not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	bodyResponse, err := io.ReadAll(workspaceResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading workspace vcs resource response, response status: %s, response body: %s, error: %s", workspaceResponse.Status, workspaceResponse.Body, err))

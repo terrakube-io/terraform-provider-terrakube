@@ -182,6 +182,12 @@ func (r *OrganizationTagResource) Read(ctx context.Context, req resource.ReadReq
 		return
 	}
 
+	if organizationTagResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "Organization tag not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	bodyResponse, err := io.ReadAll(organizationTagResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading organization tag resource response, response status: %s, response body: %s, body: %s", organizationTagResponse.Status, organizationTagResponse.Body, err))

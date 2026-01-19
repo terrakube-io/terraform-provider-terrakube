@@ -225,6 +225,12 @@ func (r *OrganizationVariableResource) Read(ctx context.Context, req resource.Re
 		return
 	}
 
+	if organizationVariableResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "Organization variable not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	bodyResponse, err := io.ReadAll(organizationVariableResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, "Error reading organization variable resource response")

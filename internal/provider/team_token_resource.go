@@ -241,6 +241,7 @@ func (r *TeamTokenResource) Read(ctx context.Context, req resource.ReadRequest, 
 
 	tflog.Info(ctx, "Response status", map[string]any{"responseStatus": teamTokenResponse.Status})
 
+	found := false
 	for _, teamToken := range *teamTokens {
 		if teamToken.ID != state.ID.ValueString() {
 			continue
@@ -251,7 +252,14 @@ func (r *TeamTokenResource) Read(ctx context.Context, req resource.ReadRequest, 
 		state.Hours = types.Int32Value(teamToken.Hours)
 		state.Minutes = types.Int32Value(teamToken.Minutes)
 		state.Group = types.StringValue(teamToken.Group)
+		found = true
 		break
+	}
+
+	if !found {
+		tflog.Warn(ctx, "Team token not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
 	}
 
 	// Set refreshed state

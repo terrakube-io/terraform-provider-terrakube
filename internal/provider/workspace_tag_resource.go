@@ -190,6 +190,12 @@ func (r *WorkspaceTagResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 
+	if workspaceTagResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "Workspace tag not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	bodyResponse, err := io.ReadAll(workspaceTagResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace tag resource response")

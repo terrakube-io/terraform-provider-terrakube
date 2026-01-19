@@ -230,6 +230,12 @@ func (r *WorkspaceWebhookResource) Read(ctx context.Context, req resource.ReadRe
 		return
 	}
 
+	if response.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "Workspace webhook not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	bodyResponse, err := io.ReadAll(response.Body)
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook resource response, response status %s, response body: %s, error: %s", response.Status, response.Body, err))

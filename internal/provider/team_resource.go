@@ -258,6 +258,12 @@ func (r *TeamResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 		return
 	}
 
+	if teamResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "Team not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	bodyResponse, err := io.ReadAll(teamResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, "Error reading team resource response")
