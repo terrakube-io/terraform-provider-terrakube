@@ -7,6 +7,9 @@ resource "terrakube_team" "team" {
   manage_provider   = true
   manage_vcs        = true
   manage_template   = true
-  manage_job        = true
+  manage_job        = true # legacy field — plan_job/approve_job inherit from this when unset
   manage_collection = true
+  plan_job          = true     # RBAC v2: required for "New Run" button
+  approve_job       = true     # RBAC v2: required for apply approval
+  role              = "custom" # "custom" defers to boolean flags
 }

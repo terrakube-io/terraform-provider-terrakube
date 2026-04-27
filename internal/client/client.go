@@ -27,16 +27,19 @@ type OrganizationTagEntity struct {
 }
 
 type TeamEntity struct {
-	ID               string `jsonapi:"primary,team"`
-	Name             string `jsonapi:"attr,name"`
-	ManageState      bool   `jsonapi:"attr,manageState"`
-	ManageWorkspace  bool   `jsonapi:"attr,manageWorkspace"`
-	ManageModule     bool   `jsonapi:"attr,manageModule"`
-	ManageProvider   bool   `jsonapi:"attr,manageProvider"`
-	ManageVcs        bool   `jsonapi:"attr,manageVcs"`
-	ManageTemplate   bool   `jsonapi:"attr,manageTemplate"`
-	ManageJob        bool   `jsonapi:"attr,manageJob"`
-	ManageCollection bool   `jsonapi:"attr,manageCollection"`
+	ID               string  `jsonapi:"primary,team"`
+	Name             string  `jsonapi:"attr,name"`
+	ManageState      bool    `jsonapi:"attr,manageState"`
+	ManageWorkspace  bool    `jsonapi:"attr,manageWorkspace"`
+	ManageModule     bool    `jsonapi:"attr,manageModule"`
+	ManageProvider   bool    `jsonapi:"attr,manageProvider"`
+	ManageVcs        bool    `jsonapi:"attr,manageVcs"`
+	ManageTemplate   bool    `jsonapi:"attr,manageTemplate"`
+	ManageJob        bool    `jsonapi:"attr,manageJob"`
+	ManageCollection bool    `jsonapi:"attr,manageCollection"`
+	PlanJob          bool    `jsonapi:"attr,planJob"`
+	ApproveJob       bool    `jsonapi:"attr,approveJob"`
+	Role             *string `jsonapi:"attr,role"`
 }
 
 type TeamTokenEntity struct {
@@ -87,11 +90,14 @@ type WorkspaceVariableEntity struct {
 }
 
 type WorkspaceAccessEntity struct {
-	ID              string `jsonapi:"primary,access"`
-	ManageState     bool   `jsonapi:"attr,manageState"`
-	ManageWorkspace bool   `jsonapi:"attr,manageWorkspace"`
-	ManageJob       bool   `jsonapi:"attr,manageJob"`
-	Name            string `jsonapi:"attr,name"`
+	ID              string  `jsonapi:"primary,access"`
+	ManageState     bool    `jsonapi:"attr,manageState"`
+	ManageWorkspace bool    `jsonapi:"attr,manageWorkspace"`
+	ManageJob       bool    `jsonapi:"attr,manageJob"`
+	PlanJob         bool    `jsonapi:"attr,planJob"`
+	ApproveJob      bool    `jsonapi:"attr,approveJob"`
+	Role            *string `jsonapi:"attr,role"`
+	Name            string  `jsonapi:"attr,name"`
 }
 
 type OrganizationVariableEntity struct {

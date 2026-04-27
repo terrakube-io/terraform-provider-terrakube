@@ -11,9 +11,12 @@ import (
 	"terraform-provider-terrakube/internal/client"
 
 	"github.com/google/jsonapi"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -25,6 +28,7 @@ import (
 // Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &TeamResource{}
 var _ resource.ResourceWithImportState = &TeamResource{}
+var _ resource.ResourceWithConfigValidators = &TeamResource{}
 
 type TeamResource struct {
 	client   *http.Client
@@ -44,10 +48,17 @@ type TeamResourceModel struct {
 	ManageTemplate   types.Bool   `tfsdk:"manage_template"`
 	ManageJob        types.Bool   `tfsdk:"manage_job"`
 	ManageCollection types.Bool   `tfsdk:"manage_collection"`
+	PlanJob          types.Bool   `tfsdk:"plan_job"`
+	ApproveJob       types.Bool   `tfsdk:"approve_job"`
+	Role             types.String `tfsdk:"role"`
 }
 
 func NewTeamResource() resource.Resource {
 	return &TeamResource{}
+}
+
+func (r *TeamResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{rbacRoleConflictValidator{}}
 }
 
 func (r *TeamResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -56,7 +67,7 @@ func (r *TeamResource) Metadata(ctx context.Context, req resource.MetadataReques
 
 func (r *TeamResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Create a team and bind it to an organization. Allows for fined grained access management.",
+		MarkdownDescription: "Create a team and bind it to an organization. Allows for fine-grained access management.",
 
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -85,7 +96,7 @@ func (r *TeamResource) Schema(ctx context.Context, req resource.SchemaRequest, r
 			},
 			"manage_job": schema.BoolAttribute{
 				Optional:    true,
-				Description: "Allow to manage and trigger jobs",
+				Description: "Allow to manage and trigger jobs. Legacy field — in RBAC v2, plan_job/approve_job inherit from this when unset.",
 				Computed:    true,
 				Default:     booldefault.StaticBool(false),
 			},
@@ -124,6 +135,33 @@ func (r *TeamResource) Schema(ctx context.Context, req resource.SchemaRequest, r
 				Description: "Allow to manage templates",
 				Computed:    true,
 				Default:     booldefault.StaticBool(false),
+			},
+			"plan_job": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Allow queuing plans (RBAC v2). Inherits manage_job when not set. Only used when role is unset or \"custom\". Note: inheritance only applies on create/update — imported resources retain the remote value.",
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"approve_job": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Allow approving/applying runs (RBAC v2). Inherits manage_job when not set. Only used when role is unset or \"custom\". Note: inheritance only applies on create/update — imported resources retain the remote value.",
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"role": schema.StringAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Predefined role: admin (all permissions), write (plan+apply+workspace+state), plan (plan only), read (read only), or custom (use boolean flags). When set to a non-custom value, overrides individual boolean flags. Leave unset to use boolean flags.",
+				Validators: []validator.String{
+					stringvalidator.OneOf("admin", "write", "plan", "read", "custom"),
+				},
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 		},
 	}
@@ -181,6 +219,13 @@ func (r *TeamResource) Create(ctx context.Context, req resource.CreateRequest, r
 		ManageVcs:        plan.ManageVcs.ValueBool(),
 		ManageJob:        plan.ManageJob.ValueBool(),
 		ManageCollection: plan.ManageCollection.ValueBool(),
+		PlanJob:          resolveJobFlag(plan.PlanJob, plan.ManageJob),
+		ApproveJob:       resolveJobFlag(plan.ApproveJob, plan.ManageJob),
+	}
+
+	if !plan.Role.IsNull() && !plan.Role.IsUnknown() {
+		role := plan.Role.ValueString()
+		bodyRequest.Role = &role
 	}
 
 	var out = new(bytes.Buffer)
@@ -192,23 +237,31 @@ func (r *TeamResource) Create(ctx context.Context, req resource.CreateRequest, r
 	}
 
 	teamRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/team", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	teamRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	teamRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating team resource request", fmt.Sprintf("Error creating team resource request: %s", err))
 		return
 	}
+	teamRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	teamRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	teamResponse, err := r.client.Do(teamRequest)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing team resource request", fmt.Sprintf("Error executing team resource request: %s", err))
 		return
 	}
+	defer teamResponse.Body.Close()
 
 	bodyResponse, err := io.ReadAll(teamResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, "Error reading team resource response")
+		resp.Diagnostics.AddError("Error reading team resource response body", fmt.Sprintf("Error reading team resource response body: %s", err))
+		return
 	}
+
+	if teamResponse.StatusCode >= http.StatusBadRequest {
+		resp.Diagnostics.AddError("Error creating team", fmt.Sprintf("status: %v, body: %v", teamResponse.Status, string(bodyResponse)))
+		return
+	}
+
 	newTeam := &client.TeamEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newTeam)
@@ -230,6 +283,9 @@ func (r *TeamResource) Create(ctx context.Context, req resource.CreateRequest, r
 	plan.ManageTemplate = types.BoolValue(newTeam.ManageTemplate)
 	plan.ManageJob = types.BoolValue(newTeam.ManageJob)
 	plan.ManageCollection = types.BoolValue(newTeam.ManageCollection)
+	plan.PlanJob = types.BoolValue(newTeam.PlanJob)
+	plan.ApproveJob = types.BoolValue(newTeam.ApproveJob)
+	plan.Role = roleToState(newTeam.Role)
 
 	tflog.Info(ctx, "Team Resource Created", map[string]any{"success": true})
 
@@ -245,18 +301,19 @@ func (r *TeamResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	}
 
 	teamRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/team/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	teamRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	teamRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating team resource request", fmt.Sprintf("Error creating team resource request: %s", err))
 		return
 	}
+	teamRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	teamRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	teamResponse, err := r.client.Do(teamRequest)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing team resource request", fmt.Sprintf("Error executing team resource request: %s", err))
 		return
 	}
+	defer teamResponse.Body.Close()
 
 	if teamResponse.StatusCode == http.StatusNotFound {
 		tflog.Warn(ctx, "Team not found, removing from state", map[string]any{"id": state.ID.ValueString()})
@@ -266,11 +323,17 @@ func (r *TeamResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 
 	bodyResponse, err := io.ReadAll(teamResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, "Error reading team resource response")
+		resp.Diagnostics.AddError("Error reading team resource response body", fmt.Sprintf("Error reading team resource response body: %s", err))
+		return
 	}
+
+	if teamResponse.StatusCode >= http.StatusBadRequest {
+		resp.Diagnostics.AddError("Error reading team", fmt.Sprintf("status: %v, body: %v", teamResponse.Status, string(bodyResponse)))
+		return
+	}
+
 	team := &client.TeamEntity{}
 
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), team)
 
 	if err != nil {
@@ -289,6 +352,9 @@ func (r *TeamResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	state.ManageTemplate = types.BoolValue(team.ManageTemplate)
 	state.ManageJob = types.BoolValue(team.ManageJob)
 	state.ManageCollection = types.BoolValue(team.ManageCollection)
+	state.PlanJob = types.BoolValue(team.PlanJob)
+	state.ApproveJob = types.BoolValue(team.ApproveJob)
+	state.Role = roleToState(team.Role)
 
 	// Set refreshed state
 	diags = resp.State.Set(ctx, &state)
@@ -319,8 +385,15 @@ func (r *TeamResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		ManageVcs:        plan.ManageVcs.ValueBool(),
 		ManageJob:        plan.ManageJob.ValueBool(),
 		ManageCollection: plan.ManageCollection.ValueBool(),
+		PlanJob:          resolveJobFlag(plan.PlanJob, plan.ManageJob),
+		ApproveJob:       resolveJobFlag(plan.ApproveJob, plan.ManageJob),
 		ID:               state.ID.ValueString(),
 		Name:             state.Name.ValueString(),
+	}
+
+	if !plan.Role.IsNull() && !plan.Role.IsUnknown() {
+		role := plan.Role.ValueString()
+		bodyRequest.Role = &role
 	}
 
 	var out = new(bytes.Buffer)
@@ -332,12 +405,12 @@ func (r *TeamResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	}
 
 	teamRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/team/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	teamRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	teamRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating team resource request", fmt.Sprintf("Error creating team resource request: %s", err))
 		return
 	}
+	teamRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	teamRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	teamResponse, err := r.client.Do(teamRequest)
 	if err != nil {
@@ -346,29 +419,56 @@ func (r *TeamResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	}
 
 	bodyResponse, err := io.ReadAll(teamResponse.Body)
+	teamResponse.Body.Close()
 	if err != nil {
-		tflog.Error(ctx, "Error reading team resource response")
+		resp.Diagnostics.AddError("Error reading team resource response body",
+			fmt.Sprintf("Error reading team resource response body: %s", err))
+		return
+	}
+
+	if teamResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "Team not found during update, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
+	if teamResponse.StatusCode >= http.StatusBadRequest {
+		resp.Diagnostics.AddError("Error updating team", fmt.Sprintf("status: %v, body: %v", teamResponse.Status, string(bodyResponse)))
+		return
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	teamRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/team/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	teamRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	teamRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating team resource request", fmt.Sprintf("Error creating team resource request: %s", err))
 		return
 	}
+	teamRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	teamRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	teamResponse, err = r.client.Do(teamRequest)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing team resource request", fmt.Sprintf("Error executing team resource request: %s", err))
 		return
 	}
+	defer teamResponse.Body.Close()
 
 	bodyResponse, err = io.ReadAll(teamResponse.Body)
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading team resource response body", fmt.Sprintf("Error reading team resource response body: %s", err))
+		return
+	}
+
+	if teamResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "Team not found after update, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
+	if teamResponse.StatusCode >= http.StatusBadRequest {
+		resp.Diagnostics.AddError("Error reading team after update", fmt.Sprintf("status: %v, body: %v", teamResponse.Status, string(bodyResponse)))
+		return
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -391,6 +491,9 @@ func (r *TeamResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	plan.ManageTemplate = types.BoolValue(team.ManageTemplate)
 	plan.ManageJob = types.BoolValue(team.ManageJob)
 	plan.ManageCollection = types.BoolValue(team.ManageCollection)
+	plan.PlanJob = types.BoolValue(team.PlanJob)
+	plan.ApproveJob = types.BoolValue(team.ApproveJob)
+	plan.Role = roleToState(team.Role)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -406,17 +509,18 @@ func (r *TeamResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 	}
 
 	reqOrg, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/team/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating team resource request", fmt.Sprintf("Error creating team resource request: %s", err))
 		return
 	}
+	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
-	_, err = r.client.Do(reqOrg)
+	delResp, err := r.client.Do(reqOrg)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing team resource request", fmt.Sprintf("Error executing team resource request: %s", err))
 		return
 	}
+	defer delResp.Body.Close()
 }
 
 func (r *TeamResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

@@ -1,0 +1,28 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+subcategory: ""
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+{{ .Description | trimspace }}
+
+## Example Usage
+
+### Role-based access (recommended for RBAC v2)
+
+{{ tffile "examples/resources/terrakube_workspace_access/role_based.tf" }}
+
+### Custom role with explicit boolean flags
+
+{{ tffile "examples/resources/terrakube_workspace_access/resource.tf" }}
+
+{{ .SchemaMarkdown | trimspace }}
+
+## Import
+
+Import is supported using the following syntax:
+
+{{ codefile "shell" "examples/resources/terrakube_workspace_access/import.sh" }}
