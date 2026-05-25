@@ -12,6 +12,7 @@ import (
 	"terraform-provider-terrakube/internal/client"
 
 	"github.com/google/uuid"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 
@@ -37,6 +38,7 @@ type WorkspaceWebhookV2ResourceModel struct {
 	OrganizationId types.String `tfsdk:"organization_id"`
 	WorkspaceId    types.String `tfsdk:"workspace_id"`
 	RemoteHookId   types.String `tfsdk:"remote_hook_id"`
+	MigratedV2     types.Bool   `tfsdk:"migrated_v2"`
 }
 
 func NewWorkspaceWebhookV2Resource() resource.Resource {
@@ -71,6 +73,14 @@ func (r *WorkspaceWebhookV2Resource) Schema(ctx context.Context, req resource.Sc
 				Optional:    true,
 				Computed:    true,
 				Description: "The remote hook ID.",
+			},
+			"migrated_v2": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Whether the webhook has been migrated to v2. Enables the webhook v2 processing path.",
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
 			},
 		},
 	}
@@ -131,6 +141,9 @@ func (r *WorkspaceWebhookV2Resource) Create(ctx context.Context, req resource.Cr
 				"data": map[string]interface{}{
 					"type": "webhook",
 					"id":   webhookID,
+					"attributes": map[string]interface{}{
+						"migratedV2": plan.MigratedV2.ValueBool(),
+					},
 				},
 				"relationships": map[string]interface{}{
 					"workspace": map[string]interface{}{
@@ -306,6 +319,7 @@ func (r *WorkspaceWebhookV2Resource) Read(ctx context.Context, req resource.Read
 				RemoteHookId string `json:"remoteHookId"`
 				UpdatedBy    string `json:"updatedBy"`
 				UpdatedDate  string `json:"updatedDate"`
+				MigratedV2   bool   `json:"migratedV2"`
 			} `json:"attributes"`
 		} `json:"data"`
 	}
@@ -317,6 +331,7 @@ func (r *WorkspaceWebhookV2Resource) Read(ctx context.Context, req resource.Read
 
 	state.ID = types.StringValue(responseData.Data.ID)
 	state.RemoteHookId = types.StringValue(responseData.Data.Attributes.RemoteHookId)
+	state.MigratedV2 = types.BoolValue(responseData.Data.Attributes.MigratedV2)
 
 	// Set refreshed state
 	diags = resp.State.Set(ctx, &state)
@@ -338,7 +353,8 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 	}
 
 	bodyRequest := &client.WorkspaceWebhookV2Entity{
-		ID: state.ID.ValueString(),
+		ID:         state.ID.ValueString(),
+		MigratedV2: plan.MigratedV2.ValueBool(),
 	}
 
 	jsonData, err := json.Marshal(bodyRequest)
@@ -411,6 +427,7 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 				RemoteHookId string `json:"remoteHookId"`
 				UpdatedBy    string `json:"updatedBy"`
 				UpdatedDate  string `json:"updatedDate"`
+				MigratedV2   bool   `json:"migratedV2"`
 			} `json:"attributes"`
 		} `json:"data"`
 	}
@@ -422,6 +439,7 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 
 	plan.ID = types.StringValue(state.ID.ValueString())
 	plan.RemoteHookId = types.StringValue(responseData.Data.Attributes.RemoteHookId)
+	plan.MigratedV2 = types.BoolValue(responseData.Data.Attributes.MigratedV2)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
