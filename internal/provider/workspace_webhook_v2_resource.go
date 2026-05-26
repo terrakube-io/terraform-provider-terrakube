@@ -352,10 +352,11 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 		return
 	}
 
-	bodyRequest := &client.WorkspaceWebhookV2Entity{
-		ID:         state.ID.ValueString(),
-		MigratedV2: plan.MigratedV2.ValueBool(),
-	}
+	migratedV2 := plan.MigratedV2.ValueBool()
+    bodyRequest := &client.WorkspaceWebhookV2Entity{
+        ID:         state.ID.ValueString(),
+        MigratedV2: &migratedV2,
+    }
 
 	jsonData, err := json.Marshal(bodyRequest)
 	if err != nil {
