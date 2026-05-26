@@ -191,7 +191,7 @@ type WorkspaceWebhookV2Entity struct {
 	RemoteHookId string           `jsonapi:"attr,remoteHookId"`
 	UpdatedBy    string           `jsonapi:"attr,updatedBy"`
 	UpdatedDate  string           `jsonapi:"attr,updatedDate"`
-	MigratedV2   *bool             `jsonapi:"attr,migratedV2"`
+	MigratedV2   *bool            `jsonapi:"attr,migratedV2"`
 	Events       []WebhookEvent   `jsonapi:"relation,events,omitempty"`
 	Workspace    *WorkspaceEntity `jsonapi:"relation,workspace,omitempty"`
 }
