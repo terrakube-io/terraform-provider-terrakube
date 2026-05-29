@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"terraform-provider-terrakube/internal/client"
 
+	"github.com/google/jsonapi"
 	"github.com/google/uuid"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -309,29 +311,18 @@ func (r *WorkspaceWebhookV2Resource) Read(ctx context.Context, req resource.Read
 		return
 	}
 
-	var responseData struct {
-		Data struct {
-			Type       string `json:"type"`
-			ID         string `json:"id"`
-			Attributes struct {
-				CreatedBy    string `json:"createdBy"`
-				CreatedDate  string `json:"createdDate"`
-				RemoteHookId string `json:"remoteHookId"`
-				UpdatedBy    string `json:"updatedBy"`
-				UpdatedDate  string `json:"updatedDate"`
-				MigratedV2   bool   `json:"migratedV2"`
-			} `json:"attributes"`
-		} `json:"data"`
-	}
+	webhook := &client.WorkspaceWebhookV2Entity{}
 
-	if err := json.Unmarshal(bodyResponse, &responseData); err != nil {
+	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), webhook); err != nil {
 		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
 		return
 	}
 
-	state.ID = types.StringValue(responseData.Data.ID)
-	state.RemoteHookId = types.StringValue(responseData.Data.Attributes.RemoteHookId)
-	state.MigratedV2 = types.BoolValue(responseData.Data.Attributes.MigratedV2)
+	state.ID = types.StringValue(webhook.ID)
+	state.RemoteHookId = types.StringValue(webhook.RemoteHookId)
+	if webhook.MigratedV2 != nil {
+		state.MigratedV2 = types.BoolValue(*webhook.MigratedV2)
+	}
 
 	// Set refreshed state
 	diags = resp.State.Set(ctx, &state)
@@ -358,13 +349,15 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 		MigratedV2: &migratedV2,
 	}
 
-	jsonData, err := json.Marshal(bodyRequest)
+	var out = new(bytes.Buffer)
+	err := jsonapi.MarshalPayload(out, bodyRequest)
+
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
 		return
 	}
 
-	request, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/webhook/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), strings.NewReader(string(jsonData)))
+	request, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/webhook/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
 	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	request.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
@@ -418,29 +411,17 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
-	var responseData struct {
-		Data struct {
-			Type       string `json:"type"`
-			ID         string `json:"id"`
-			Attributes struct {
-				CreatedBy    string `json:"createdBy"`
-				CreatedDate  string `json:"createdDate"`
-				RemoteHookId string `json:"remoteHookId"`
-				UpdatedBy    string `json:"updatedBy"`
-				UpdatedDate  string `json:"updatedDate"`
-				MigratedV2   bool   `json:"migratedV2"`
-			} `json:"attributes"`
-		} `json:"data"`
-	}
-
-	if err := json.Unmarshal(bodyResponse, &responseData); err != nil {
+	webhook := &client.WorkspaceWebhookV2Entity{}
+	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), webhook); err != nil {
 		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
 		return
 	}
 
 	plan.ID = types.StringValue(state.ID.ValueString())
-	plan.RemoteHookId = types.StringValue(responseData.Data.Attributes.RemoteHookId)
-	plan.MigratedV2 = types.BoolValue(responseData.Data.Attributes.MigratedV2)
+	plan.RemoteHookId = types.StringValue(webhook.RemoteHookId)
+	if webhook.MigratedV2 != nil {
+		plan.MigratedV2 = types.BoolValue(*webhook.MigratedV2)
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
