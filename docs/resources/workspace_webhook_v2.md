@@ -22,6 +22,7 @@ Create a webhook attached to a workspace. Can be useful for automated apply/plan
 
 ### Optional
 
+- `migrated_v2` (Boolean) Whether the webhook has been migrated to v2. Enables the webhook v2 processing path.
 - `remote_hook_id` (String) The remote hook ID.
 
 ### Read-Only
