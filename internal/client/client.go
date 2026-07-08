@@ -133,15 +133,25 @@ type SshEntity struct {
 }
 
 type ModuleEntity struct {
-	ID          string     `jsonapi:"primary,module"`
-	Name        string     `jsonapi:"attr,name"`
-	Description string     `jsonapi:"attr,description"`
-	Provider    string     `jsonapi:"attr,provider"`
-	Source      string     `jsonapi:"attr,source"`
-	Vcs         *VcsEntity `jsonapi:"relation,vcs,omitempty"`
-	Ssh         *SshEntity `jsonapi:"relation,ssh,omitempty"`
-	Folder      *string    `jsonapi:"attr,folder"`
-	TagPrefix   *string    `jsonapi:"attr,tagPrefix"`
+	ID            string     `jsonapi:"primary,module"`
+	Name          string     `jsonapi:"attr,name"`
+	Description   string     `jsonapi:"attr,description"`
+	Provider      string     `jsonapi:"attr,provider"`
+	Source        string     `jsonapi:"attr,source"`
+	Vcs           *VcsEntity `jsonapi:"relation,vcs,omitempty"`
+	Ssh           *SshEntity `jsonapi:"relation,ssh,omitempty"`
+	Folder        *string    `jsonapi:"attr,folder"`
+	TagPrefix     *string    `jsonapi:"attr,tagPrefix"`
+	RegistryPath  string     `jsonapi:"attr,registryPath,omitempty"`
+	LatestVersion string     `jsonapi:"attr,latestVersion,omitempty"`
+}
+
+type ProviderEntity struct {
+	ID                string `jsonapi:"primary,provider"`
+	Name              string `jsonapi:"attr,name"`
+	Description       string `jsonapi:"attr,description"`
+	Imported          bool   `jsonapi:"attr,imported"`
+	RegistryNamespace string `jsonapi:"attr,registryNamespace,omitempty"`
 }
 
 type CollectionEntity struct {
