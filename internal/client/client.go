@@ -255,6 +255,19 @@ type WorkspaceScheduleEntity struct {
 	TemplateId string `jsonapi:"attr,templateReference"`
 }
 
+type FederatedEntity struct {
+	ID        string `jsonapi:"primary,federated"`
+	Name      string `jsonapi:"attr,name"`
+	IssuerUrl string `jsonapi:"attr,issuerUrl"`
+	Audience  string `jsonapi:"attr,audience"`
+}
+
+type FederatedClaimEntity struct {
+	ID         string `jsonapi:"primary,federated_claim"`
+	ClaimKey   string `jsonapi:"attr,claimKey"`
+	ClaimValue string `jsonapi:"attr,claimValue"`
+}
+
 type ErrorDetailEntity struct {
 	DetailedError string `json:"detail"`
 }
