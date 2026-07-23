@@ -24,6 +24,7 @@ resource "terrakube_workspace_vcs" "sample1" {
   template_id     = terrakube_organization_template.example.id
   iac_type        = "terraform"
   iac_version     = "1.5.7"
+  project_id      = terrakube_project.project.id
 }
 ```
 
@@ -46,6 +47,7 @@ resource "terrakube_workspace_vcs" "sample1" {
 - `execution_mode` (String) Workspace VCS execution mode (remote or local)
 - `folder` (String) Workspace VCS folder
 - `iac_type` (String) Workspace VCS IaC type (Supported values terraform or tofu)
+- `project_id` (String) Id of the project this workspace belongs to. Leave unset to leave any existing project assignment (e.g. made outside Terraform) untouched.
 - `vcs_id` (String) VCS connection ID for private workspaces
 
 ### Read-Only

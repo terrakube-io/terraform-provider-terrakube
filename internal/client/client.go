@@ -59,19 +59,20 @@ type HistoryEntity struct {
 }
 
 type WorkspaceEntity struct {
-	ID               string     `jsonapi:"primary,workspace"`
-	Name             string     `jsonapi:"attr,name"`
-	Description      *string    `jsonapi:"attr,description"`
-	Source           string     `jsonapi:"attr,source"`
-	Branch           string     `jsonapi:"attr,branch"`
-	Folder           string     `jsonapi:"attr,folder"`
-	TemplateId       string     `jsonapi:"attr,defaultTemplate"`
-	IaCType          string     `jsonapi:"attr,iacType"`
-	IaCVersion       string     `jsonapi:"attr,terraformVersion"`
-	ExecutionMode    string     `jsonapi:"attr,executionMode"`
-	Deleted          bool       `jsonapi:"attr,deleted"`
-	Vcs              *VcsEntity `jsonapi:"relation,vcs,omitempty"`
-	AllowRemoteApply bool       `jsonapi:"attr,allowRemoteApply"`
+	ID               string         `jsonapi:"primary,workspace"`
+	Name             string         `jsonapi:"attr,name"`
+	Description      *string        `jsonapi:"attr,description"`
+	Source           string         `jsonapi:"attr,source"`
+	Branch           string         `jsonapi:"attr,branch"`
+	Folder           string         `jsonapi:"attr,folder"`
+	TemplateId       string         `jsonapi:"attr,defaultTemplate"`
+	IaCType          string         `jsonapi:"attr,iacType"`
+	IaCVersion       string         `jsonapi:"attr,terraformVersion"`
+	ExecutionMode    string         `jsonapi:"attr,executionMode"`
+	Deleted          bool           `jsonapi:"attr,deleted"`
+	Vcs              *VcsEntity     `jsonapi:"relation,vcs,omitempty"`
+	Project          *ProjectEntity `jsonapi:"relation,project,omitempty"`
+	AllowRemoteApply bool           `jsonapi:"attr,allowRemoteApply"`
 }
 
 type WorkspaceTagEntity struct {
@@ -98,6 +99,23 @@ type WorkspaceAccessEntity struct {
 	ApproveJob      bool    `jsonapi:"attr,approveJob"`
 	Role            *string `jsonapi:"attr,role"`
 	Name            string  `jsonapi:"attr,name"`
+}
+
+type ProjectEntity struct {
+	ID          string  `jsonapi:"primary,project"`
+	Name        string  `jsonapi:"attr,name"`
+	Description *string `jsonapi:"attr,description"`
+}
+
+type ProjectAccessEntity struct {
+	ID              string  `jsonapi:"primary,project_access"`
+	Name            string  `jsonapi:"attr,name"`
+	ManageState     bool    `jsonapi:"attr,manageState"`
+	ManageWorkspace bool    `jsonapi:"attr,manageWorkspace"`
+	ManageJob       bool    `jsonapi:"attr,manageJob"`
+	PlanJob         bool    `jsonapi:"attr,planJob"`
+	ApproveJob      bool    `jsonapi:"attr,approveJob"`
+	Role            *string `jsonapi:"attr,role"`
 }
 
 type OrganizationVariableEntity struct {

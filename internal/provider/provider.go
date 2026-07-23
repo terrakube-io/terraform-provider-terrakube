@@ -190,6 +190,8 @@ func (p *TerrakubeProvider) Resources(ctx context.Context) []func() resource.Res
 		NewAgentResource,
 		NewWorkspaceAccessResource,
 		NewSshResource,
+		NewProjectResource,
+		NewProjectAccessResource,
 	}
 }
 
@@ -203,5 +205,6 @@ func (p *TerrakubeProvider) DataSources(ctx context.Context) []func() datasource
 		NewWorkspaceDataSource,
 		NewOutputDataSource,
 		NewTeamDataSource,
+		NewProjectDataSource,
 	}
 }

@@ -88,6 +88,19 @@ resource "terrakube_team" "team" {
   manage_template  = true
 }
 
+resource "terrakube_project" "project" {
+  name            = "sample-project"
+  organization_id = data.terrakube_organization.org.id
+  description     = "Groups related workspaces together"
+}
+
+resource "terrakube_project_access" "project_access" {
+  name            = terrakube_team.team.name
+  organization_id = data.terrakube_vcs.vcs.organization_id
+  project_id      = terrakube_project.project.id
+  role            = "write"
+}
+
 resource "terrakube_module" "module1" {
   name            = "module_public_connection"
   organization_id = data.terrakube_ssh.ssh.organization_id

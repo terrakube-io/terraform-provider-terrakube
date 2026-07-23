@@ -50,6 +50,7 @@ type WorkspaceVcsResourceModel struct {
 	ExecutionMode    types.String `tfsdk:"execution_mode"`
 	VcsId            types.String `tfsdk:"vcs_id"`
 	AllowRemoteApply types.Bool   `tfsdk:"allow_remote_apply"`
+	ProjectId        types.String `tfsdk:"project_id"`
 }
 
 func NewWorkspaceVcsResource() resource.Resource {
@@ -138,6 +139,14 @@ func (r *WorkspaceVcsResource) Schema(ctx context.Context, req resource.SchemaRe
 				Default:     booldefault.StaticBool(false),
 				Description: "Wether to allow remote apply. By default false to respect VCS philosophy.",
 			},
+			"project_id": schema.StringAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Id of the project this workspace belongs to. Leave unset to leave any existing project assignment (e.g. made outside Terraform) untouched.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
 		},
 	}
 }
@@ -202,6 +211,10 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 		bodyRequest.Vcs = &client.VcsEntity{ID: plan.VcsId.ValueString()}
 	}
 
+	if !plan.ProjectId.IsNull() {
+		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
+	}
+
 	var out = new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, bodyRequest)
 
@@ -251,6 +264,10 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 	plan.TemplateId = types.StringValue(newWorkspaceVcs.TemplateId)
 	plan.ExecutionMode = types.StringValue(newWorkspaceVcs.ExecutionMode)
 	plan.AllowRemoteApply = types.BoolValue(newWorkspaceVcs.AllowRemoteApply)
+
+	if newWorkspaceVcs.Project != nil {
+		plan.ProjectId = types.StringValue(newWorkspaceVcs.Project.ID)
+	}
 
 	if !plan.VcsId.IsNull() {
 		plan.VcsId = types.StringValue(newWorkspaceVcs.Vcs.ID)
@@ -325,6 +342,12 @@ func (r *WorkspaceVcsResource) Read(ctx context.Context, req resource.ReadReques
 		state.VcsId = types.StringValue(workspace.Vcs.ID)
 	}
 
+	if workspace.Project != nil {
+		state.ProjectId = types.StringValue(workspace.Project.ID)
+	} else {
+		state.ProjectId = types.StringNull()
+	}
+
 	// Set refreshed state
 	diags = resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
@@ -362,6 +385,10 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 	if !plan.VcsId.IsNull() {
 		tflog.Info(ctx, fmt.Sprintf("Workspace using Vcs connection id: %s", plan.VcsId.ValueString()))
 		bodyRequest.Vcs = &client.VcsEntity{ID: plan.VcsId.ValueString()}
+	}
+
+	if !plan.ProjectId.IsNull() {
+		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
 	var out = new(bytes.Buffer)
@@ -435,6 +462,9 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 	plan.AllowRemoteApply = types.BoolValue(workspace.AllowRemoteApply)
 	if workspace.Vcs != nil {
 		plan.VcsId = types.StringValue(workspace.Vcs.ID)
+	}
+	if workspace.Project != nil {
+		plan.ProjectId = types.StringValue(workspace.Project.ID)
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
