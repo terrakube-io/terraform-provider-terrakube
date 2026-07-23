@@ -9,4 +9,5 @@ resource "terrakube_workspace_vcs" "sample1" {
   template_id     = terrakube_organization_template.example.id
   iac_type        = "terraform"
   iac_version     = "1.5.7"
+  project_id      = terrakube_project.project.id
 }
