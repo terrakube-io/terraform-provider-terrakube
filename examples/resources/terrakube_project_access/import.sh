@@ -1,0 +1,2 @@
+# Project access can be imported with organization_id,project_id,id
+terraform import terrakube_project_access.example 00000000-0000-0000-0000-000000000000,00000000-0000-0000-0000-000000000000,00000000-0000-0000-0000-000000000000

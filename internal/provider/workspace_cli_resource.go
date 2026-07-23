@@ -40,6 +40,7 @@ type WorkspaceCliResourceModel struct {
 	IaCType        types.String `tfsdk:"iac_type"`
 	IaCVersion     types.String `tfsdk:"iac_version"`
 	ExecutionMode  types.String `tfsdk:"execution_mode"`
+	ProjectId      types.String `tfsdk:"project_id"`
 }
 
 func NewWorkspaceCliResource() resource.Resource {
@@ -87,6 +88,14 @@ func (r *WorkspaceCliResource) Schema(ctx context.Context, req resource.SchemaRe
 			"iac_version": schema.StringAttribute{
 				Required:    true,
 				Description: "Workspace CLI IaC type",
+			},
+			"project_id": schema.StringAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Id of the project this workspace belongs to. Leave unset to leave any existing project assignment (e.g. made outside Terraform) untouched.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 		},
 	}
@@ -144,6 +153,10 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 		ExecutionMode: plan.ExecutionMode.ValueString(),
 	}
 
+	if !plan.ProjectId.IsNull() {
+		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
+	}
+
 	var out = new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, bodyRequest)
 
@@ -188,6 +201,9 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 	plan.IaCType = types.StringValue(newWorkspaceCli.IaCType)
 	plan.IaCVersion = types.StringValue(newWorkspaceCli.IaCVersion)
 	plan.ExecutionMode = types.StringValue(newWorkspaceCli.ExecutionMode)
+	if newWorkspaceCli.Project != nil {
+		plan.ProjectId = types.StringValue(newWorkspaceCli.Project.ID)
+	}
 
 	tflog.Info(ctx, "Workspace Cli Resource Created", map[string]any{"success": true})
 
@@ -244,6 +260,11 @@ func (r *WorkspaceCliResource) Read(ctx context.Context, req resource.ReadReques
 	state.IaCType = types.StringValue(workspace.IaCType)
 	state.IaCVersion = types.StringValue(workspace.IaCVersion)
 	state.ID = types.StringValue(workspace.ID)
+	if workspace.Project != nil {
+		state.ProjectId = types.StringValue(workspace.Project.ID)
+	} else {
+		state.ProjectId = types.StringNull()
+	}
 
 	// Set refreshed state
 	diags = resp.State.Set(ctx, &state)
@@ -274,6 +295,10 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 		Branch:        "remote-content",
 		Name:          plan.Name.ValueString(),
 		ID:            state.ID.ValueString(),
+	}
+
+	if !plan.ProjectId.IsNull() {
+		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
 	var out = new(bytes.Buffer)
@@ -340,6 +365,9 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 	plan.IaCType = types.StringValue(workspace.IaCType)
 	plan.IaCVersion = types.StringValue(workspace.IaCVersion)
 	plan.ExecutionMode = types.StringValue(workspace.ExecutionMode)
+	if workspace.Project != nil {
+		plan.ProjectId = types.StringValue(workspace.Project.ID)
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
