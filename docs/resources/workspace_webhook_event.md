@@ -24,6 +24,8 @@ Create a webhook event attached to a webhook. Defines when and how the webhook s
 - `branch` (List of String) A list of branches that trigger a run. Support regex for more complex matching.
 - `event` (String) The event type that triggers a run. Supported values: `PUSH`, `PULL_REQUEST`, `RELEASE`.
 - `path` (List of String) The file paths in regex that trigger a run.
+- `pr_apply_enabled` (Boolean) Allow the `terrakube apply` PR-comment command to apply this workspace (`PULL_REQUEST` events only). Requires `pr_workflow_enabled` to also be true. Requires a Terrakube release including this field (targeted for 2.33.0); older instances will ignore or reject it.
+- `pr_workflow_enabled` (Boolean) Post plan results as a comment on the pull/merge request (`PULL_REQUEST` events only), and accept a `terrakube plan` PR-comment command to re-run it.
 - `priority` (Number) The priority of this webhook event
 - `template_id` (String) The template id to use for the run.
 

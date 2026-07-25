@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -34,13 +35,15 @@ type WorkspaceWebhookEventResource struct {
 }
 
 type WorkspaceWebhookEventResourceModel struct {
-	ID         types.String `tfsdk:"id"`
-	WebhookId  types.String `tfsdk:"webhook_id"`
-	Event      types.String `tfsdk:"event"`
-	Branch     types.List   `tfsdk:"branch"`
-	Path       types.List   `tfsdk:"path"`
-	Priority   types.Int64  `tfsdk:"priority"`
-	TemplateId types.String `tfsdk:"template_id"`
+	ID                types.String `tfsdk:"id"`
+	WebhookId         types.String `tfsdk:"webhook_id"`
+	Event             types.String `tfsdk:"event"`
+	Branch            types.List   `tfsdk:"branch"`
+	Path              types.List   `tfsdk:"path"`
+	Priority          types.Int64  `tfsdk:"priority"`
+	TemplateId        types.String `tfsdk:"template_id"`
+	PrWorkflowEnabled types.Bool   `tfsdk:"pr_workflow_enabled"`
+	PrApplyEnabled    types.Bool   `tfsdk:"pr_apply_enabled"`
 }
 
 type webhookEventAPIResponse struct {
@@ -48,15 +51,17 @@ type webhookEventAPIResponse struct {
 		Type       string `json:"type"`
 		ID         string `json:"id"`
 		Attributes struct {
-			Branch      string `json:"branch"`
-			Path        string `json:"path"`
-			TemplateId  string `json:"templateId"`
-			Event       string `json:"event"`
-			Priority    int    `json:"priority"`
-			CreatedBy   string `json:"createdBy"`
-			CreatedDate string `json:"createdDate"`
-			UpdatedBy   string `json:"updatedBy"`
-			UpdatedDate string `json:"updatedDate"`
+			Branch            string `json:"branch"`
+			Path              string `json:"path"`
+			TemplateId        string `json:"templateId"`
+			Event             string `json:"event"`
+			Priority          int    `json:"priority"`
+			CreatedBy         string `json:"createdBy"`
+			CreatedDate       string `json:"createdDate"`
+			UpdatedBy         string `json:"updatedBy"`
+			UpdatedDate       string `json:"updatedDate"`
+			PrWorkflowEnabled bool   `json:"prWorkflowEnabled"`
+			PrApplyEnabled    bool   `json:"prApplyEnabled"`
 		} `json:"attributes"`
 		Relationships struct {
 			Webhook struct {
@@ -150,6 +155,18 @@ func (r *WorkspaceWebhookEventResource) Schema(ctx context.Context, req resource
 				Validators: []validator.String{
 					stringvalidator.OneOf("PUSH", "PULL_REQUEST", "RELEASE"),
 				},
+			},
+			"pr_workflow_enabled": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(false),
+				Description: "Post plan results as a comment on the pull/merge request (`PULL_REQUEST` events only), and accept a `terrakube plan` PR-comment command to re-run it.",
+			},
+			"pr_apply_enabled": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(false),
+				Description: "Allow the `terrakube apply` PR-comment command to apply this workspace (`PULL_REQUEST` events only). Requires `pr_workflow_enabled` to also be true. Requires a Terrakube release including this field (targeted for 2.33.0); older instances will ignore or reject it.",
 			},
 		},
 	}
@@ -259,11 +276,13 @@ func (r *WorkspaceWebhookEventResource) Create(ctx context.Context, req resource
 					"type": "webhook_event",
 					"id":   eventID,
 					"attributes": map[string]interface{}{
-						"priority":   plan.Priority.ValueInt64(),
-						"event":      plan.Event.ValueString(),
-						"branch":     strings.Join(branchList, ","),
-						"path":       strings.Join(pathList, ","),
-						"templateId": plan.TemplateId.ValueString(),
+						"priority":          plan.Priority.ValueInt64(),
+						"event":             plan.Event.ValueString(),
+						"branch":            strings.Join(branchList, ","),
+						"path":              strings.Join(pathList, ","),
+						"templateId":        plan.TemplateId.ValueString(),
+						"prWorkflowEnabled": plan.PrWorkflowEnabled.ValueBool(),
+						"prApplyEnabled":    plan.PrApplyEnabled.ValueBool(),
 					},
 				},
 			},
@@ -828,11 +847,13 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 					"type": "webhook_event",
 					"id":   state.ID.ValueString(),
 					"attributes": map[string]interface{}{
-						"priority":   plan.Priority.ValueInt64(),
-						"event":      plan.Event.ValueString(),
-						"branch":     strings.Join(branchList, ","),
-						"path":       strings.Join(pathList, ","),
-						"templateId": plan.TemplateId.ValueString(),
+						"priority":          plan.Priority.ValueInt64(),
+						"event":             plan.Event.ValueString(),
+						"branch":            strings.Join(branchList, ","),
+						"path":              strings.Join(pathList, ","),
+						"templateId":        plan.TemplateId.ValueString(),
+						"prWorkflowEnabled": plan.PrWorkflowEnabled.ValueBool(),
+						"prApplyEnabled":    plan.PrApplyEnabled.ValueBool(),
 					},
 				},
 			},
@@ -973,15 +994,17 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 		Type       string `json:"type"`
 		ID         string `json:"id"`
 		Attributes struct {
-			Branch      string `json:"branch"`
-			Path        string `json:"path"`
-			TemplateId  string `json:"templateId"`
-			Event       string `json:"event"`
-			Priority    int    `json:"priority"`
-			CreatedBy   string `json:"createdBy"`
-			CreatedDate string `json:"createdDate"`
-			UpdatedBy   string `json:"updatedBy"`
-			UpdatedDate string `json:"updatedDate"`
+			Branch            string `json:"branch"`
+			Path              string `json:"path"`
+			TemplateId        string `json:"templateId"`
+			Event             string `json:"event"`
+			Priority          int    `json:"priority"`
+			CreatedBy         string `json:"createdBy"`
+			CreatedDate       string `json:"createdDate"`
+			UpdatedBy         string `json:"updatedBy"`
+			UpdatedDate       string `json:"updatedDate"`
+			PrWorkflowEnabled bool   `json:"prWorkflowEnabled"`
+			PrApplyEnabled    bool   `json:"prApplyEnabled"`
 		} `json:"attributes"`
 		Relationships struct {
 			Webhook struct {
@@ -1011,6 +1034,8 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 	plan.TemplateId = types.StringValue(foundEvent.Attributes.TemplateId)
 	plan.Event = types.StringValue(foundEvent.Attributes.Event)
 	plan.Priority = types.Int64Value(int64(foundEvent.Attributes.Priority))
+	plan.PrWorkflowEnabled = types.BoolValue(foundEvent.Attributes.PrWorkflowEnabled)
+	plan.PrApplyEnabled = types.BoolValue(foundEvent.Attributes.PrApplyEnabled)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
