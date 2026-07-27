@@ -164,8 +164,16 @@ func (r *CollectionReferenceResource) Create(ctx context.Context, req resource.C
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
-	plan.CollectionId = types.StringValue(collectionReference.Collection.ID)
-	plan.WorkspaceId = types.StringValue(collectionReference.Workspace.ID)
+	if collectionReference.Collection != nil {
+		plan.CollectionId = types.StringValue(collectionReference.Collection.ID)
+	} else {
+		tflog.Warn(ctx, "Collection reference response missing collection relationship data, keeping planned value")
+	}
+	if collectionReference.Workspace != nil {
+		plan.WorkspaceId = types.StringValue(collectionReference.Workspace.ID)
+	} else {
+		tflog.Warn(ctx, "Collection reference response missing workspace relationship data, keeping planned value")
+	}
 	plan.Description = types.StringPointerValue(collectionReference.Description)
 	plan.ID = types.StringValue(collectionReference.ID)
 
@@ -218,8 +226,16 @@ func (r *CollectionReferenceResource) Read(ctx context.Context, req resource.Rea
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
-	state.WorkspaceId = types.StringValue(collectionReference.Workspace.ID)
-	state.CollectionId = types.StringValue(collectionReference.Collection.ID)
+	if collectionReference.Workspace != nil {
+		state.WorkspaceId = types.StringValue(collectionReference.Workspace.ID)
+	} else {
+		tflog.Warn(ctx, "Collection reference response missing workspace relationship data, keeping last-known state value", map[string]any{"id": state.ID.ValueString()})
+	}
+	if collectionReference.Collection != nil {
+		state.CollectionId = types.StringValue(collectionReference.Collection.ID)
+	} else {
+		tflog.Warn(ctx, "Collection reference response missing collection relationship data, keeping last-known state value", map[string]any{"id": state.ID.ValueString()})
+	}
 	state.Description = types.StringPointerValue(collectionReference.Description)
 	state.ID = types.StringValue(collectionReference.ID)
 
@@ -310,8 +326,16 @@ func (r *CollectionReferenceResource) Update(ctx context.Context, req resource.U
 
 	plan.ID = types.StringValue(state.ID.ValueString())
 	plan.Description = types.StringPointerValue(collectionReference.Description)
-	plan.WorkspaceId = types.StringValue(collectionReference.Workspace.ID)
-	plan.CollectionId = types.StringValue(collectionReference.Collection.ID)
+	if collectionReference.Workspace != nil {
+		plan.WorkspaceId = types.StringValue(collectionReference.Workspace.ID)
+	} else {
+		tflog.Warn(ctx, "Collection reference response missing workspace relationship data, keeping planned value")
+	}
+	if collectionReference.Collection != nil {
+		plan.CollectionId = types.StringValue(collectionReference.Collection.ID)
+	} else {
+		tflog.Warn(ctx, "Collection reference response missing collection relationship data, keeping planned value")
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
