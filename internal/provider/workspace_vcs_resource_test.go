@@ -114,3 +114,88 @@ func TestWorkspaceVcsResource_Create_OmitsProjectRelationshipWhenProjectIdUnset(
 		t.Errorf("expected project_id to be null after create since the API returned no project, got: %v", result.ProjectId)
 	}
 }
+
+// TestWorkspaceVcsResource_Update_ResolvesProjectIdToNullWhenApiReturnsNoProject
+// covers the same class of bug as the Create test above, but in Update: if
+// the API reports no project relationship, ProjectId must be explicitly set
+// to null rather than left holding a stale prior value (or unknown), since
+// Terraform's protocol rejects unknown values after apply.
+func TestWorkspaceVcsResource_Update_ResolvesProjectIdToNullWhenApiReturnsNoProject(t *testing.T) {
+	ctx := context.Background()
+	s, objType := workspaceVcsSchemaAndType(t, ctx)
+
+	const (
+		orgID = "org-1"
+		wsID  = "ws-1"
+	)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/organization/"+orgID+"/workspace/"+wsID, func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprint(w, `{"data":{"type":"workspace","id":"ws-1","attributes":{`+
+			`"name":"my-workspace","description":null,"source":"https://example.com/repo.git",`+
+			`"branch":"main","folder":"/","defaultTemplate":"tmpl-1","iacType":"terraform",`+
+			`"terraformVersion":"1.12.0","executionMode":"remote","allowRemoteApply":false},`+
+			`"relationships":{"project":{"data":null}}}}`)
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	r := &WorkspaceVcsResource{
+		client:   server.Client(),
+		endpoint: server.URL,
+		token:    "test-token",
+	}
+
+	base := map[string]tftypes.Value{
+		"id":                 tftypes.NewValue(tftypes.String, wsID),
+		"organization_id":    tftypes.NewValue(tftypes.String, orgID),
+		"name":               tftypes.NewValue(tftypes.String, "my-workspace"),
+		"repository":         tftypes.NewValue(tftypes.String, "https://example.com/repo.git"),
+		"template_id":        tftypes.NewValue(tftypes.String, "tmpl-1"),
+		"iac_version":        tftypes.NewValue(tftypes.String, "1.12.0"),
+		"branch":             tftypes.NewValue(tftypes.String, "main"),
+		"folder":             tftypes.NewValue(tftypes.String, "/"),
+		"iac_type":           tftypes.NewValue(tftypes.String, "terraform"),
+		"execution_mode":     tftypes.NewValue(tftypes.String, "remote"),
+		"allow_remote_apply": tftypes.NewValue(tftypes.Bool, false),
+	}
+
+	// Prior state had a project_id set (e.g. assigned outside Terraform, or
+	// by a previous apply); the new plan drops it.
+	stateOverrides := map[string]tftypes.Value{}
+	for k, v := range base {
+		stateOverrides[k] = v
+	}
+	stateOverrides["project_id"] = tftypes.NewValue(tftypes.String, "old-project")
+
+	planOverrides := map[string]tftypes.Value{}
+	for k, v := range base {
+		planOverrides[k] = v
+	}
+	planOverrides["project_id"] = tftypes.NewValue(tftypes.String, tftypes.UnknownValue)
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{Schema: s, Raw: buildObjectValue(objType, stateOverrides)},
+		Plan:  tfsdk.Plan{Schema: s, Raw: buildObjectValue(objType, planOverrides)},
+	}
+	resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+
+	r.Update(ctx, req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Update returned diagnostics: %v", resp.Diagnostics)
+	}
+
+	var result WorkspaceVcsResourceModel
+	if diags := resp.State.Get(ctx, &result); diags.HasError() {
+		t.Fatalf("reading resulting state: %v", diags)
+	}
+
+	if result.ProjectId.IsUnknown() {
+		t.Error("expected project_id to be resolved to null after update, but it is still unknown (Terraform's protocol rejects unknown values after apply)")
+	}
+	if !result.ProjectId.IsNull() {
+		t.Errorf("expected project_id to be null after update since the API returned no project, got: %v", result.ProjectId)
+	}
+}

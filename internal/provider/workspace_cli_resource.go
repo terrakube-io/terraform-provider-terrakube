@@ -185,7 +185,6 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 	}
 	newWorkspaceCli := &client.WorkspaceEntity{}
 
-	fmt.Println(string(bodyResponse))
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newWorkspaceCli)
 
 	if err != nil {
@@ -369,6 +368,8 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 	plan.ExecutionMode = types.StringValue(workspace.ExecutionMode)
 	if workspace.Project != nil {
 		plan.ProjectId = types.StringValue(workspace.Project.ID)
+	} else {
+		plan.ProjectId = types.StringNull()
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)

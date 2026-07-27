@@ -138,7 +138,7 @@ func (d *OrganizationDataSource) Read(ctx context.Context, req datasource.ReadRe
 	orgs, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.OrganizationEntity)))
 
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to marshal payload, response status: %s, response body: %s, error: %s", resOrg.Status, resOrg.Body, err))
+		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to marshal payload, response status: %s, response body: %s, error: %s", resOrg.Status, string(body), err))
 		return
 	}
 

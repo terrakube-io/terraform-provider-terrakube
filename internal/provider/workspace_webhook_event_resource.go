@@ -320,7 +320,7 @@ func (r *WorkspaceWebhookEventResource) Create(ctx context.Context, req resource
 		tflog.Error(ctx, "Failed to execute webhook event request", map[string]any{
 			"error": err.Error(),
 		})
-		resp.Diagnostics.AddError("Error executing workspace webhook event resource request", fmt.Sprintf("Error executing workspace webhook event resource request, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		resp.Diagnostics.AddError("Error executing workspace webhook event resource request", fmt.Sprintf("Error executing workspace webhook event resource request: %s", err))
 		return
 	}
 
@@ -329,7 +329,7 @@ func (r *WorkspaceWebhookEventResource) Create(ctx context.Context, req resource
 		tflog.Error(ctx, "Failed to read webhook event response", map[string]any{
 			"error": err.Error(),
 		})
-		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, error: %s", response.Status, err))
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -500,7 +500,7 @@ func (r *WorkspaceWebhookEventResource) Delete(ctx context.Context, req resource
 		tflog.Error(ctx, "Failed to execute webhook event delete request", map[string]any{
 			"error": err.Error(),
 		})
-		resp.Diagnostics.AddError("Error executing workspace webhook event resource request", fmt.Sprintf("Error executing workspace webhook event resource request, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		resp.Diagnostics.AddError("Error executing workspace webhook event resource request", fmt.Sprintf("Error executing workspace webhook event resource request: %s", err))
 		return
 	}
 
@@ -509,7 +509,7 @@ func (r *WorkspaceWebhookEventResource) Delete(ctx context.Context, req resource
 		tflog.Error(ctx, "Failed to read webhook event delete response", map[string]any{
 			"error": err.Error(),
 		})
-		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, error: %s", response.Status, err))
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -891,7 +891,7 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 		tflog.Error(ctx, "Failed to execute webhook event request", map[string]any{
 			"error": err.Error(),
 		})
-		resp.Diagnostics.AddError("Error executing workspace webhook event resource request", fmt.Sprintf("Error executing workspace webhook event resource request, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		resp.Diagnostics.AddError("Error executing workspace webhook event resource request", fmt.Sprintf("Error executing workspace webhook event resource request: %s", err))
 		return
 	}
 
@@ -900,7 +900,7 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 		tflog.Error(ctx, "Failed to read webhook event response", map[string]any{
 			"error": err.Error(),
 		})
-		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, error: %s", response.Status, err))
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {

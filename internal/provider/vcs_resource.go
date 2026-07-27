@@ -234,7 +234,7 @@ func (r *VcsResource) Create(ctx context.Context, req resource.CreateRequest, re
 
 	vcsResponse, err := r.client.Do(vcsRequest)
 	if err != nil {
-		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request, response status %s, response body %s, error: %s", vcsResponse.Status, vcsResponse.Request.Body, err))
+		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request: %s", err))
 		return
 	}
 
@@ -297,7 +297,7 @@ func (r *VcsResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 
 	vcsResponse, err := r.client.Do(vcsRequest)
 	if err != nil {
-		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request, response status %s, response body %s, error: %s", vcsResponse.Status, vcsResponse.Request.Body, err))
+		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request: %s", err))
 		return
 	}
 
@@ -391,7 +391,7 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 
 	vcsResponse, err := r.client.Do(vcsRequest)
 	if err != nil {
-		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request, response status %s, response body %s, error: %s", vcsResponse.Status, vcsResponse.Request.Body, err))
+		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request: %s", err))
 		return
 	}
 
@@ -412,7 +412,7 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 
 	vcsResponse, err = r.client.Do(vcsRequest)
 	if err != nil {
-		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request, response status %s, response body %s, error: %s", vcsResponse.Status, vcsResponse.Request.Body, err))
+		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request: %s", err))
 		return
 	}
 
@@ -474,8 +474,13 @@ func (r *VcsResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 	}
 
 	vcsResponse, err := r.client.Do(vcsRequest)
-	if err != nil || vcsResponse.StatusCode != http.StatusNoContent {
-		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request, response status %s, response body %s, error: %s", vcsResponse.Status, vcsResponse.Request.Body, err))
+	if err != nil {
+		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request: %s", err))
+		return
+	}
+	if vcsResponse.StatusCode != http.StatusNoContent {
+		deleteBody, _ := io.ReadAll(vcsResponse.Body)
+		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request, response status %s, response body %s", vcsResponse.Status, string(deleteBody)))
 		return
 	}
 }
