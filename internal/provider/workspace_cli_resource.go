@@ -153,7 +153,7 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 		ExecutionMode: plan.ExecutionMode.ValueString(),
 	}
 
-	if !plan.ProjectId.IsNull() {
+	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() {
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
@@ -203,6 +203,8 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 	plan.ExecutionMode = types.StringValue(newWorkspaceCli.ExecutionMode)
 	if newWorkspaceCli.Project != nil {
 		plan.ProjectId = types.StringValue(newWorkspaceCli.Project.ID)
+	} else {
+		plan.ProjectId = types.StringNull()
 	}
 
 	tflog.Info(ctx, "Workspace Cli Resource Created", map[string]any{"success": true})
@@ -297,7 +299,7 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 		ID:            state.ID.ValueString(),
 	}
 
-	if !plan.ProjectId.IsNull() {
+	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() {
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 

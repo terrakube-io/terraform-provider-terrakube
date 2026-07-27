@@ -211,7 +211,7 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 		bodyRequest.Vcs = &client.VcsEntity{ID: plan.VcsId.ValueString()}
 	}
 
-	if !plan.ProjectId.IsNull() {
+	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() {
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
@@ -267,6 +267,8 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 
 	if newWorkspaceVcs.Project != nil {
 		plan.ProjectId = types.StringValue(newWorkspaceVcs.Project.ID)
+	} else {
+		plan.ProjectId = types.StringNull()
 	}
 
 	if !plan.VcsId.IsNull() {
@@ -387,7 +389,7 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 		bodyRequest.Vcs = &client.VcsEntity{ID: plan.VcsId.ValueString()}
 	}
 
-	if !plan.ProjectId.IsNull() {
+	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() {
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
