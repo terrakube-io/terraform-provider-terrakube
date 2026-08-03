@@ -170,12 +170,13 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 
 	resOrg, err := d.client.Do(reqOrg)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error executing Workspace datasource request, response status: %s, response body: %s, error: %s", resOrg.Status, resOrg.Body, err))
+		tflog.Error(ctx, fmt.Sprintf("Error executing Workspace datasource request: %s", err))
+		return
 	}
 
 	body, err := io.ReadAll(resOrg.Body)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading Workspace response, response status: %s, response body: %s, error: %s", resOrg.Status, resOrg.Body, err))
+		tflog.Error(ctx, fmt.Sprintf("Error reading Workspace response, response status: %s, error: %s", resOrg.Status, err))
 	}
 
 	tflog.Info(ctx, string(body))
@@ -184,7 +185,7 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 	orgs, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.OrganizationEntity)))
 
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to marshal payload, response status: %s, response body: %s, error: %s", resOrg.Status, resOrg.Body, err))
+		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to marshal payload, response status: %s, response body: %s, error: %s", resOrg.Status, string(body), err))
 		return
 	}
 
@@ -210,12 +211,13 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 
 	resWS, err := d.client.Do(reqWS)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error executing Workspace datasource request part 2, response status: %s, response body: %s, error: %s", resWS.Status, resWS.Body, err))
+		tflog.Error(ctx, fmt.Sprintf("Error executing Workspace datasource request part 2: %s", err))
+		return
 	}
 
 	bodyws, errws := io.ReadAll(resWS.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading Workspace response part 2, response status: %s, response body: %s, error: %s", resWS.Status, resWS.Body, errws))
+	if errws != nil {
+		tflog.Error(ctx, fmt.Sprintf("Error reading Workspace response part 2, response status: %s, error: %s", resWS.Status, errws))
 	}
 
 	tflog.Info(ctx, string(bodyws))
@@ -224,7 +226,7 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 	workspaces, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(bodyws)), reflect.TypeOf(new(client.WorkspaceEntity)))
 
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to marshal payload, response status: %s, response body: %s, error: %s", resWS.Status, resWS.Body, err))
+		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to marshal payload, response status: %s, response body: %s, error: %s", resWS.Status, string(bodyws), err))
 		return
 	}
 

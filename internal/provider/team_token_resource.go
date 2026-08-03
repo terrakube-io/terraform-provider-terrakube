@@ -294,8 +294,13 @@ func (r *TeamTokenResource) Delete(ctx context.Context, req resource.DeleteReque
 	}
 
 	resToken, err := r.client.Do(reqToken)
-	if err != nil || resToken.StatusCode != http.StatusAccepted {
-		resp.Diagnostics.AddError("Error deleting team token", fmt.Sprintf("Error deleting team token, error: %s, response status: %s, response body: %s", err, resToken.Status, resToken.Body))
+	if err != nil {
+		resp.Diagnostics.AddError("Error deleting team token", fmt.Sprintf("Error deleting team token: %s", err))
+		return
+	}
+	if resToken.StatusCode != http.StatusAccepted {
+		deleteBody, _ := io.ReadAll(resToken.Body)
+		resp.Diagnostics.AddError("Error deleting team token", fmt.Sprintf("Error deleting team token, response status: %s, response body: %s", resToken.Status, string(deleteBody)))
 		return
 	}
 }

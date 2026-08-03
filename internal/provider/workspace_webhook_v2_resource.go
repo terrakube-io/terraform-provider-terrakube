@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"terraform-provider-terrakube/internal/client"
 
+	"github.com/google/jsonapi"
 	"github.com/google/uuid"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -133,6 +135,7 @@ func (r *WorkspaceWebhookV2Resource) Create(ctx context.Context, req resource.Cr
 		"id": webhookID,
 	})
 
+	migratedV2 := plan.MigratedV2.ValueBool()
 	atomicOperation := map[string]interface{}{
 		"atomic:operations": []map[string]interface{}{
 			{
@@ -142,7 +145,7 @@ func (r *WorkspaceWebhookV2Resource) Create(ctx context.Context, req resource.Cr
 					"type": "webhook",
 					"id":   webhookID,
 					"attributes": map[string]interface{}{
-						"migratedV2": plan.MigratedV2.ValueBool(),
+						"migratedV2": migratedV2,
 					},
 				},
 				"relationships": map[string]interface{}{
@@ -188,7 +191,7 @@ func (r *WorkspaceWebhookV2Resource) Create(ctx context.Context, req resource.Cr
 		tflog.Error(ctx, "Failed to execute webhook request", map[string]any{
 			"error": err.Error(),
 		})
-		resp.Diagnostics.AddError("Error executing workspace webhook resource request", fmt.Sprintf("Error executing workspace webhook resource request, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		resp.Diagnostics.AddError("Error executing workspace webhook resource request", fmt.Sprintf("Error executing workspace webhook resource request: %s", err))
 		return
 	}
 
@@ -197,7 +200,7 @@ func (r *WorkspaceWebhookV2Resource) Create(ctx context.Context, req resource.Cr
 		tflog.Error(ctx, "Failed to read webhook response", map[string]any{
 			"error": err.Error(),
 		})
-		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook resource, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook resource, response status %s, error: %s", response.Status, err))
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -257,6 +260,7 @@ func (r *WorkspaceWebhookV2Resource) Create(ctx context.Context, req resource.Cr
 	result := atomicResp.AtomicResults[0]
 	plan.ID = types.StringValue(result.Data.ID)
 	plan.RemoteHookId = types.StringValue(result.Data.ID) // Using ID as RemoteHookId since it's not in the response
+	plan.MigratedV2 = types.BoolValue(migratedV2)
 
 	tflog.Debug(ctx, "Successfully created webhook", map[string]any{
 		"id":             result.Data.ID,
@@ -358,13 +362,13 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 		MigratedV2: &migratedV2,
 	}
 
-	jsonData, err := json.Marshal(bodyRequest)
-	if err != nil {
+	var out = new(bytes.Buffer)
+	if err := jsonapi.MarshalPayload(out, bodyRequest); err != nil {
 		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
 		return
 	}
 
-	request, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/webhook/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), strings.NewReader(string(jsonData)))
+	request, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/webhook/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
 	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	request.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
@@ -374,13 +378,13 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 
 	response, err := r.client.Do(request)
 	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace webhook resource request", fmt.Sprintf("Error executing workspace webhook resource request, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		resp.Diagnostics.AddError("Error executing workspace webhook resource request", fmt.Sprintf("Error executing workspace webhook resource request: %s", err))
 		return
 	}
 
 	bodyResponse, err := io.ReadAll(response.Body)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook resource response, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook resource response, response status %s, error: %s", response.Status, err))
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
@@ -407,13 +411,13 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 
 	response, err = r.client.Do(request)
 	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace webhook resource request", fmt.Sprintf("Error executing workspace webhook resource request, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		resp.Diagnostics.AddError("Error executing workspace webhook resource request", fmt.Sprintf("Error executing workspace webhook resource request: %s", err))
 		return
 	}
 
 	bodyResponse, err = io.ReadAll(response.Body)
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading workspace webhook resource response body", fmt.Sprintf("Error reading workspace webhook resource response body, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		resp.Diagnostics.AddError("Error reading workspace webhook resource response body", fmt.Sprintf("Error reading workspace webhook resource response body, response status %s, error: %s", response.Status, err))
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -463,8 +467,13 @@ func (r *WorkspaceWebhookV2Resource) Delete(ctx context.Context, req resource.De
 	}
 
 	response, err := r.client.Do(request)
-	if err != nil || response.StatusCode != http.StatusNoContent {
-		resp.Diagnostics.AddError("Error executing workspace webhook resource request", fmt.Sprintf("Error executing workspace webhook resource request, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+	if err != nil {
+		resp.Diagnostics.AddError("Error executing workspace webhook resource request", fmt.Sprintf("Error executing workspace webhook resource request: %s", err))
+		return
+	}
+	if response.StatusCode != http.StatusNoContent {
+		deleteBody, _ := io.ReadAll(response.Body)
+		resp.Diagnostics.AddError("Error executing workspace webhook resource request", fmt.Sprintf("Error executing workspace webhook resource request, response status %s, response body: %s", response.Status, string(deleteBody)))
 		return
 	}
 }

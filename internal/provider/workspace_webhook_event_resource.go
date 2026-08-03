@@ -127,6 +127,9 @@ func (r *WorkspaceWebhookEventResource) Schema(ctx context.Context, req resource
 			"webhook_id": schema.StringAttribute{
 				Required:    true,
 				Description: "The ID of the webhook this event belongs to",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"path": schema.ListAttribute{
 				Optional:    true,
@@ -267,6 +270,7 @@ func (r *WorkspaceWebhookEventResource) Create(ctx context.Context, req resource
 		return
 	}
 
+	priority := plan.Priority.ValueInt64()
 	atomicOperation := map[string]interface{}{
 		"atomic:operations": []map[string]interface{}{
 			{
@@ -276,7 +280,7 @@ func (r *WorkspaceWebhookEventResource) Create(ctx context.Context, req resource
 					"type": "webhook_event",
 					"id":   eventID,
 					"attributes": map[string]interface{}{
-						"priority":          plan.Priority.ValueInt64(),
+						"priority":          priority,
 						"event":             plan.Event.ValueString(),
 						"branch":            strings.Join(branchList, ","),
 						"path":              strings.Join(pathList, ","),
@@ -320,7 +324,7 @@ func (r *WorkspaceWebhookEventResource) Create(ctx context.Context, req resource
 		tflog.Error(ctx, "Failed to execute webhook event request", map[string]any{
 			"error": err.Error(),
 		})
-		resp.Diagnostics.AddError("Error executing workspace webhook event resource request", fmt.Sprintf("Error executing workspace webhook event resource request, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		resp.Diagnostics.AddError("Error executing workspace webhook event resource request", fmt.Sprintf("Error executing workspace webhook event resource request: %s", err))
 		return
 	}
 
@@ -329,7 +333,7 @@ func (r *WorkspaceWebhookEventResource) Create(ctx context.Context, req resource
 		tflog.Error(ctx, "Failed to read webhook event response", map[string]any{
 			"error": err.Error(),
 		})
-		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, error: %s", response.Status, err))
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -388,6 +392,7 @@ func (r *WorkspaceWebhookEventResource) Create(ctx context.Context, req resource
 
 	result := atomicResp.AtomicResults[0]
 	plan.ID = types.StringValue(result.Data.ID)
+	plan.Priority = types.Int64Value(priority)
 
 	tflog.Info(ctx, "Workspace Webhook Event Resource Created", map[string]any{"success": true})
 
@@ -500,7 +505,7 @@ func (r *WorkspaceWebhookEventResource) Delete(ctx context.Context, req resource
 		tflog.Error(ctx, "Failed to execute webhook event delete request", map[string]any{
 			"error": err.Error(),
 		})
-		resp.Diagnostics.AddError("Error executing workspace webhook event resource request", fmt.Sprintf("Error executing workspace webhook event resource request, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		resp.Diagnostics.AddError("Error executing workspace webhook event resource request", fmt.Sprintf("Error executing workspace webhook event resource request: %s", err))
 		return
 	}
 
@@ -509,7 +514,7 @@ func (r *WorkspaceWebhookEventResource) Delete(ctx context.Context, req resource
 		tflog.Error(ctx, "Failed to read webhook event delete response", map[string]any{
 			"error": err.Error(),
 		})
-		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, error: %s", response.Status, err))
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -551,149 +556,91 @@ func (r *WorkspaceWebhookEventResource) Read(ctx context.Context, req resource.R
 		return
 	}
 
-	// First, get the webhook details to get organization and workspace IDs
-	webhookRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/webhook/%s", r.endpoint, state.WebhookId.ValueString()), nil)
+	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/webhook_event/%s", r.endpoint, state.ID.ValueString()), nil)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating webhook read request", fmt.Sprintf("Error creating webhook read request: %s", err))
+		resp.Diagnostics.AddError("Error creating workspace webhook event resource request", fmt.Sprintf("Error creating workspace webhook event resource request: %s", err))
+		return
+	}
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	request.Header.Add("Content-Type", "application/vnd.api+json")
+
+	response, err := r.client.Do(request)
+	if err != nil {
+		resp.Diagnostics.AddError("Error executing workspace webhook event resource request", fmt.Sprintf("Error executing workspace webhook event resource request: %s", err))
+		return
+	}
+	defer response.Body.Close()
+
+	bodyResponse, err := io.ReadAll(response.Body)
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading workspace webhook event resource response", fmt.Sprintf("Error reading workspace webhook event resource response: %s", err))
 		return
 	}
 
-	webhookRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	webhookRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	webhookResponse, err := r.client.Do(webhookRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing webhook read request", fmt.Sprintf("Error executing webhook read request: %s", err))
-		return
-	}
-
-	webhookBody, err := io.ReadAll(webhookResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading webhook response", fmt.Sprintf("Error reading webhook response: %s", err))
-		return
-	}
-
-	tflog.Debug(ctx, "Read webhook response", map[string]any{
-		"status_code": webhookResponse.StatusCode,
-		"body":        string(webhookBody),
+	tflog.Debug(ctx, "Read webhook event response", map[string]any{
+		"status_code": response.StatusCode,
+		"body":        string(bodyResponse),
 	})
 
-	if webhookResponse.StatusCode == http.StatusNotFound {
+	if response.StatusCode == http.StatusNotFound {
 		resp.State.RemoveResource(ctx)
 		return
 	}
 
-	var webhookDetails webhookAPIResponse
-	if err := json.Unmarshal(webhookBody, &webhookDetails); err != nil {
-		resp.Diagnostics.AddError("Error parsing webhook response", fmt.Sprintf("Error parsing webhook response: %s", err))
+	if response.StatusCode != http.StatusOK {
+		resp.Diagnostics.AddError("Error reading workspace webhook event", fmt.Sprintf("Received non-200 status code: %d, body: %s", response.StatusCode, string(bodyResponse)))
 		return
 	}
 
-	tflog.Debug(ctx, "Parsed webhook details", map[string]any{
-		"organization_id": webhookDetails.Data.Relationships.Organization.Data.ID,
-		"workspace_id":    webhookDetails.Data.Relationships.Workspace.Data.ID,
-		"webhook_id":      webhookDetails.Data.ID,
-	})
-
-	workspaceId := webhookDetails.Data.Relationships.Workspace.Data.ID
-	if workspaceId == "" {
-		resp.Diagnostics.AddError("Invalid webhook response", "Could not determine Workspace ID from webhook response")
-		return
-	}
-
-	// Get organization ID from workspace
-	workspaceRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/workspace/%s", r.endpoint, workspaceId), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace request", fmt.Sprintf("Error creating workspace request: %s", err))
-		return
-	}
-
-	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceResponse, err := r.client.Do(workspaceRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace request", fmt.Sprintf("Error executing workspace request: %s", err))
-		return
-	}
-
-	workspaceBody, err := io.ReadAll(workspaceResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading workspace response", fmt.Sprintf("Error reading workspace response: %s", err))
-		return
-	}
-
-	tflog.Debug(ctx, "Read workspace response", map[string]any{
-		"status_code": workspaceResponse.StatusCode,
-		"body":        string(workspaceBody),
-	})
-
-	if workspaceResponse.StatusCode == http.StatusNotFound {
-		resp.Diagnostics.AddError("Workspace not found", fmt.Sprintf("Workspace with ID %s not found", workspaceId))
-		return
-	}
-
-	var workspaceResp struct {
+	var eventResp struct {
 		Data struct {
 			Type       string `json:"type"`
 			ID         string `json:"id"`
 			Attributes struct {
-				Name string `json:"name"`
+				Branch            string `json:"branch"`
+				Path              string `json:"path"`
+				TemplateId        string `json:"templateId"`
+				Event             string `json:"event"`
+				Priority          int    `json:"priority"`
+				PrWorkflowEnabled bool   `json:"prWorkflowEnabled"`
+				PrApplyEnabled    bool   `json:"prApplyEnabled"`
 			} `json:"attributes"`
 			Relationships struct {
-				Organization struct {
+				Webhook struct {
 					Data struct {
 						Type string `json:"type"`
 						ID   string `json:"id"`
 					} `json:"data"`
-				} `json:"organization"`
+				} `json:"webhook"`
 			} `json:"relationships"`
 		} `json:"data"`
 	}
 
-	if err := json.Unmarshal(workspaceBody, &workspaceResp); err != nil {
-		resp.Diagnostics.AddError("Error parsing workspace response", fmt.Sprintf("Error parsing workspace response: %s", err))
+	if err := json.Unmarshal(bodyResponse, &eventResp); err != nil {
+		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
 		return
 	}
 
-	organizationId := workspaceResp.Data.Relationships.Organization.Data.ID
-	if organizationId == "" {
-		resp.Diagnostics.AddError("Invalid workspace response", "Could not determine Organization ID from workspace response")
-		return
-	}
+	state.ID = types.StringValue(eventResp.Data.ID)
+	state.WebhookId = types.StringValue(eventResp.Data.Relationships.Webhook.Data.ID)
+	state.Event = types.StringValue(eventResp.Data.Attributes.Event)
+	state.TemplateId = types.StringValue(eventResp.Data.Attributes.TemplateId)
+	state.Priority = types.Int64Value(int64(eventResp.Data.Attributes.Priority))
+	state.PrWorkflowEnabled = types.BoolValue(eventResp.Data.Attributes.PrWorkflowEnabled)
+	state.PrApplyEnabled = types.BoolValue(eventResp.Data.Attributes.PrApplyEnabled)
 
-	tflog.Debug(ctx, "Parsed workspace details", map[string]any{
-		"organization_id": organizationId,
-		"workspace_id":    workspaceId,
-	})
+	branchList, branchDiags := types.ListValueFrom(ctx, types.StringType, strings.Split(eventResp.Data.Attributes.Branch, ","))
+	resp.Diagnostics.Append(branchDiags...)
+	state.Branch = branchList
 
-	var branchList, pathList []string
-	if !state.Branch.IsNull() && !state.Branch.IsUnknown() {
-		resp.Diagnostics.Append(state.Branch.ElementsAs(ctx, &branchList, false)...)
-	}
-	if !state.Path.IsNull() && !state.Path.IsUnknown() {
-		resp.Diagnostics.Append(state.Path.ElementsAs(ctx, &pathList, false)...)
-	}
+	pathList, pathDiags := types.ListValueFrom(ctx, types.StringType, strings.Split(eventResp.Data.Attributes.Path, ","))
+	resp.Diagnostics.Append(pathDiags...)
+	state.Path = pathList
+
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Check if the event ID exists in the webhook's events relationship
-	eventFound := false
-	for _, event := range webhookDetails.Data.Relationships.Events.Data {
-		if event.ID == state.ID.ValueString() {
-			eventFound = true
-			break
-		}
-	}
-
-	if !eventFound {
-		resp.State.RemoveResource(ctx)
-		return
-	}
-
-	// Since we found the event in the webhook's relationships, we can keep the state as is
-	// The event details are not critical for the resource to function
 	diags = resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -712,8 +659,12 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 		return
 	}
 
-	// First, get the webhook details to get organization and workspace IDs
-	webhookRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/webhook/%s", r.endpoint, state.WebhookId.ValueString()), nil)
+	// Look up the webhook via plan.WebhookId, not state.WebhookId: when the
+	// parent terrakube_workspace_webhook_v2 is replaced (taint, or any other
+	// forced recreation), webhook_id changes and state still holds the old,
+	// now-deleted webhook's ID. Looking it up by the old ID here would 404
+	// even though the update itself is perfectly valid against the new one.
+	webhookRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/webhook/%s", r.endpoint, plan.WebhookId.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating webhook read request", fmt.Sprintf("Error creating webhook read request: %s", err))
 		return
@@ -735,7 +686,7 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 	}
 
 	if webhookResponse.StatusCode == http.StatusNotFound {
-		resp.Diagnostics.AddError("Webhook not found", fmt.Sprintf("Webhook with ID %s not found", state.WebhookId.ValueString()))
+		resp.Diagnostics.AddError("Webhook not found", fmt.Sprintf("Webhook with ID %s not found", plan.WebhookId.ValueString()))
 		return
 	}
 
@@ -841,7 +792,7 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 				"href": fmt.Sprintf("/organization/%s/workspace/%s/webhook/%s/events/%s",
 					organizationId,
 					workspaceId,
-					state.WebhookId.ValueString(),
+					plan.WebhookId.ValueString(),
 					state.ID.ValueString()),
 				"data": map[string]interface{}{
 					"type": "webhook_event",
@@ -891,7 +842,7 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 		tflog.Error(ctx, "Failed to execute webhook event request", map[string]any{
 			"error": err.Error(),
 		})
-		resp.Diagnostics.AddError("Error executing workspace webhook event resource request", fmt.Sprintf("Error executing workspace webhook event resource request, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		resp.Diagnostics.AddError("Error executing workspace webhook event resource request", fmt.Sprintf("Error executing workspace webhook event resource request: %s", err))
 		return
 	}
 
@@ -900,7 +851,7 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 		tflog.Error(ctx, "Failed to read webhook event response", map[string]any{
 			"error": err.Error(),
 		})
-		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, response body: %s, error: %s", response.Status, response.Body, err))
+		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, error: %s", response.Status, err))
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -962,7 +913,7 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 		r.endpoint,
 		organizationId,
 		workspaceId,
-		state.WebhookId.ValueString()), nil)
+		plan.WebhookId.ValueString()), nil)
 	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	request.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {

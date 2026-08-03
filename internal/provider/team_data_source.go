@@ -188,12 +188,13 @@ func (d *TeamDataSource) ReadDataFromApi(url string, ctx context.Context, resp *
 
 	resApi, err := d.client.Do(regApi)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error executing Team datasource request, response status: %s, response body: %s, error: %s", resApi.Status, resApi.Body, err))
+		tflog.Error(ctx, fmt.Sprintf("Error executing Team datasource request: %s", err))
+		return
 	}
 
 	body, err := io.ReadAll(resApi.Body)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading Team response, response status: %s, response body: %s, error: %s", resApi.Status, resApi.Body, err))
+		tflog.Error(ctx, fmt.Sprintf("Error reading Team response, response status: %s, error: %s", resApi.Status, err))
 	}
 
 	tflog.Info(ctx, string(body))
@@ -201,7 +202,7 @@ func (d *TeamDataSource) ReadDataFromApi(url string, ctx context.Context, resp *
 	data, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(structType))
 
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to marshal payload, response status: %s, response body: %s, error: %s", resApi.Status, resApi.Body, err))
+		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to marshal payload, response status: %s, response body: %s, error: %s", resApi.Status, string(body), err))
 		return
 	}
 
