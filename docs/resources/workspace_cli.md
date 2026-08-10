@@ -39,6 +39,10 @@ resource "terrakube_workspace_cli" "sample3" {
   iac_type        = "terraform"
   iac_version     = "1.5.7"
   project_id      = terrakube_project.project.id
+
+  # Optional: use an org SSH key to download private Terraform/OpenTofu
+  # modules referenced via git-based module sources in this workspace.
+  module_ssh_key = terrakube_ssh.module_key.id
 }
 ```
 
@@ -56,6 +60,7 @@ resource "terrakube_workspace_cli" "sample3" {
 ### Optional
 
 - `description` (String) Workspace CLI description
+- `module_ssh_key` (String) SSH key ID (see terrakube_ssh) used to download private Terraform/OpenTofu modules referenced via git-based module sources within this workspace. Leave unset to leave any existing value untouched; set to an empty string to clear it.
 - `project_id` (String) Id of the project this workspace belongs to. Leave unset to leave any existing project assignment (e.g. made outside Terraform) untouched.
 
 ### Read-Only

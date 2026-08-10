@@ -49,8 +49,10 @@ type WorkspaceVcsResourceModel struct {
 	Folder           types.String `tfsdk:"folder"`
 	ExecutionMode    types.String `tfsdk:"execution_mode"`
 	VcsId            types.String `tfsdk:"vcs_id"`
+	SshId            types.String `tfsdk:"ssh_id"`
 	AllowRemoteApply types.Bool   `tfsdk:"allow_remote_apply"`
 	ProjectId        types.String `tfsdk:"project_id"`
+	ModuleSshKey     types.String `tfsdk:"module_ssh_key"`
 }
 
 func NewWorkspaceVcsResource() resource.Resource {
@@ -132,6 +134,25 @@ func (r *WorkspaceVcsResource) Schema(ctx context.Context, req resource.SchemaRe
 			"vcs_id": schema.StringAttribute{
 				Optional:    true,
 				Description: "VCS connection ID for private workspaces",
+				Validators: []validator.String{
+					stringvalidator.ConflictsWith(path.MatchRoot("ssh_id")),
+				},
+			},
+			"ssh_id": schema.StringAttribute{
+				Optional: true,
+				Description: "SSH key ID (see terrakube_ssh) used to clone the workspace repository directly over SSH " +
+					"(e.g. git@github.com:org/repo.git), as an alternative to an OAuth-based VCS connection. Mutually " +
+					"exclusive with vcs_id. Leave unset to leave any existing SSH key assignment untouched.",
+				Validators: []validator.String{
+					stringvalidator.ConflictsWith(path.MatchRoot("vcs_id")),
+				},
+			},
+			"module_ssh_key": schema.StringAttribute{
+				Optional: true,
+				Description: "SSH key ID (see terrakube_ssh) used to download private Terraform/OpenTofu modules " +
+					"referenced via git-based module sources within this workspace. This key is not used to clone " +
+					"the workspace repository itself; use vcs_id or ssh_id for that. Leave unset to leave any " +
+					"existing value untouched; set to an empty string to clear it.",
 			},
 			"allow_remote_apply": schema.BoolAttribute{
 				Optional:    true,
@@ -211,6 +232,15 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 		bodyRequest.Vcs = &client.VcsEntity{ID: plan.VcsId.ValueString()}
 	}
 
+	if !plan.SshId.IsNull() {
+		tflog.Info(ctx, fmt.Sprintf("Workspace using Ssh key id: %s", plan.SshId.ValueString()))
+		bodyRequest.Ssh = &client.SshEntity{ID: plan.SshId.ValueString()}
+	}
+
+	if !plan.ModuleSshKey.IsNull() {
+		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
+	}
+
 	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() {
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
@@ -273,6 +303,14 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 	if !plan.VcsId.IsNull() {
 		plan.VcsId = types.StringValue(newWorkspaceVcs.Vcs.ID)
 	}
+
+	if newWorkspaceVcs.Ssh != nil {
+		plan.SshId = types.StringValue(newWorkspaceVcs.Ssh.ID)
+	} else {
+		plan.SshId = types.StringNull()
+	}
+
+	plan.ModuleSshKey = types.StringPointerValue(newWorkspaceVcs.ModuleSshKey)
 
 	if !plan.Folder.IsNull() {
 		plan.Folder = types.StringValue(newWorkspaceVcs.Folder)
@@ -343,6 +381,14 @@ func (r *WorkspaceVcsResource) Read(ctx context.Context, req resource.ReadReques
 		state.VcsId = types.StringValue(workspace.Vcs.ID)
 	}
 
+	if workspace.Ssh != nil {
+		state.SshId = types.StringValue(workspace.Ssh.ID)
+	} else {
+		state.SshId = types.StringNull()
+	}
+
+	state.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
+
 	if workspace.Project != nil {
 		state.ProjectId = types.StringValue(workspace.Project.ID)
 	} else {
@@ -386,6 +432,15 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 	if !plan.VcsId.IsNull() {
 		tflog.Info(ctx, fmt.Sprintf("Workspace using Vcs connection id: %s", plan.VcsId.ValueString()))
 		bodyRequest.Vcs = &client.VcsEntity{ID: plan.VcsId.ValueString()}
+	}
+
+	if !plan.SshId.IsNull() {
+		tflog.Info(ctx, fmt.Sprintf("Workspace using Ssh key id: %s", plan.SshId.ValueString()))
+		bodyRequest.Ssh = &client.SshEntity{ID: plan.SshId.ValueString()}
+	}
+
+	if !plan.ModuleSshKey.IsNull() {
+		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
 	}
 
 	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() {
@@ -464,6 +519,12 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 	if workspace.Vcs != nil {
 		plan.VcsId = types.StringValue(workspace.Vcs.ID)
 	}
+	if workspace.Ssh != nil {
+		plan.SshId = types.StringValue(workspace.Ssh.ID)
+	} else {
+		plan.SshId = types.StringNull()
+	}
+	plan.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
 	if workspace.Project != nil {
 		plan.ProjectId = types.StringValue(workspace.Project.ID)
 	} else {

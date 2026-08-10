@@ -71,8 +71,10 @@ type WorkspaceEntity struct {
 	ExecutionMode    string         `jsonapi:"attr,executionMode"`
 	Deleted          bool           `jsonapi:"attr,deleted"`
 	Vcs              *VcsEntity     `jsonapi:"relation,vcs,omitempty"`
+	Ssh              *SshEntity     `jsonapi:"relation,ssh,omitempty"`
 	Project          *ProjectEntity `jsonapi:"relation,project,omitempty"`
 	AllowRemoteApply bool           `jsonapi:"attr,allowRemoteApply"`
+	ModuleSshKey     *string        `jsonapi:"attr,moduleSshKey,omitempty"`
 }
 
 type WorkspaceTagEntity struct {

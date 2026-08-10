@@ -38,7 +38,9 @@ data "terrakube_workspace" "ws" {
 - `iactype` (String) IaC type
 - `iacversion` (String) IaC version
 - `id` (String) Workspace Id
+- `module_ssh_key` (String) SSH key ID used to download private Terraform/OpenTofu modules referenced via git-based module sources within this workspace
 - `organization_id` (String) organization ID
 - `source` (String) Source
+- `sshid` (String) SSH key ID used to clone the workspace repository directly over SSH
 - `template_id` (String) template ID
 - `vcsid` (String) VCS ID
