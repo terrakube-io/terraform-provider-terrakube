@@ -44,6 +44,8 @@ type WorkspaceDataSourceModel struct {
 	Deleted          types.Bool   `tfsdk:"deleted"`
 	AllowRemoteApply types.Bool   `tfsdk:"allowremoteapply"`
 	VCSID            types.String `tfsdk:"vcsid"`
+	SSHID            types.String `tfsdk:"sshid"`
+	ModuleSshKey     types.String `tfsdk:"module_ssh_key"`
 }
 
 func NewWorkspaceDataSource() datasource.DataSource {
@@ -152,6 +154,14 @@ func (d *WorkspaceDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 				Description: "VCS ID",
 				Computed:    true,
 			},
+			"sshid": schema.StringAttribute{
+				Description: "SSH key ID used to clone the workspace repository directly over SSH",
+				Computed:    true,
+			},
+			"module_ssh_key": schema.StringAttribute{
+				Description: "SSH key ID used to download private Terraform/OpenTofu modules referenced via git-based module sources within this workspace",
+				Computed:    true,
+			},
 		},
 	}
 }
@@ -251,6 +261,10 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 		if data.Vcs != nil {
 			state.VCSID = types.StringValue(data.Vcs.ID)
 		}
+		if data.Ssh != nil {
+			state.SSHID = types.StringValue(data.Ssh.ID)
+		}
+		state.ModuleSshKey = types.StringPointerValue(data.ModuleSshKey)
 	}
 
 	diags := resp.State.Set(ctx, &state)

@@ -24,4 +24,8 @@ resource "terrakube_workspace_cli" "sample3" {
   iac_type        = "terraform"
   iac_version     = "1.5.7"
   project_id      = terrakube_project.project.id
+
+  # Optional: use an org SSH key to download private Terraform/OpenTofu
+  # modules referenced via git-based module sources in this workspace.
+  module_ssh_key = terrakube_ssh.module_key.id
 }

@@ -41,6 +41,7 @@ type WorkspaceCliResourceModel struct {
 	IaCVersion     types.String `tfsdk:"iac_version"`
 	ExecutionMode  types.String `tfsdk:"execution_mode"`
 	ProjectId      types.String `tfsdk:"project_id"`
+	ModuleSshKey   types.String `tfsdk:"module_ssh_key"`
 }
 
 func NewWorkspaceCliResource() resource.Resource {
@@ -96,6 +97,12 @@ func (r *WorkspaceCliResource) Schema(ctx context.Context, req resource.SchemaRe
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
+			},
+			"module_ssh_key": schema.StringAttribute{
+				Optional: true,
+				Description: "SSH key ID (see terrakube_ssh) used to download private Terraform/OpenTofu modules " +
+					"referenced via git-based module sources within this workspace. Leave unset to leave any " +
+					"existing value untouched; set to an empty string to clear it.",
 			},
 		},
 	}
@@ -157,6 +164,10 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
+	if !plan.ModuleSshKey.IsNull() {
+		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
+	}
+
 	var out = new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, bodyRequest)
 
@@ -205,6 +216,7 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 	} else {
 		plan.ProjectId = types.StringNull()
 	}
+	plan.ModuleSshKey = types.StringPointerValue(newWorkspaceCli.ModuleSshKey)
 
 	tflog.Info(ctx, "Workspace Cli Resource Created", map[string]any{"success": true})
 
@@ -266,6 +278,7 @@ func (r *WorkspaceCliResource) Read(ctx context.Context, req resource.ReadReques
 	} else {
 		state.ProjectId = types.StringNull()
 	}
+	state.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
 
 	// Set refreshed state
 	diags = resp.State.Set(ctx, &state)
@@ -300,6 +313,10 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 
 	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() {
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
+	}
+
+	if !plan.ModuleSshKey.IsNull() {
+		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
 	}
 
 	var out = new(bytes.Buffer)
@@ -371,6 +388,7 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 	} else {
 		plan.ProjectId = types.StringNull()
 	}
+	plan.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
