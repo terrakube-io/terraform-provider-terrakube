@@ -43,7 +43,7 @@ func optionalStringValue(s *string) types.String {
 func (a notificationConfigAPI) fetchNotificationTriggers(ctx context.Context, configID string) ([]client.NotificationTriggerEntity, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
-	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/notification_configuration/%s/triggers", a.endpoint, configID), nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/api/v1/notification_configuration/%s/triggers", a.endpoint, configID), nil)
 	if err != nil {
 		diags.AddError("Error creating notification triggers request", fmt.Sprintf("Error creating notification triggers request: %s", err))
 		return nil, diags
@@ -77,7 +77,12 @@ func (a notificationConfigAPI) fetchNotificationTriggers(ctx context.Context, co
 
 	triggers := make([]client.NotificationTriggerEntity, 0, len(raw))
 	for _, item := range raw {
-		triggers = append(triggers, *item.(*client.NotificationTriggerEntity))
+		trigger, ok := item.(*client.NotificationTriggerEntity)
+		if !ok {
+			diags.AddError("Error unmarshal payload response", "Unexpected type in notification triggers payload")
+			return nil, diags
+		}
+		triggers = append(triggers, *trigger)
 	}
 	return triggers, diags
 }
@@ -108,7 +113,7 @@ func (a notificationConfigAPI) syncNotificationTriggers(ctx context.Context, con
 			diags.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
 			return diags
 		}
-		request, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/notification_configuration/%s/triggers", a.endpoint, configID), strings.NewReader(out.String()))
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/api/v1/notification_configuration/%s/triggers", a.endpoint, configID), strings.NewReader(out.String()))
 		if err != nil {
 			diags.AddError("Error creating notification trigger request", fmt.Sprintf("Error creating notification trigger request: %s", err))
 			return diags
@@ -132,7 +137,7 @@ func (a notificationConfigAPI) syncNotificationTriggers(ctx context.Context, con
 		if desiredSet[status] {
 			continue
 		}
-		request, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/notification_configuration/%s/triggers/%s", a.endpoint, configID, triggerID), nil)
+		request, err := http.NewRequestWithContext(ctx, http.MethodDelete, fmt.Sprintf("%s/api/v1/notification_configuration/%s/triggers/%s", a.endpoint, configID, triggerID), nil)
 		if err != nil {
 			diags.AddError("Error creating notification trigger delete request", fmt.Sprintf("Error creating notification trigger delete request: %s", err))
 			return diags
@@ -162,7 +167,7 @@ func (a notificationConfigAPI) syncNotificationTriggers(ctx context.Context, con
 func (a notificationConfigAPI) fetchNotificationConfigurationTemplateIDs(ctx context.Context, configID string) ([]string, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
-	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/notification_configuration/%s/templates", a.endpoint, configID), nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/api/v1/notification_configuration/%s/templates", a.endpoint, configID), nil)
 	if err != nil {
 		diags.AddError("Error creating notification configuration templates request", fmt.Sprintf("Error creating notification configuration templates request: %s", err))
 		return nil, diags
@@ -196,7 +201,12 @@ func (a notificationConfigAPI) fetchNotificationConfigurationTemplateIDs(ctx con
 
 	ids := make([]string, 0, len(raw))
 	for _, item := range raw {
-		ids = append(ids, item.(*client.OrganizationTemplateEntity).ID)
+		template, ok := item.(*client.OrganizationTemplateEntity)
+		if !ok {
+			diags.AddError("Error unmarshal payload response", "Unexpected type in notification configuration templates payload")
+			return nil, diags
+		}
+		ids = append(ids, template.ID)
 	}
 	return ids, diags
 }
@@ -221,7 +231,7 @@ func (a notificationConfigAPI) replaceNotificationConfigurationTemplates(ctx con
 		return diags
 	}
 
-	request, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/notification_configuration/%s/relationships/templates", a.endpoint, configID), bytes.NewReader(jsonData))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPatch, fmt.Sprintf("%s/api/v1/notification_configuration/%s/relationships/templates", a.endpoint, configID), bytes.NewReader(jsonData))
 	if err != nil {
 		diags.AddError("Error creating notification configuration templates request", fmt.Sprintf("Error creating notification configuration templates request: %s", err))
 		return diags

@@ -71,12 +71,12 @@ func TestWorkspaceNotificationConfigurationResource_Create_PostsToWorkspaceScope
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id": tftypes.NewValue(tftypes.String, orgID),
-		"workspace_id":     tftypes.NewValue(tftypes.String, wsID),
-		"name":             tftypes.NewValue(tftypes.String, "prod-alerts-override"),
-		"channel_type":     tftypes.NewValue(tftypes.String, "SLACK"),
-		"destination_url":  tftypes.NewValue(tftypes.String, "https://hooks.slack.com/x"),
-		"active":           tftypes.NewValue(tftypes.Bool, true),
-		"message_style":    tftypes.NewValue(tftypes.String, "DETAILED"),
+		"workspace_id":    tftypes.NewValue(tftypes.String, wsID),
+		"name":            tftypes.NewValue(tftypes.String, "prod-alerts-override"),
+		"channel_type":    tftypes.NewValue(tftypes.String, "SLACK"),
+		"destination_url": tftypes.NewValue(tftypes.String, "https://hooks.slack.com/x"),
+		"active":          tftypes.NewValue(tftypes.Bool, true),
+		"message_style":   tftypes.NewValue(tftypes.String, "DETAILED"),
 		"trigger_statuses": tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, []tftypes.Value{
 			tftypes.NewValue(tftypes.String, "failed"),
 		}),

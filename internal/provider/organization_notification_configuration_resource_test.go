@@ -92,11 +92,11 @@ func TestOrganizationNotificationConfigurationResource_Create_PostsConfigThenEac
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id": tftypes.NewValue(tftypes.String, orgID),
-		"name":             tftypes.NewValue(tftypes.String, "prod-alerts"),
-		"channel_type":     tftypes.NewValue(tftypes.String, "SLACK"),
-		"destination_url":  tftypes.NewValue(tftypes.String, "https://hooks.slack.com/x"),
-		"active":           tftypes.NewValue(tftypes.Bool, true),
-		"message_style":    tftypes.NewValue(tftypes.String, "SIMPLE"),
+		"name":            tftypes.NewValue(tftypes.String, "prod-alerts"),
+		"channel_type":    tftypes.NewValue(tftypes.String, "SLACK"),
+		"destination_url": tftypes.NewValue(tftypes.String, "https://hooks.slack.com/x"),
+		"active":          tftypes.NewValue(tftypes.Bool, true),
+		"message_style":   tftypes.NewValue(tftypes.String, "SIMPLE"),
 		"trigger_statuses": tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, []tftypes.Value{
 			tftypes.NewValue(tftypes.String, "failed"),
 			tftypes.NewValue(tftypes.String, "completed"),

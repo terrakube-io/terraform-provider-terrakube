@@ -65,8 +65,8 @@ func TestNotificationConfigurationDataSource_Read_DisambiguatesScopeByWorkspaceI
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id": tftypes.NewValue(tftypes.String, "org-1"),
-		"workspace_id":     tftypes.NewValue(tftypes.String, "ws-1"),
-		"name":             tftypes.NewValue(tftypes.String, "prod-alerts"),
+		"workspace_id":    tftypes.NewValue(tftypes.String, "ws-1"),
+		"name":            tftypes.NewValue(tftypes.String, "prod-alerts"),
 	})
 
 	req := datasource.ReadRequest{Config: tfsdk.Config{Schema: s, Raw: configValue}}
@@ -112,7 +112,7 @@ func TestNotificationConfigurationDataSource_Read_ErrorsWhenNotFound(t *testing.
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id": tftypes.NewValue(tftypes.String, "org-1"),
-		"name":             tftypes.NewValue(tftypes.String, "does-not-exist"),
+		"name":            tftypes.NewValue(tftypes.String, "does-not-exist"),
 	})
 
 	req := datasource.ReadRequest{Config: tfsdk.Config{Schema: s, Raw: configValue}}

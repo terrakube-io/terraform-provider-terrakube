@@ -177,7 +177,11 @@ func (d *NotificationConfigurationDataSource) Read(ctx context.Context, req data
 	wantWorkspaceScope := !state.WorkspaceId.IsNull() && state.WorkspaceId.ValueString() != ""
 	var found *client.NotificationConfigurationEntity
 	for _, item := range list {
-		cfg := item.(*client.NotificationConfigurationEntity)
+		cfg, ok := item.(*client.NotificationConfigurationEntity)
+		if !ok {
+			resp.Diagnostics.AddError("Unable to unmarshal payload", "Unexpected type in notification configurations payload")
+			return
+		}
 		hasWorkspace := cfg.Workspace != nil
 		if wantWorkspaceScope {
 			if hasWorkspace && cfg.Workspace.ID == state.WorkspaceId.ValueString() {
