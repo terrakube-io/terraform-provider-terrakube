@@ -159,12 +159,12 @@ func (r *WorkspaceVariableResource) Create(ctx context.Context, req resource.Cre
 	}
 
 	workspaceVarRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/variable", r.endpoint, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString()), strings.NewReader(out.String()))
-	workspaceVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace variable resource request", fmt.Sprintf("Error creating workspace variable resource request: %s", err))
 		return
 	}
+	workspaceVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	workspaceVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	workspaceVarResponse, err := r.client.Do(workspaceVarRequest)
 	if err != nil {
@@ -216,12 +216,12 @@ func (r *WorkspaceVariableResource) Read(ctx context.Context, req resource.ReadR
 	}
 
 	workspaceVariableRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/variable/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	workspaceVariableRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceVariableRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace variable resource request", fmt.Sprintf("Error creating workspace variable resource request: %s", err))
 		return
 	}
+	workspaceVariableRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	workspaceVariableRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	workspaceVariableResponse, err := r.client.Do(workspaceVariableRequest)
 	if err != nil {
@@ -305,12 +305,12 @@ func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.Upd
 	}
 
 	workspaceVariableReq, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/variable/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	workspaceVariableReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceVariableReq.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Workspace variable resource request", fmt.Sprintf("Error creating Workspace variable resource request: %s", err))
 		return
 	}
+	workspaceVariableReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	workspaceVariableReq.Header.Add("Content-Type", "application/vnd.api+json")
 
 	workspaceVariableResponse, err := r.client.Do(workspaceVariableReq)
 	if err != nil {
@@ -326,12 +326,12 @@ func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.Upd
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	workspaceVariableReq, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/variable/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	workspaceVariableReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceVariableReq.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Workspace variable resource request", fmt.Sprintf("Error creating Workspace variable resource request: %s", err))
 		return
 	}
+	workspaceVariableReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	workspaceVariableReq.Header.Add("Content-Type", "application/vnd.api+json")
 
 	workspaceVariableResponse, err = r.client.Do(workspaceVariableReq)
 	if err != nil {
@@ -383,11 +383,11 @@ func (r *WorkspaceVariableResource) Delete(ctx context.Context, req resource.Del
 	}
 
 	workspaceRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/variable/%s", r.endpoint, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString()), nil)
-	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Workspace variable resource request", fmt.Sprintf("Error creating Workspace variable resource request: %s", err))
 		return
 	}
+	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
 	_, err = r.client.Do(workspaceRequest)
 	if err != nil {

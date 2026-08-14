@@ -145,12 +145,12 @@ func (r *OrganizationTemplateResource) Create(ctx context.Context, req resource.
 	}
 
 	organizationTemplateRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/template", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTemplateRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization template resource request", fmt.Sprintf("Error creating organization template resource request: %s", err))
 		return
 	}
+	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationTemplateRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationTemplateResponse, err := r.client.Do(organizationTemplateRequest)
 	if err != nil {
@@ -198,12 +198,12 @@ func (r *OrganizationTemplateResource) Read(ctx context.Context, req resource.Re
 	}
 
 	organizationTemplateRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/template/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTemplateRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization template resource request", fmt.Sprintf("Error creating organization template resource request: %s", err))
 		return
 	}
+	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationTemplateRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationTemplateResponse, err := r.client.Do(organizationTemplateRequest)
 	if err != nil {
@@ -283,12 +283,12 @@ func (r *OrganizationTemplateResource) Update(ctx context.Context, req resource.
 	tflog.Info(ctx, "Body Update Request: "+out.String())
 
 	organizationTemplateRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/template/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTemplateRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization template resource request", fmt.Sprintf("Error creating organization template resource request: %s", err))
 		return
 	}
+	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationTemplateRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationTemplateResponse, err := r.client.Do(organizationTemplateRequest)
 	if err != nil {
@@ -304,12 +304,12 @@ func (r *OrganizationTemplateResource) Update(ctx context.Context, req resource.
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	organizationTemplateRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/template/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTemplateRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization template resource request", fmt.Sprintf("Error creating organization template resource request: %s", err))
 		return
 	}
+	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationTemplateRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationTemplateResponse, err = r.client.Do(organizationTemplateRequest)
 	if err != nil {
@@ -357,11 +357,11 @@ func (r *OrganizationTemplateResource) Delete(ctx context.Context, req resource.
 	}
 
 	organizationTemplateRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/template/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization template resource request", fmt.Sprintf("Error creating organization template resource request: %s", err))
 		return
 	}
+	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
 	organizationTemplateResponse, err := r.client.Do(organizationTemplateRequest)
 	if err != nil {

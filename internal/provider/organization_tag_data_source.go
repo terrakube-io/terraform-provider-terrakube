@@ -102,11 +102,12 @@ func (d *OrganizationTagDataSource) Read(ctx context.Context, req datasource.Rea
 	req.Config.Get(ctx, &state)
 
 	reqOrgTag, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/tag?filter[tag]=name==%s", d.endpoint, state.OrganizationId.ValueString(), state.Name.ValueString()), nil)
+	if err != nil {
+		resp.Diagnostics.AddError("Error creating organization tag datasource request", fmt.Sprintf("Error creating organization tag datasource request: %s", err))
+		return
+	}
 	reqOrgTag.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
 	reqOrgTag.Header.Add("Content-Type", "application/vnd.api+json")
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error creating organization tag datasource request, error: %s", err))
-	}
 
 	resOrgTag, err := d.client.Do(reqOrgTag)
 	if err != nil {

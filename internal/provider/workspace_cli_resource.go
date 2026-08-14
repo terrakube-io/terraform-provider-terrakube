@@ -177,12 +177,12 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 	}
 
 	workspaceCliRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/workspace", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	workspaceCliRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceCliRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace cli resource request", fmt.Sprintf("Error creating workspace cli resource request: %s", err))
 		return
 	}
+	workspaceCliRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	workspaceCliRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	workspaceCliResponse, err := r.client.Do(workspaceCliRequest)
 	if err != nil {
@@ -232,12 +232,12 @@ func (r *WorkspaceCliResource) Read(ctx context.Context, req resource.ReadReques
 	}
 
 	workspaceRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace cli resource request", fmt.Sprintf("Error creating workspace cli resource request: %s", err))
 		return
 	}
+	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	workspaceRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	workspaceResponse, err := r.client.Do(workspaceRequest)
 	if err != nil {
@@ -328,12 +328,12 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	organizationRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace cli resource request", fmt.Sprintf("Error creating workspace cli resource request: %s", err))
 		return
 	}
+	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationResponse, err := r.client.Do(organizationRequest)
 	if err != nil {
@@ -349,12 +349,12 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	organizationRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace cli resource request", fmt.Sprintf("Error creating workspace cli resource request: %s", err))
 		return
 	}
+	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationResponse, err = r.client.Do(organizationRequest)
 	if err != nil {
@@ -444,12 +444,12 @@ func (r *WorkspaceCliResource) Delete(ctx context.Context, req resource.DeleteRe
 	}
 
 	workspaceCliRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), strings.NewReader(out.String()))
-	workspaceCliRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceCliRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating cli resource request", fmt.Sprintf("Error creating cli resource request: %s", err))
 		return
 	}
+	workspaceCliRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	workspaceCliRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	workspaceCliResponse, err := r.client.Do(workspaceCliRequest)
 	if err != nil {

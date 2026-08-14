@@ -104,11 +104,12 @@ func (d *OrganizationTemplateDataSource) Read(ctx context.Context, req datasourc
 
 	apiUrl := fmt.Sprintf("%s/api/v1/organization/%s/template?filter[template]=name=='%s'", d.endpoint, state.OrganizationId.ValueString(), url.PathEscape(state.Name.ValueString()))
 	reqTemplate, err := http.NewRequest(http.MethodGet, apiUrl, nil)
+	if err != nil {
+		resp.Diagnostics.AddError("Error creating organization template datasource request", fmt.Sprintf("Error creating organization template datasource request: %s", err))
+		return
+	}
 	reqTemplate.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
 	reqTemplate.Header.Add("Content-Type", "application/vnd.api+json")
-	if err != nil {
-		tflog.Error(ctx, "Error creating organization template datasource request")
-	}
 
 	resTemplate, err := d.client.Do(reqTemplate)
 	if err != nil {

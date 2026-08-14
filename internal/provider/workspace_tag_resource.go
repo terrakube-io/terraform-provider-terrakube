@@ -128,12 +128,12 @@ func (r *WorkspaceTagResource) Create(ctx context.Context, req resource.CreateRe
 	}
 
 	workspaceTagRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/workspaceTag", r.endpoint, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString()), strings.NewReader(out.String()))
-	workspaceTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace tag resource request", fmt.Sprintf("Error creating workspace tag resource request: %s", err))
 		return
 	}
+	workspaceTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	workspaceTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	workspaceTagResponse, err := r.client.Do(workspaceTagRequest)
 	if err != nil {
@@ -177,12 +177,12 @@ func (r *WorkspaceTagResource) Read(ctx context.Context, req resource.ReadReques
 	}
 
 	workspaceTagRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/workspaceTag/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	workspaceTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace tag resource request", fmt.Sprintf("Error creating workspace tag resource request: %s", err))
 		return
 	}
+	workspaceTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	workspaceTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	workspaceTagResponse, err := r.client.Do(workspaceTagRequest)
 	if err != nil {
@@ -236,11 +236,11 @@ func (r *WorkspaceTagResource) Delete(ctx context.Context, req resource.DeleteRe
 	}
 
 	reqOrg, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/workspaceTag/%s", r.endpoint, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.TagID.ValueString()), nil)
-	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace tag resource request", fmt.Sprintf("Error creating workspace tag resource request: %s", err))
 		return
 	}
+	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
 	_, err = r.client.Do(reqOrg)
 	if err != nil {

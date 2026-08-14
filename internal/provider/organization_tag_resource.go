@@ -124,12 +124,12 @@ func (r *OrganizationTagResource) Create(ctx context.Context, req resource.Creat
 	}
 
 	organizationTagRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/tag", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	organizationTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization tag resource request", fmt.Sprintf("Error creating organization tag resource request: %s", err))
 		return
 	}
+	organizationTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationTagResponse, err := r.client.Do(organizationTagRequest)
 	if err != nil {
@@ -169,12 +169,12 @@ func (r *OrganizationTagResource) Read(ctx context.Context, req resource.ReadReq
 	}
 
 	organizationTagRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/tag/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	organizationTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization tag resource request", fmt.Sprintf("Error creating organization tag resource request: %s", err))
 		return
 	}
+	organizationTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationTagResponse, err := r.client.Do(organizationTagRequest)
 	if err != nil {
@@ -240,12 +240,12 @@ func (r *OrganizationTagResource) Update(ctx context.Context, req resource.Updat
 	}
 
 	organizationTagRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/tag/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	organizationTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization tag resource request", fmt.Sprintf("Error creating organization tag resource request: %s", err))
 		return
 	}
+	organizationTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationTagResponse, err := r.client.Do(organizationTagRequest)
 	if err != nil {
@@ -261,12 +261,12 @@ func (r *OrganizationTagResource) Update(ctx context.Context, req resource.Updat
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	organizationTagRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/tag/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	organizationTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization tag resource request", fmt.Sprintf("Error creating organization tag resource request: %s", err))
 		return
 	}
+	organizationTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationTagResponse, err = r.client.Do(organizationTagRequest)
 	if err != nil {
@@ -306,11 +306,11 @@ func (r *OrganizationTagResource) Delete(ctx context.Context, req resource.Delet
 	}
 
 	reqOrg, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/tag/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization tag resource request", fmt.Sprintf("Error creating organization tag resource request: %s", err))
 		return
 	}
+	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
 	organizationTagResponse, err := r.client.Do(reqOrg)
 	if err != nil {

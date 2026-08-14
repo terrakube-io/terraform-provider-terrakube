@@ -112,11 +112,12 @@ func (d *OrganizationDataSource) Read(ctx context.Context, req datasource.ReadRe
 	req.Config.Get(ctx, &state)
 
 	reqOrg, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, state.Name.ValueString()), nil)
+	if err != nil {
+		resp.Diagnostics.AddError("Error creating organization datasource request", fmt.Sprintf("Error creating organization datasource request: %s", err))
+		return
+	}
 	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
 	reqOrg.Header.Add("Content-Type", "application/vnd.api+json")
-	if err != nil {
-		tflog.Error(ctx, "Error creating organization datasource request")
-	}
 
 	resOrg, err := d.client.Do(reqOrg)
 	if err != nil {

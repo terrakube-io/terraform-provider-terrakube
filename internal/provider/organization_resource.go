@@ -139,12 +139,12 @@ func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRe
 	}
 
 	organizationRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization", r.endpoint), strings.NewReader(out.String()))
-	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization resource request", fmt.Sprintf("Error creating organization resource request: %s", err))
 		return
 	}
+	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationResponse, err := r.client.Do(organizationRequest)
 	if err != nil {
@@ -189,12 +189,12 @@ func (r *OrganizationResource) Read(ctx context.Context, req resource.ReadReques
 	}
 
 	organizationRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s", r.endpoint, state.ID.ValueString()), nil)
-	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization resource request", fmt.Sprintf("Error creating organization resource request: %s", err))
 		return
 	}
+	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationResponse, err := r.client.Do(organizationRequest)
 	if err != nil {
@@ -267,12 +267,12 @@ func (r *OrganizationResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	organizationRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s", r.endpoint, state.ID.ValueString()), strings.NewReader(out.String()))
-	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization resource request", fmt.Sprintf("Error creating organization resource request: %s", err))
 		return
 	}
+	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationResponse, err := r.client.Do(organizationRequest)
 	if err != nil {
@@ -288,12 +288,12 @@ func (r *OrganizationResource) Update(ctx context.Context, req resource.UpdateRe
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	organizationRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s", r.endpoint, state.ID.ValueString()), nil)
-	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization resource request", fmt.Sprintf("Error creating organization resource request: %s", err))
 		return
 	}
+	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationResponse, err = r.client.Do(organizationRequest)
 	if err != nil {
@@ -372,12 +372,12 @@ func (r *OrganizationResource) Delete(ctx context.Context, req resource.DeleteRe
 	}
 
 	reqOrg, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s", r.endpoint, data.ID.ValueString()), strings.NewReader(out.String()))
-	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	reqOrg.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization resource request", fmt.Sprintf("Error creating organization resource request: %s", err))
 		return
 	}
+	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	reqOrg.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationResponse, err := r.client.Do(reqOrg)
 	if err != nil {

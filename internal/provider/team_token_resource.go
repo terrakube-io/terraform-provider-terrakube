@@ -163,12 +163,12 @@ func (r *TeamTokenResource) Create(ctx context.Context, req resource.CreateReque
 	}
 
 	teamTokenRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/access-token/v1/teams", r.endpoint), strings.NewReader(string(bodyJson)))
-	teamTokenRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	teamTokenRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating team token resource request", fmt.Sprintf("Error creating team token resource request: %s", err))
 		return
 	}
+	teamTokenRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	teamTokenRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	teamTokenResponse, err := r.client.Do(teamTokenRequest)
 	if err != nil {
@@ -212,12 +212,12 @@ func (r *TeamTokenResource) Read(ctx context.Context, req resource.ReadRequest, 
 	}
 
 	teamTokenRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/access-token/v1/teams", r.endpoint), nil)
-	teamTokenRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	teamTokenRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating team token resource request", fmt.Sprintf("Error creating team token resource request: %s", err))
 		return
 	}
+	teamTokenRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	teamTokenRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	teamTokenResponse, err := r.client.Do(teamTokenRequest)
 	if err != nil {
@@ -287,11 +287,11 @@ func (r *TeamTokenResource) Delete(ctx context.Context, req resource.DeleteReque
 	}
 
 	reqToken, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/access-token/v1/teams/%s", r.endpoint, data.ID.ValueString()), nil)
-	reqToken.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error deleting team token resource request", fmt.Sprintf("Error deleting team token resource request: %s", err))
 		return
 	}
+	reqToken.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
 	resToken, err := r.client.Do(reqToken)
 	if err != nil {
