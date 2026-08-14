@@ -225,12 +225,12 @@ func (r *VcsResource) Create(ctx context.Context, req resource.CreateRequest, re
 	}
 
 	vcsRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/vcs", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	vcsRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating VCS resource request", fmt.Sprintf("Error creating VCS resource request: %s", err))
 		return
 	}
+	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	vcsRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	vcsResponse, err := r.client.Do(vcsRequest)
 	if err != nil {
@@ -288,12 +288,12 @@ func (r *VcsResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	}
 
 	vcsRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/vcs/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	vcsRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating VCS resource request", fmt.Sprintf("Error creating VCS resource request: %s", err))
 		return
 	}
+	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	vcsRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	vcsResponse, err := r.client.Do(vcsRequest)
 	if err != nil {
@@ -382,12 +382,12 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	tflog.Info(ctx, "Body Update Request: "+out.String())
 
 	vcsRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/vcs/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	vcsRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating VCS resource request", fmt.Sprintf("Error creating VCS resource request: %s", err))
 		return
 	}
+	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	vcsRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	vcsResponse, err := r.client.Do(vcsRequest)
 	if err != nil {
@@ -403,12 +403,12 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	vcsRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/vcs/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	vcsRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating VCS resource request", fmt.Sprintf("Error creating VCS resource request: %s", err))
 		return
 	}
+	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	vcsRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	vcsResponse, err = r.client.Do(vcsRequest)
 	if err != nil {
@@ -467,11 +467,11 @@ func (r *VcsResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 	}
 
 	vcsRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/vcs/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating VCS resource request", fmt.Sprintf("Error creating VCS resource request: %s", err))
 		return
 	}
+	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
 	vcsResponse, err := r.client.Do(vcsRequest)
 	if err != nil {

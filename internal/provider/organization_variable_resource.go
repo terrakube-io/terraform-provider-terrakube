@@ -155,12 +155,12 @@ func (r *OrganizationVariableResource) Create(ctx context.Context, req resource.
 	}
 
 	organizationVarRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/globalvar", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization variable resource request", fmt.Sprintf("Error creating organization variable resource request: %s", err))
 		return
 	}
+	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationVarResponse, err := r.client.Do(organizationVarRequest)
 	if err != nil {
@@ -212,12 +212,12 @@ func (r *OrganizationVariableResource) Read(ctx context.Context, req resource.Re
 	}
 
 	organizationVarRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/globalvar/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization variable resource request", fmt.Sprintf("Error creating organization variable resource request: %s", err))
 		return
 	}
+	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationVariableResponse, err := r.client.Do(organizationVarRequest)
 	if err != nil {
@@ -302,12 +302,12 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 	tflog.Info(ctx, "Body Update Request: "+out.String())
 
 	organizationVarRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/globalvar/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization variable resource request", fmt.Sprintf("Error creating organization variable resource request: %s", err))
 		return
 	}
+	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationVarResponse, err := r.client.Do(organizationVarRequest)
 	if err != nil {
@@ -323,12 +323,12 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	organizationVarRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/globalvar/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization variable resource request", fmt.Sprintf("Error creating organization variable resource request: %s", err))
 		return
 	}
+	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	organizationVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	organizationVarResponse, err = r.client.Do(organizationVarRequest)
 	if err != nil {
@@ -381,11 +381,11 @@ func (r *OrganizationVariableResource) Delete(ctx context.Context, req resource.
 	}
 
 	organizationVarRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/globalvar/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization variable resource request", fmt.Sprintf("Error creating organization variable resource request: %s", err))
 		return
 	}
+	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
 	_, err = r.client.Do(organizationVarRequest)
 	if err != nil {

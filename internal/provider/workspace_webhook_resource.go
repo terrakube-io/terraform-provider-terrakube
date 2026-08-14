@@ -168,12 +168,12 @@ func (r *WorkspaceWebhookResource) Create(ctx context.Context, req resource.Crea
 	}
 
 	request, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/webhook", r.endpoint, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString()), strings.NewReader(out.String()))
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace webhook resource request", fmt.Sprintf("Error creating workspace webhook resource request %s", err))
 		return
 	}
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	request.Header.Add("Content-Type", "application/vnd.api+json")
 
 	response, err := r.client.Do(request)
 	if err != nil {
@@ -217,12 +217,12 @@ func (r *WorkspaceWebhookResource) Read(ctx context.Context, req resource.ReadRe
 	}
 
 	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/webhook/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace webhook resource request", fmt.Sprintf("Error creating workspace webhook resource request: %s", err))
 		return
 	}
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	request.Header.Add("Content-Type", "application/vnd.api+json")
 
 	response, err := r.client.Do(request)
 	if err != nil {
@@ -300,12 +300,12 @@ func (r *WorkspaceWebhookResource) Update(ctx context.Context, req resource.Upda
 	}
 
 	request, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/webhook/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Workspace variable resource request", fmt.Sprintf("Error creating Workspace variable resource request: %s", err))
 		return
 	}
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	request.Header.Add("Content-Type", "application/vnd.api+json")
 
 	response, err := r.client.Do(request)
 	if err != nil {
@@ -321,12 +321,12 @@ func (r *WorkspaceWebhookResource) Update(ctx context.Context, req resource.Upda
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	request, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/webhook/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace webhook resource request", fmt.Sprintf("Error creating workspace webhook resource request: %s", err))
 		return
 	}
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	request.Header.Add("Content-Type", "application/vnd.api+json")
 
 	response, err = r.client.Do(request)
 	if err != nil {
@@ -370,11 +370,11 @@ func (r *WorkspaceWebhookResource) Delete(ctx context.Context, req resource.Dele
 	}
 
 	request, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/webhook/%s", r.endpoint, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString()), nil)
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace webhook resource request", fmt.Sprintf("Error creating workspace webhook resource request: %s", err))
 		return
 	}
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
 	response, err := r.client.Do(request)
 	if err != nil {

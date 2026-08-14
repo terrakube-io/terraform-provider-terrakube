@@ -127,12 +127,12 @@ func (d *VcsDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 
 	apiURL := fmt.Sprintf("%s/api/v1/organization/%s/vcs?filter[vcs]=name=='%s'", d.endpoint, state.OrganizationId.ValueString(), url.PathEscape(state.Name.ValueString()))
 	requestVcs, err := http.NewRequest(http.MethodGet, apiURL, nil)
-	requestVcs.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	requestVcs.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating ssh request", fmt.Sprintf("Error creating team resource request: %s", err))
 		return
 	}
+	requestVcs.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
+	requestVcs.Header.Add("Content-Type", "application/vnd.api+json")
 
 	responseVcs, err := d.client.Do(requestVcs)
 	if err != nil {

@@ -142,12 +142,12 @@ func (r *CollectionResource) Create(ctx context.Context, req resource.CreateRequ
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": strings.NewReader(out.String())})
 
 	collectionRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/collection", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	collectionRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating collection resource request", fmt.Sprintf("Error creating collection resource request: %s", err))
 		return
 	}
+	collectionRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	collectionRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	collectionResponse, err := r.client.Do(collectionRequest)
 	if err != nil {
@@ -190,12 +190,12 @@ func (r *CollectionResource) Read(ctx context.Context, req resource.ReadRequest,
 	}
 
 	collectionRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	collectionRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating collection resource request", fmt.Sprintf("Error creating collection resource request: %s", err))
 		return
 	}
+	collectionRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	collectionRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	collectionResponse, err := r.client.Do(collectionRequest)
 	if err != nil {
@@ -265,12 +265,12 @@ func (r *CollectionResource) Update(ctx context.Context, req resource.UpdateRequ
 	}
 
 	collectionRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	collectionRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating collection resource request", fmt.Sprintf("Error creating collection resource request: %s", err))
 		return
 	}
+	collectionRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	collectionRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	collectionResponse, err := r.client.Do(collectionRequest)
 	if err != nil {
@@ -286,12 +286,12 @@ func (r *CollectionResource) Update(ctx context.Context, req resource.UpdateRequ
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	collectionRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	collectionRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating collection resource request", fmt.Sprintf("Error creating collection resource request: %s", err))
 		return
 	}
+	collectionRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	collectionRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	collectionResponse, err = r.client.Do(collectionRequest)
 	if err != nil {
@@ -333,11 +333,11 @@ func (r *CollectionResource) Delete(ctx context.Context, req resource.DeleteRequ
 	}
 
 	reqOrg, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating collection resource request", fmt.Sprintf("Error creating collection resource request: %s", err))
 		return
 	}
+	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
 	_, err = r.client.Do(reqOrg)
 	if err != nil {

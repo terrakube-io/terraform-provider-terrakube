@@ -130,12 +130,12 @@ func (r *WorkspaceScheduleResource) Create(ctx context.Context, req resource.Cre
 	}
 
 	workspaceScheduleRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/workspace/%s/schedule", r.endpoint, plan.WorkspaceId.ValueString()), strings.NewReader(out.String()))
-	workspaceScheduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceScheduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace schedule resource request", fmt.Sprintf("Error creating workspace schedule resource request: %s", err))
 		return
 	}
+	workspaceScheduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	workspaceScheduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	workspaceScheduleResponse, err := r.client.Do(workspaceScheduleRequest)
 	if err != nil {
@@ -178,12 +178,12 @@ func (r *WorkspaceScheduleResource) Read(ctx context.Context, req resource.ReadR
 	}
 
 	workspaceScheduleRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/workspace/%s/schedule/%s", r.endpoint, state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	workspaceScheduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceScheduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace schedule resource request", fmt.Sprintf("Error creating workspace schedule resource request: %s", err))
 		return
 	}
+	workspaceScheduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	workspaceScheduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	workspaceScheduleResponse, err := r.client.Do(workspaceScheduleRequest)
 	if err != nil {
@@ -252,12 +252,12 @@ func (r *WorkspaceScheduleResource) Update(ctx context.Context, req resource.Upd
 	}
 
 	workspaceScheduleReq, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/workspace/%s/schedule/%s", r.endpoint, state.WorkspaceId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	workspaceScheduleReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceScheduleReq.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Workspace schedule resource request", fmt.Sprintf("Error creating schedule schedule resource request: %s", err))
 		return
 	}
+	workspaceScheduleReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	workspaceScheduleReq.Header.Add("Content-Type", "application/vnd.api+json")
 
 	workspaceScheduleResponse, err := r.client.Do(workspaceScheduleReq)
 	if err != nil {
@@ -273,12 +273,12 @@ func (r *WorkspaceScheduleResource) Update(ctx context.Context, req resource.Upd
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	workspaceScheduleReq, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/workspace/%s/schedule/%s", r.endpoint, state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	workspaceScheduleReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceScheduleReq.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Workspace schedule resource request", fmt.Sprintf("Error creating Workspace schedule resource request: %s", err))
 		return
 	}
+	workspaceScheduleReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	workspaceScheduleReq.Header.Add("Content-Type", "application/vnd.api+json")
 
 	workspaceScheduleResponse, err = r.client.Do(workspaceScheduleReq)
 	if err != nil {
@@ -319,11 +319,11 @@ func (r *WorkspaceScheduleResource) Delete(ctx context.Context, req resource.Del
 	}
 
 	workspaceRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/workspace/%s/schedule/%s", r.endpoint, data.WorkspaceId.ValueString(), data.ID.ValueString()), nil)
-	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Workspace schedule resource request", fmt.Sprintf("Error creating schedule schedule resource request: %s", err))
 		return
 	}
+	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
 	_, err = r.client.Do(workspaceRequest)
 	if err != nil {

@@ -103,11 +103,12 @@ func (d *SshDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 	req.Config.Get(ctx, &state)
 
 	requestSsh, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/ssh?filter[ssh]=name==%s", d.endpoint, state.OrganizationId.ValueString(), state.Name.ValueString()), nil)
+	if err != nil {
+		resp.Diagnostics.AddError("Error creating ssh datasource request", fmt.Sprintf("Error creating ssh datasource request: %s", err))
+		return
+	}
 	requestSsh.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
 	requestSsh.Header.Add("Content-Type", "application/vnd.api+json")
-	if err != nil {
-		tflog.Error(ctx, "Error creating ssh datasource request")
-	}
 
 	responseSsh, err := d.client.Do(requestSsh)
 	if err != nil {

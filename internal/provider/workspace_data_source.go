@@ -172,11 +172,12 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 	req.Config.Get(ctx, &state)
 
 	reqOrg, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, state.Organization.ValueString()), nil)
+	if err != nil {
+		resp.Diagnostics.AddError("Error creating Workspace datasource request", fmt.Sprintf("Error creating Workspace datasource request: %s", err))
+		return
+	}
 	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
 	reqOrg.Header.Add("Content-Type", "application/vnd.api+json")
-	if err != nil {
-		tflog.Error(ctx, "Error creating Workspace datasource request")
-	}
 
 	resOrg, err := d.client.Do(reqOrg)
 	if err != nil {
@@ -213,11 +214,12 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 
 	//now try to find the workspace
 	reqWS, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace?filter[workspace]=name==%s", d.endpoint, state.OrganizationID.ValueString(), state.Name.ValueString()), nil)
+	if err != nil {
+		resp.Diagnostics.AddError("Error creating Workspace datasource request part 2", fmt.Sprintf("Error creating Workspace datasource request part 2: %s", err))
+		return
+	}
 	reqWS.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
 	reqWS.Header.Add("Content-Type", "application/vnd.api+json")
-	if err != nil {
-		tflog.Error(ctx, "Error creating Workspace datasource request part 2")
-	}
 
 	resWS, err := d.client.Do(reqWS)
 	if err != nil {

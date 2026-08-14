@@ -162,12 +162,12 @@ func (r *CollectionItemResource) Create(ctx context.Context, req resource.Create
 	}
 
 	collectionItemRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item", r.endpoint, plan.OrganizationId.ValueString(), plan.CollectionId.ValueString()), strings.NewReader(out.String()))
-	collectionItemRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionItemRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating collection item resource request", fmt.Sprintf("Error creating collection item resource request: %s", err))
 		return
 	}
+	collectionItemRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	collectionItemRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	collectionItemResponse, err := r.client.Do(collectionItemRequest)
 	if err != nil {
@@ -219,12 +219,12 @@ func (r *CollectionItemResource) Read(ctx context.Context, req resource.ReadRequ
 	}
 
 	collectionItemRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item/%s", r.endpoint, state.OrganizationId.ValueString(), state.CollectionId.ValueString(), state.ID.ValueString()), nil)
-	collectionItemRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionItemRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating collection resource request", fmt.Sprintf("Error creating collection item resource request: %s", err))
 		return
 	}
+	collectionItemRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	collectionItemRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	collectionItemResponse, err := r.client.Do(collectionItemRequest)
 	if err != nil {
@@ -261,12 +261,12 @@ func (r *CollectionItemResource) Read(ctx context.Context, req resource.ReadRequ
 			tflog.Debug(ctx, "this might be a known issue where the variable is removed in the gui and added back manually with the same key but a different id")
 			//lets query on key to see if we can find it
 			collectionItemRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item?filter[item]=key==%s", r.endpoint, state.OrganizationId.ValueString(), state.CollectionId.ValueString(), state.Key.ValueString()), nil)
-			collectionItemRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-			collectionItemRequest.Header.Add("Content-Type", "application/vnd.api+json")
 			if err != nil {
 				resp.Diagnostics.AddError("Error creating collection resource request", fmt.Sprintf("Error creating collection item resource request: %s", err))
 				return
 			}
+			collectionItemRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+			collectionItemRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 			collectionItemResponse, err := r.client.Do(collectionItemRequest)
 			if err != nil {
@@ -353,12 +353,12 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 	}
 
 	collectionItemReq, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item/%s", r.endpoint, state.OrganizationId.ValueString(), state.CollectionId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	collectionItemReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionItemReq.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating collection item resource request", fmt.Sprintf("Error creating collection item resource request: %s", err))
 		return
 	}
+	collectionItemReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	collectionItemReq.Header.Add("Content-Type", "application/vnd.api+json")
 
 	collectionItemResponse, err := r.client.Do(collectionItemReq)
 	if err != nil {
@@ -374,12 +374,12 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	collectionItemReq, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item/%s", r.endpoint, state.OrganizationId.ValueString(), state.CollectionId.ValueString(), state.ID.ValueString()), nil)
-	collectionItemReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionItemReq.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating collection item resource request", fmt.Sprintf("Error creating collection item resource request: %s", err))
 		return
 	}
+	collectionItemReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	collectionItemReq.Header.Add("Content-Type", "application/vnd.api+json")
 
 	collectionItemResponse, err = r.client.Do(collectionItemReq)
 	if err != nil {
@@ -431,11 +431,11 @@ func (r *CollectionItemResource) Delete(ctx context.Context, req resource.Delete
 	}
 
 	workspaceRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item/%s", r.endpoint, data.OrganizationId.ValueString(), data.CollectionId.ValueString(), data.ID.ValueString()), nil)
-	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating collection item resource request", fmt.Sprintf("Error creating collection item resource request: %s", err))
 		return
 	}
+	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
 	_, err = r.client.Do(workspaceRequest)
 	if err != nil {

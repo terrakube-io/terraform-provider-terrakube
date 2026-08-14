@@ -145,11 +145,12 @@ func (d *ProjectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 
 func (d *ProjectDataSource) ReadDataFromApi(url string, ctx context.Context, resp *datasource.ReadResponse, structType any) (data []interface{}) {
 	regApi, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		resp.Diagnostics.AddError("Error creating Project datasource request", fmt.Sprintf("Error creating Project datasource request: %s", err))
+		return
+	}
 	regApi.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
 	regApi.Header.Add("Content-Type", "application/vnd.api+json")
-	if err != nil {
-		tflog.Error(ctx, "Error creating Project datasource request")
-	}
 
 	resApi, err := d.client.Do(regApi)
 	if err != nil {

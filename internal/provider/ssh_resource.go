@@ -149,12 +149,12 @@ func (r *SshResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 	sshRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/ssh", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	sshRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	sshRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating ssh key resource request", fmt.Sprintf("Error creating ssh key resource request: %s", err))
 		return
 	}
+	sshRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	sshRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	sshResponse, err := r.client.Do(sshRequest)
 	if err != nil {
@@ -194,12 +194,12 @@ func (r *SshResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	}
 
 	sshRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/ssh/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	sshRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	sshRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating ssh key resource request", fmt.Sprintf("Error creating ssh key resource request: %s", err))
 		return
 	}
+	sshRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	sshRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	sshResponse, err := r.client.Do(sshRequest)
 	if err != nil {
@@ -271,12 +271,12 @@ func (r *SshResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	}
 
 	sshRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/ssh/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	sshRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	sshRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating ssh key resource request", fmt.Sprintf("Error creating ssh key resource request: %s", err))
 		return
 	}
+	sshRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	sshRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	sshResponse, err := r.client.Do(sshRequest)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing ssh key resource request", fmt.Sprintf("Error executing ssh key resource request: %s", err))
@@ -290,12 +290,12 @@ func (r *SshResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	sshRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/ssh/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	sshRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	sshRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating ssh key resource request", fmt.Sprintf("Error creating ssh key resource request: %s", err))
 		return
 	}
+	sshRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	sshRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	sshResponse, err = r.client.Do(sshRequest)
 	if err != nil {
@@ -339,11 +339,11 @@ func (r *SshResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 	}
 
 	reqOrg, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/ssh/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating ssh key resource request", fmt.Sprintf("Error creating ssh key resource request: %s", err))
 		return
 	}
+	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
 	_, err = r.client.Do(reqOrg)
 	if err != nil {

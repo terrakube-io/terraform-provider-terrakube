@@ -369,12 +369,12 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 	}
 
 	request, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/webhook/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace webhook resource request", fmt.Sprintf("Error creating workspace webhook resource request: %s", err))
 		return
 	}
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	request.Header.Add("Content-Type", "application/vnd.api+json")
 
 	response, err := r.client.Do(request)
 	if err != nil {
@@ -402,12 +402,12 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 	}
 
 	request, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/webhook/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace webhook resource request", fmt.Sprintf("Error creating workspace webhook resource request: %s", err))
 		return
 	}
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	request.Header.Add("Content-Type", "application/vnd.api+json")
 
 	response, err = r.client.Do(request)
 	if err != nil {
@@ -460,11 +460,11 @@ func (r *WorkspaceWebhookV2Resource) Delete(ctx context.Context, req resource.De
 	}
 
 	request, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/webhook/%s", r.endpoint, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString()), nil)
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace webhook resource request", fmt.Sprintf("Error creating workspace webhook resource request: %s", err))
 		return
 	}
+	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
 	response, err := r.client.Do(request)
 	if err != nil {

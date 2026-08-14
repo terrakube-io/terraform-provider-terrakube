@@ -184,12 +184,12 @@ func (r *ModuleResource) Create(ctx context.Context, req resource.CreateRequest,
 	tflog.Info(ctx, fmt.Sprintf("Body Request: %s", out.String()))
 
 	moduleRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/module", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	moduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	moduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating module resource request", fmt.Sprintf("Error creating team resource request: %s", err))
 		return
 	}
+	moduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	moduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	moduleResponse, err := r.client.Do(moduleRequest)
 	if err != nil {
@@ -243,12 +243,12 @@ func (r *ModuleResource) Read(ctx context.Context, req resource.ReadRequest, res
 	}
 
 	moduleRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/module/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	moduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	moduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating module resource request", fmt.Sprintf("Error creating team resource request: %s", err))
 		return
 	}
+	moduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	moduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	moduleResponse, err := r.client.Do(moduleRequest)
 	if err != nil {
@@ -356,12 +356,12 @@ func (r *ModuleResource) Update(ctx context.Context, req resource.UpdateRequest,
 	}
 
 	moduleRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/module/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	moduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	moduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating module resource request", fmt.Sprintf("Error creating team resource request: %s", err))
 		return
 	}
+	moduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	moduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	teamResponse, err := r.client.Do(moduleRequest)
 	if err != nil {
@@ -377,12 +377,12 @@ func (r *ModuleResource) Update(ctx context.Context, req resource.UpdateRequest,
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	moduleRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/module/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	moduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	moduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating module resource request", fmt.Sprintf("Error creating team resource request: %s", err))
 		return
 	}
+	moduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	moduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
 
 	teamResponse, err = r.client.Do(moduleRequest)
 	if err != nil {
@@ -429,11 +429,11 @@ func (r *ModuleResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	}
 
 	reqOrg, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/module/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating module resource request", fmt.Sprintf("Error creating team resource request: %s", err))
 		return
 	}
+	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
 	_, err = r.client.Do(reqOrg)
 	if err != nil {

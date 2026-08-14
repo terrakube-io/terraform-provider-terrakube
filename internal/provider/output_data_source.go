@@ -155,11 +155,12 @@ func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	//Output contains a link to the Output.json file, which contains the real data we need.
 	OutputUrl := data.Output
 	reqFile, err := http.NewRequest(http.MethodGet, OutputUrl, nil)
+	if err != nil {
+		resp.Diagnostics.AddError("Error creating request", fmt.Sprintf("Error creating request: %s", err))
+		return
+	}
 	reqFile.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
 	reqFile.Header.Add("Content-Type", "application/vnd.api+json")
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error creating Output datasource request for output json file failed (%s)", OutputUrl))
-	}
 
 	resFile, err := d.client.Do(reqFile)
 	if err != nil {
@@ -432,11 +433,12 @@ func inferAttrType(raw interface{}) (attr.Type, error) {
 
 func (d *OutputDataSource) ReadDataFromApi(url string, ctx context.Context, resp *datasource.ReadResponse, structType any) (data []interface{}) {
 	regApi, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		resp.Diagnostics.AddError("Error creating Output datasource request", fmt.Sprintf("Error creating Output datasource request: %s", err))
+		return
+	}
 	regApi.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
 	regApi.Header.Add("Content-Type", "application/vnd.api+json")
-	if err != nil {
-		tflog.Error(ctx, "Error creating Output datasource request")
-	}
 
 	resApi, err := d.client.Do(regApi)
 	if err != nil {
