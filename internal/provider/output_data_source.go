@@ -163,7 +163,7 @@ func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 
 	resFile, err := d.client.Do(reqFile)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error executing Output datasource request part 4: %s", err))
+		resp.Diagnostics.AddError("Error executing Output datasource request part 4", fmt.Sprintf("Error executing Output datasource request part 4: %s", err))
 		return
 	}
 
@@ -440,7 +440,7 @@ func (d *OutputDataSource) ReadDataFromApi(url string, ctx context.Context, resp
 
 	resApi, err := d.client.Do(regApi)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error executing Output datasource request: %s", err))
+		resp.Diagnostics.AddError("Error executing Output datasource request", fmt.Sprintf("Error executing Output datasource request: %s", err))
 		return
 	}
 

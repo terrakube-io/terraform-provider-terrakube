@@ -110,7 +110,8 @@ func (d *OrganizationTagDataSource) Read(ctx context.Context, req datasource.Rea
 
 	resOrgTag, err := d.client.Do(reqOrgTag)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error executing organization tag datasource request, error: %s, response status: %s", err, resOrgTag.Status))
+		resp.Diagnostics.AddError("Error executing organization tag datasource request", fmt.Sprintf("Error executing organization tag datasource request: %s", err))
+		return
 	}
 
 	body, err := io.ReadAll(resOrgTag.Body)

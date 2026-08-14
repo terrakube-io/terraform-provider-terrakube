@@ -180,7 +180,7 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 
 	resOrg, err := d.client.Do(reqOrg)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error executing Workspace datasource request: %s", err))
+		resp.Diagnostics.AddError("Error executing Workspace datasource request", fmt.Sprintf("Error executing Workspace datasource request: %s", err))
 		return
 	}
 
@@ -221,7 +221,7 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 
 	resWS, err := d.client.Do(reqWS)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error executing Workspace datasource request part 2: %s", err))
+		resp.Diagnostics.AddError("Error executing Workspace datasource request part 2", fmt.Sprintf("Error executing Workspace datasource request part 2: %s", err))
 		return
 	}
 
