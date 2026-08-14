@@ -153,7 +153,7 @@ func (d *ProjectDataSource) ReadDataFromApi(url string, ctx context.Context, res
 
 	resApi, err := d.client.Do(regApi)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error executing Project datasource request: %s", err))
+		resp.Diagnostics.AddError("Error executing Project datasource request", fmt.Sprintf("Error executing Project datasource request: %s", err))
 		return
 	}
 

@@ -188,7 +188,7 @@ func (d *TeamDataSource) ReadDataFromApi(url string, ctx context.Context, resp *
 
 	resApi, err := d.client.Do(regApi)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error executing Team datasource request: %s", err))
+		resp.Diagnostics.AddError("Error executing Team datasource request", fmt.Sprintf("Error executing Team datasource request: %s", err))
 		return
 	}
 

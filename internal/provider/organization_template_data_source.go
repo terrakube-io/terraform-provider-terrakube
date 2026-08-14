@@ -112,7 +112,8 @@ func (d *OrganizationTemplateDataSource) Read(ctx context.Context, req datasourc
 
 	resTemplate, err := d.client.Do(reqTemplate)
 	if err != nil {
-		tflog.Error(ctx, "Error executing organization template datasource request")
+		resp.Diagnostics.AddError("Error executing organization template datasource request", fmt.Sprintf("Error executing organization template datasource request: %s", err))
+		return
 	}
 
 	body, err := io.ReadAll(resTemplate.Body)
