@@ -194,6 +194,8 @@ func (p *TerrakubeProvider) Resources(ctx context.Context) []func() resource.Res
 		NewFederatedCredentialClaimResource,
 		NewProjectResource,
 		NewProjectAccessResource,
+		NewOrganizationNotificationConfigurationResource,
+		NewWorkspaceNotificationConfigurationResource,
 	}
 }
 
@@ -209,5 +211,6 @@ func (p *TerrakubeProvider) DataSources(ctx context.Context) []func() datasource
 		NewTeamDataSource,
 		NewFederatedCredentialDataSource,
 		NewProjectDataSource,
+		NewNotificationConfigurationDataSource,
 	}
 }

@@ -270,6 +270,23 @@ type FederatedClaimEntity struct {
 	ClaimValue string `jsonapi:"attr,claimValue"`
 }
 
+type NotificationConfigurationEntity struct {
+	ID             string           `jsonapi:"primary,notification_configuration"`
+	Name           string           `jsonapi:"attr,name"`
+	Description    *string          `jsonapi:"attr,description,omitempty"`
+	ChannelType    string           `jsonapi:"attr,channelType"`
+	DestinationUrl string           `jsonapi:"attr,destinationUrl"`
+	SigningSecret  *string          `jsonapi:"attr,signingSecret,omitempty"`
+	Active         bool             `jsonapi:"attr,active"`
+	MessageStyle   string           `jsonapi:"attr,messageStyle"`
+	Workspace      *WorkspaceEntity `jsonapi:"relation,workspace,omitempty"`
+}
+
+type NotificationTriggerEntity struct {
+	ID        string `jsonapi:"primary,notification_trigger"`
+	JobStatus string `jsonapi:"attr,jobStatus"`
+}
+
 type ErrorDetailEntity struct {
 	DetailedError string `json:"detail"`
 }
