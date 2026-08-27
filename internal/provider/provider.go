@@ -190,6 +190,7 @@ func (p *TerrakubeProvider) Resources(ctx context.Context) []func() resource.Res
 		NewAgentResource,
 		NewWorkspaceAccessResource,
 		NewSshResource,
+		NewWorkspaceSshResource,
 		NewFederatedCredentialResource,
 		NewFederatedCredentialClaimResource,
 		NewProjectResource,
