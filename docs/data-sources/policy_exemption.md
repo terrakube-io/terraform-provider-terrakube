@@ -1,0 +1,45 @@
+---
+page_title: "terrakube_policy_exemption Data Source - terrakube"
+subcategory: ""
+description: |-
+  Query a Terrakube OPA Policy Exemption by organization name and exemption ID (or rule ID).
+---
+
+# terrakube_policy_exemption (Data Source)
+
+Query a Terrakube OPA Policy Exemption by organization name and exemption ID (or rule ID).
+
+## Example Usage
+
+```terraform
+# Query by rule_id
+data "terrakube_policy_exemption" "by_rule" {
+  organization = "enterprise"
+  rule_id      = "azure_apim_no_public_network"
+}
+
+output "exemption_expires_at" {
+  value = data.terrakube_policy_exemption.by_rule.expires_at
+}
+```
+
+## Schema
+
+### Required
+
+- `organization` (String) Organization Name
+
+### Optional
+
+- `id` (String) Exemption ID (UUID). Specify either `id` or `rule_id`.
+- `policy_set_id` (String) Policy Set ID (UUID)
+- `rule_id` (String) OPA Rego Rule ID
+
+### Read-Only
+
+- `expires_at` (String) Expiration timestamp in RFC3339 format
+- `justification` (String) Exemption justification
+- `organization_id` (String) Organization ID (UUID)
+- `project_id` (String) Scoped project ID if project-specific
+- `ticket_reference` (String) Ticket reference (e.g. Jira `SEC-8842`)
+- `workspace_id` (String) Scoped workspace ID if workspace-specific

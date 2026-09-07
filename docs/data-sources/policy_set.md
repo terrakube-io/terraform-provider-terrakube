@@ -1,0 +1,45 @@
+---
+page_title: "terrakube_policy_set Data Source - terrakube"
+subcategory: ""
+description: |-
+  Query a Terrakube OPA Policy Set by organization name and policy set name.
+---
+
+# terrakube_policy_set (Data Source)
+
+Query a Terrakube OPA Policy Set by organization name and policy set name.
+
+## Example Usage
+
+```terraform
+data "terrakube_policy_set" "cis" {
+  organization = "enterprise"
+  name         = "enterprise-blast-radius-guardrails"
+}
+
+output "policy_set_id" {
+  value = data.terrakube_policy_set.cis.id
+}
+```
+
+## Schema
+
+### Required
+
+- `name` (String) Policy Set Name
+- `organization` (String) Organization Name
+
+### Read-Only
+
+- `branch` (String) Git branch or SemVer tag
+- `description` (String) Description of the policy set
+- `enforcement_level` (String) Enforcement level: `hard_mandatory`, `soft_mandatory`, or `advisory`
+- `folder` (String) Subfolder path for Rego policies
+- `global` (Boolean) Whether this policy set applies globally to all workspaces
+- `id` (String) Policy Set ID (UUID)
+- `notification_configuration_id` (String) Notification configuration ID
+- `organization_id` (String) Organization ID (UUID)
+- `override_team` (String) Team authorized to override soft_mandatory violations
+- `repository` (String) Git repository URL
+- `shadow_enforcement_level` (String) Shadow enforcement level if active
+- `vcs_id` (String) VCS connection ID

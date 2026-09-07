@@ -196,6 +196,9 @@ func (p *TerrakubeProvider) Resources(ctx context.Context) []func() resource.Res
 		NewProjectAccessResource,
 		NewOrganizationNotificationConfigurationResource,
 		NewWorkspaceNotificationConfigurationResource,
+		NewPolicySetResource,
+		NewPolicyAttachmentResource,
+		NewPolicyExemptionResource,
 	}
 }
 
@@ -212,5 +215,7 @@ func (p *TerrakubeProvider) DataSources(ctx context.Context) []func() datasource
 		NewFederatedCredentialDataSource,
 		NewProjectDataSource,
 		NewNotificationConfigurationDataSource,
+		NewPolicySetDataSource,
+		NewPolicyExemptionDataSource,
 	}
 }

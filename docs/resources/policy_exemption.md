@@ -1,0 +1,53 @@
+---
+page_title: "terrakube_policy_exemption Resource - terrakube"
+subcategory: ""
+description: |-
+  Create and manage a time-bounded OPA Policy Rule Exemption in Terrakube.
+---
+
+# terrakube_policy_exemption (Resource)
+
+Create and manage a time-bounded OPA Policy Rule Exemption in Terrakube. Exemptions allow specific rules to be safely bypassed with an audit trail (ticket reference and justification) for designated workspaces or projects until an expiration date.
+
+## Example Usage
+
+```terraform
+resource "terrakube_policy_exemption" "apim_gateway" {
+  organization_id  = "00000000-0000-0000-0000-000000000000"
+  policy_set_id    = terrakube_policy_set.blast_radius.id
+  rule_id          = "azure_apim_no_public_network"
+  ticket_reference = "SEC-8842"
+  justification    = "Approved third-party integration gateway for Partner Corp per architectural review"
+  expires_at       = "2026-12-31T23:59:59Z"
+  workspace_id     = "22222222-2222-2222-2222-222222222222"
+}
+```
+
+## Schema
+
+### Required
+
+- `justification` (String) Detailed justification explaining why the policy rule is exempted
+- `organization_id` (String) Terrakube organization ID
+- `policy_set_id` (String) Target Policy Set ID containing the rule to exempt
+- `rule_id` (String) OPA Rego rule ID or package path (e.g. `azure_apim_no_public_network`)
+- `ticket_reference` (String) Ticketing system reference (e.g. Jira `SEC-8842`, ServiceNow `RITM10293`)
+
+### Optional
+
+- `expires_at` (String) Expiration timestamp in RFC3339 format (e.g. `2026-12-31T23:59:59Z`). After this timestamp, the exemption automatically expires.
+- `project_id` (String) Optional project ID to restrict the exemption to all workspaces in a project
+- `workspace_id` (String) Optional workspace ID to restrict the exemption to a specific workspace
+
+### Read-Only
+
+- `id` (String) Exemption ID (UUID)
+
+## Import
+
+Import is supported using the following syntax:
+
+```shell
+# Policy Exemption can be imported with organization_id,id
+terraform import terrakube_policy_exemption.example 00000000-0000-0000-0000-000000000000,11111111-1111-1111-1111-111111111111
+```
