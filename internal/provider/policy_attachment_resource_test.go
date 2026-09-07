@@ -79,7 +79,7 @@ func TestPolicyAttachmentResource_Create_Success(t *testing.T) {
 
 	var receivedBody string
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/policySet/ps-1/attachments", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/policy_set/ps-1/attachments", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("unexpected method %s", r.Method)
 		}
@@ -136,7 +136,7 @@ func TestPolicyAttachmentResource_Delete(t *testing.T) {
 
 	deleted := false
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/policySet/ps-1/attachments/att-999", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/policy_set/ps-1/attachments/att-999", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodDelete {
 			deleted = true
 			w.WriteHeader(http.StatusNoContent)

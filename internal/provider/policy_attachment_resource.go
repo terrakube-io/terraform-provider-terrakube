@@ -167,7 +167,7 @@ func (r *PolicyAttachmentResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/v1/policySet/%s/attachments", r.endpoint, plan.PolicySetId.ValueString())
+	url := fmt.Sprintf("%s/api/v1/policy_set/%s/attachments", r.endpoint, plan.PolicySetId.ValueString())
 	createReq, err := http.NewRequest(http.MethodPost, url, strings.NewReader(out.String()))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating policy attachment request", fmt.Sprintf("Error: %s", err))
@@ -221,7 +221,7 @@ func (r *PolicyAttachmentResource) Read(ctx context.Context, req resource.ReadRe
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/v1/policySet/%s/attachments/%s", r.endpoint, state.PolicySetId.ValueString(), state.ID.ValueString())
+	url := fmt.Sprintf("%s/api/v1/policy_set/%s/attachments/%s", r.endpoint, state.PolicySetId.ValueString(), state.ID.ValueString())
 	readReq, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating policy attachment read request", fmt.Sprintf("Error: %s", err))
@@ -286,7 +286,7 @@ func (r *PolicyAttachmentResource) Delete(ctx context.Context, req resource.Dele
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/v1/policySet/%s/attachments/%s", r.endpoint, state.PolicySetId.ValueString(), state.ID.ValueString())
+	url := fmt.Sprintf("%s/api/v1/policy_set/%s/attachments/%s", r.endpoint, state.PolicySetId.ValueString(), state.ID.ValueString())
 	delReq, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating policy attachment delete request", fmt.Sprintf("Error: %s", err))
