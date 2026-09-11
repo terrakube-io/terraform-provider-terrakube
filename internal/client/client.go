@@ -244,6 +244,7 @@ type WorkspaceWebhookEventEntity struct {
 	CreatedDate string `jsonapi:"attr,createdDate"`
 	Event       string `jsonapi:"attr,event"`
 	Path        string `jsonapi:"attr,path"`
+	PathType    string `jsonapi:"attr,pathType"`
 	Priority    int32  `jsonapi:"attr,priority"`
 	TemplateId  string `jsonapi:"attr,templateId"`
 	UpdatedBy   string `jsonapi:"attr,updatedBy"`

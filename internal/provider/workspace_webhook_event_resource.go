@@ -40,6 +40,7 @@ type WorkspaceWebhookEventResourceModel struct {
 	Event             types.String `tfsdk:"event"`
 	Branch            types.List   `tfsdk:"branch"`
 	Path              types.List   `tfsdk:"path"`
+	PathType          types.String `tfsdk:"path_type"`
 	Priority          types.Int64  `tfsdk:"priority"`
 	TemplateId        types.String `tfsdk:"template_id"`
 	PrWorkflowEnabled types.Bool   `tfsdk:"pr_workflow_enabled"`
@@ -53,6 +54,7 @@ type webhookEventAPIResponse struct {
 		Attributes struct {
 			Branch            string `json:"branch"`
 			Path              string `json:"path"`
+			PathType          string `json:"pathType"`
 			TemplateId        string `json:"templateId"`
 			Event             string `json:"event"`
 			Priority          int    `json:"priority"`
@@ -104,6 +106,25 @@ type webhookAPIResponse struct {
 	} `json:"data"`
 }
 
+// Allowed values for the path_type attribute. They mirror the server-side
+// WebhookEventPathType enum.
+const (
+	webhookEventPathTypePattern = "PATTERN"
+	webhookEventPathTypeRegex   = "REGEX"
+)
+
+// webhookEventPathTypeToState converts the pathType attribute returned by the
+// API into a Terraform value. Servers older than 2.31.0 do not return the
+// attribute at all, and the server itself treats a null pathType as REGEX, so
+// an empty value is normalized to REGEX to match the schema default and avoid
+// a perpetual diff.
+func webhookEventPathTypeToState(pathType string) types.String {
+	if pathType == "" {
+		return types.StringValue(webhookEventPathTypeRegex)
+	}
+	return types.StringValue(pathType)
+}
+
 func NewWorkspaceWebhookEventResource() resource.Resource {
 	return &WorkspaceWebhookEventResource{}
 }
@@ -133,8 +154,17 @@ func (r *WorkspaceWebhookEventResource) Schema(ctx context.Context, req resource
 			},
 			"path": schema.ListAttribute{
 				Optional:    true,
-				Description: "The file paths in regex that trigger a run.",
+				Description: "A list of file paths that must match a changed file for a run to trigger. Each entry is interpreted according to `path_type`: a regular expression when `REGEX` (default), or a simple wildcard pattern such as `terraform/*` or `modules/**` when `PATTERN`.",
 				ElementType: types.StringType,
+			},
+			"path_type": schema.StringAttribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     stringdefault.StaticString(webhookEventPathTypeRegex),
+				Description: "How entries in `path` are matched against changed files. `REGEX` (default) treats each entry as a full regular expression. `PATTERN` treats each entry as a simple wildcard pattern where `*` matches any sequence of characters and `?` matches a single character. Branch matching always uses regex regardless of this setting. Requires Terrakube 2.31.0 or later; older servers ignore this attribute.",
+				Validators: []validator.String{
+					stringvalidator.OneOf(webhookEventPathTypePattern, webhookEventPathTypeRegex),
+				},
 			},
 			"branch": schema.ListAttribute{
 				Optional:    true,
@@ -284,6 +314,7 @@ func (r *WorkspaceWebhookEventResource) Create(ctx context.Context, req resource
 						"event":             plan.Event.ValueString(),
 						"branch":            strings.Join(branchList, ","),
 						"path":              strings.Join(pathList, ","),
+						"pathType":          plan.PathType.ValueString(),
 						"templateId":        plan.TemplateId.ValueString(),
 						"prWorkflowEnabled": plan.PrWorkflowEnabled.ValueBool(),
 						"prApplyEnabled":    plan.PrApplyEnabled.ValueBool(),
@@ -599,6 +630,7 @@ func (r *WorkspaceWebhookEventResource) Read(ctx context.Context, req resource.R
 			Attributes struct {
 				Branch            string `json:"branch"`
 				Path              string `json:"path"`
+				PathType          string `json:"pathType"`
 				TemplateId        string `json:"templateId"`
 				Event             string `json:"event"`
 				Priority          int    `json:"priority"`
@@ -636,6 +668,7 @@ func (r *WorkspaceWebhookEventResource) Read(ctx context.Context, req resource.R
 	pathList, pathDiags := types.ListValueFrom(ctx, types.StringType, strings.Split(eventResp.Data.Attributes.Path, ","))
 	resp.Diagnostics.Append(pathDiags...)
 	state.Path = pathList
+	state.PathType = webhookEventPathTypeToState(eventResp.Data.Attributes.PathType)
 
 	if resp.Diagnostics.HasError() {
 		return
@@ -802,6 +835,7 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 						"event":             plan.Event.ValueString(),
 						"branch":            strings.Join(branchList, ","),
 						"path":              strings.Join(pathList, ","),
+						"pathType":          plan.PathType.ValueString(),
 						"templateId":        plan.TemplateId.ValueString(),
 						"prWorkflowEnabled": plan.PrWorkflowEnabled.ValueBool(),
 						"prApplyEnabled":    plan.PrApplyEnabled.ValueBool(),
@@ -947,6 +981,7 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 		Attributes struct {
 			Branch            string `json:"branch"`
 			Path              string `json:"path"`
+			PathType          string `json:"pathType"`
 			TemplateId        string `json:"templateId"`
 			Event             string `json:"event"`
 			Priority          int    `json:"priority"`
@@ -987,6 +1022,7 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 	plan.Priority = types.Int64Value(int64(foundEvent.Attributes.Priority))
 	plan.PrWorkflowEnabled = types.BoolValue(foundEvent.Attributes.PrWorkflowEnabled)
 	plan.PrApplyEnabled = types.BoolValue(foundEvent.Attributes.PrApplyEnabled)
+	plan.PathType = webhookEventPathTypeToState(foundEvent.Attributes.PathType)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
