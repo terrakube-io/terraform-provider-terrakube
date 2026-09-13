@@ -55,6 +55,7 @@ resource "terrakube_team" "team" {
 - `manage_collection` (Boolean) Allow to manage variables collection
 - `manage_job` (Boolean) Allow to manage and trigger jobs. Legacy field — in RBAC v2, plan_job/approve_job inherit from this when unset.
 - `manage_module` (Boolean) Allow to manage modules
+- `manage_policies` (Boolean) Allow managing OPA policy sets, attachments, and exemptions. Backward-compatible: omitted in requests to older Terrakube APIs when unset.
 - `manage_provider` (Boolean) Allow to manage providers
 - `manage_state` (Boolean) Allow to manage Terraform/OpenTofu state
 - `manage_template` (Boolean) Allow to manage templates

@@ -79,7 +79,8 @@ func TestPolicySetResource_Create(t *testing.T) {
 			"enforcementLevel":"HARD_MANDATORY",
 			"global":true,
 			"branch":"main",
-			"folder":"/"
+			"folder":"/",
+			"opaVersion":"0.68.0"
 		}}}`)
 	})
 
@@ -100,6 +101,7 @@ func TestPolicySetResource_Create(t *testing.T) {
 		"global":            tftypes.NewValue(tftypes.Bool, true),
 		"branch":            tftypes.NewValue(tftypes.String, "main"),
 		"folder":            tftypes.NewValue(tftypes.String, "/"),
+		"opa_version":       tftypes.NewValue(tftypes.String, "0.68.0"),
 	})
 
 	req := resource.CreateRequest{Plan: tfsdk.Plan{Schema: s, Raw: planValue}}
@@ -127,8 +129,14 @@ func TestPolicySetResource_Create(t *testing.T) {
 	if !state.Global.ValueBool() {
 		t.Errorf("Global = false, want true")
 	}
+	if state.OpaVersion.ValueString() != "0.68.0" {
+		t.Errorf("OpaVersion = %q, want 0.68.0", state.OpaVersion.ValueString())
+	}
 	if !contains(receivedBody, `"enforcementLevel":"HARD_MANDATORY"`) {
 		t.Errorf("expected received body to normalize enforcementLevel to uppercase, got: %s", receivedBody)
+	}
+	if !contains(receivedBody, `"opaVersion":"0.68.0"`) {
+		t.Errorf("expected received body to contain opaVersion, got: %s", receivedBody)
 	}
 }
 
@@ -148,7 +156,8 @@ func TestPolicySetResource_Read(t *testing.T) {
 			"overrideTeam":"secops-approvers",
 			"global":false,
 			"branch":"v1.0.0",
-			"folder":"/policies"
+			"folder":"/policies",
+			"opaVersion":"0.68.0"
 		}}}`)
 	})
 
@@ -177,6 +186,10 @@ func TestPolicySetResource_Read(t *testing.T) {
 	var state PolicySetResourceModel
 	if diags := resp.State.Get(ctx, &state); diags.HasError() {
 		t.Fatalf("reading state: %v", diags)
+	}
+
+	if state.OpaVersion.ValueString() != "0.68.0" {
+		t.Errorf("OpaVersion = %q, want 0.68.0", state.OpaVersion.ValueString())
 	}
 
 	if state.Name.ValueString() != "azure-tagging" {

@@ -33,6 +33,7 @@ type TeamDataSourceModel struct {
 	ManageTemplate   types.Bool   `tfsdk:"manage_template"`
 	ManageVcs        types.Bool   `tfsdk:"manage_vcs"`
 	ManageWorkspace  types.Bool   `tfsdk:"manage_workspace"`
+	ManagePolicies   types.Bool   `tfsdk:"manage_policies"`
 }
 
 type TeamDataSource struct {
@@ -127,6 +128,10 @@ func (d *TeamDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, r
 				Computed:    true,
 				Description: "Manage workspaces",
 			},
+			"manage_policies": schema.BoolAttribute{
+				Computed:    true,
+				Description: "Allow managing OPA policy sets, attachments, and exemptions",
+			},
 		},
 	}
 }
@@ -169,6 +174,7 @@ func (d *TeamDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 		state.ManageTemplate = types.BoolValue(data.ManageTemplate)
 		state.ManageVcs = types.BoolValue(data.ManageVcs)
 		state.ManageWorkspace = types.BoolValue(data.ManageWorkspace)
+		state.ManagePolicies = types.BoolPointerValue(data.ManagePolicies)
 	}
 
 	diags := resp.State.Set(ctx, &state)

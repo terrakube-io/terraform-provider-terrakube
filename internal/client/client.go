@@ -40,6 +40,7 @@ type TeamEntity struct {
 	PlanJob          bool    `jsonapi:"attr,planJob"`
 	ApproveJob       bool    `jsonapi:"attr,approveJob"`
 	Role             *string `jsonapi:"attr,role"`
+	ManagePolicies   *bool   `jsonapi:"attr,managePolicies,omitempty"`
 }
 
 type TeamTokenEntity struct {
@@ -310,6 +311,7 @@ type PolicySetEntity struct {
 	Vcs                       *VcsEntity                       `jsonapi:"relation,vcs,omitempty"`
 	Organization              *OrganizationEntity             `jsonapi:"relation,organization,omitempty"`
 	NotificationConfiguration *NotificationConfigurationEntity `jsonapi:"relation,notificationConfiguration,omitempty"`
+	OpaVersion                *string                          `jsonapi:"attr,opaVersion,omitempty"`
 }
 
 type PolicyAttachmentEntity struct {
@@ -318,6 +320,14 @@ type PolicyAttachmentEntity struct {
 	Workspace *WorkspaceEntity       `jsonapi:"relation,workspace,omitempty"`
 	Project   *ProjectEntity         `jsonapi:"relation,project,omitempty"`
 	Tag       *OrganizationTagEntity `jsonapi:"relation,tag,omitempty"`
+}
+
+type PolicySetParameterEntity struct {
+	ID          string           `jsonapi:"primary,policy_set_parameter"`
+	Key         string           `jsonapi:"attr,key"`
+	Value       string           `jsonapi:"attr,value"`
+	Description *string          `jsonapi:"attr,description,omitempty"`
+	PolicySet   *PolicySetEntity `jsonapi:"relation,policySet,omitempty"`
 }
 
 type PolicyExemptionEntity struct {

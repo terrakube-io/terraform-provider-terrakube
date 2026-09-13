@@ -37,6 +37,7 @@ type PolicySetDataSourceModel struct {
 	Folder                      types.String `tfsdk:"folder"`
 	VcsId                       types.String `tfsdk:"vcs_id"`
 	NotificationConfigurationId types.String `tfsdk:"notification_configuration_id"`
+	OpaVersion                  types.String `tfsdk:"opa_version"`
 }
 
 type PolicySetDataSource struct {
@@ -112,6 +113,10 @@ func (d *PolicySetDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 			"notification_configuration_id": schema.StringAttribute{
 				Computed:    true,
 				Description: "Notification configuration ID",
+			},
+			"opa_version": schema.StringAttribute{
+				Computed:    true,
+				Description: "OPA binary version",
 			},
 		},
 	}
@@ -240,6 +245,7 @@ func (d *PolicySetDataSource) Read(ctx context.Context, req datasource.ReadReque
 	} else {
 		state.NotificationConfigurationId = types.StringNull()
 	}
+	state.OpaVersion = types.StringPointerValue(data.OpaVersion)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

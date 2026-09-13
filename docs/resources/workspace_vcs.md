@@ -74,6 +74,7 @@ resource "terrakube_workspace_vcs" "sample2" {
 ### Read-Only
 
 - `id` (String) Workspace CLI Id
+- `policy_compliance_status` (String) OPA Policy compliance status: UNKNOWN, COMPLIANT, NON_COMPLIANT, or EXEMPTED
 
 ## Import
 

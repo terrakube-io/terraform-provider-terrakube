@@ -208,3 +208,100 @@ func TestWorkspaceEntity_PolicyComplianceStatus_MarshalUnmarshalRoundTrip(t *tes
 		t.Errorf("PolicyComplianceStatus = %q, want COMPLIANT", roundTripped.PolicyComplianceStatus)
 	}
 }
+
+func TestPolicySetParameterEntity_MarshalUnmarshalRoundTrip(t *testing.T) {
+	desc := "Maximum allowed resource count"
+	original := &PolicySetParameterEntity{
+		Key:         "max_resources",
+		Value:       "50",
+		Description: &desc,
+		PolicySet:   &PolicySetEntity{ID: "ps-456"},
+	}
+
+	var out bytes.Buffer
+	if err := jsonapi.MarshalPayload(&out, original); err != nil {
+		t.Fatalf("MarshalPayload: %v", err)
+	}
+
+	roundTripped := &PolicySetParameterEntity{}
+	if err := jsonapi.UnmarshalPayload(strings.NewReader(out.String()), roundTripped); err != nil {
+		t.Fatalf("UnmarshalPayload: %v", err)
+	}
+
+	if roundTripped.Key != original.Key {
+		t.Errorf("Key = %q, want %q", roundTripped.Key, original.Key)
+	}
+	if roundTripped.Value != original.Value {
+		t.Errorf("Value = %q, want %q", roundTripped.Value, original.Value)
+	}
+	if roundTripped.Description == nil || *roundTripped.Description != desc {
+		t.Errorf("Description = %v, want %q", roundTripped.Description, desc)
+	}
+	if roundTripped.PolicySet == nil || roundTripped.PolicySet.ID != "ps-456" {
+		t.Errorf("PolicySet = %v, want ID 'ps-456'", roundTripped.PolicySet)
+	}
+}
+
+func TestPolicySetEntity_OpaVersion_MarshalUnmarshalRoundTrip(t *testing.T) {
+	opaVer := "0.68.0"
+	original := &PolicySetEntity{
+		Name:             "opa-ver-test",
+		EnforcementLevel: "HARD_MANDATORY",
+		Global:           false,
+		OpaVersion:       &opaVer,
+	}
+
+	var out bytes.Buffer
+	if err := jsonapi.MarshalPayload(&out, original); err != nil {
+		t.Fatalf("MarshalPayload: %v", err)
+	}
+
+	roundTripped := &PolicySetEntity{}
+	if err := jsonapi.UnmarshalPayload(strings.NewReader(out.String()), roundTripped); err != nil {
+		t.Fatalf("UnmarshalPayload: %v", err)
+	}
+
+	if roundTripped.OpaVersion == nil || *roundTripped.OpaVersion != opaVer {
+		t.Errorf("OpaVersion = %v, want %q", roundTripped.OpaVersion, opaVer)
+	}
+}
+
+func TestTeamEntity_ManagePolicies_MarshalUnmarshalRoundTrip(t *testing.T) {
+	managePolicies := true
+	original := &TeamEntity{
+		Name:           "secops-admins",
+		ManageState:    true,
+		ManagePolicies: &managePolicies,
+	}
+
+	var out bytes.Buffer
+	if err := jsonapi.MarshalPayload(&out, original); err != nil {
+		t.Fatalf("MarshalPayload: %v", err)
+	}
+
+	roundTripped := &TeamEntity{}
+	if err := jsonapi.UnmarshalPayload(strings.NewReader(out.String()), roundTripped); err != nil {
+		t.Fatalf("UnmarshalPayload: %v", err)
+	}
+
+	if roundTripped.ManagePolicies == nil || *roundTripped.ManagePolicies != true {
+		t.Errorf("ManagePolicies = %v, want true", roundTripped.ManagePolicies)
+	}
+}
+
+func TestTeamEntity_ManagePolicies_OmitWhenNil(t *testing.T) {
+	original := &TeamEntity{
+		Name:        "legacy-team",
+		ManageState: true,
+	}
+
+	var out bytes.Buffer
+	if err := jsonapi.MarshalPayload(&out, original); err != nil {
+		t.Fatalf("MarshalPayload: %v", err)
+	}
+
+	rawJSON := out.String()
+	if strings.Contains(rawJSON, "managePolicies") {
+		t.Errorf("Expected managePolicies to be omitted from JSON when nil, got: %s", rawJSON)
+	}
+}

@@ -51,6 +51,7 @@ type TeamResourceModel struct {
 	PlanJob          types.Bool   `tfsdk:"plan_job"`
 	ApproveJob       types.Bool   `tfsdk:"approve_job"`
 	Role             types.String `tfsdk:"role"`
+	ManagePolicies   types.Bool   `tfsdk:"manage_policies"`
 }
 
 func NewTeamResource() resource.Resource {
@@ -163,6 +164,14 @@ func (r *TeamResource) Schema(ctx context.Context, req resource.SchemaRequest, r
 					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
+			"manage_policies": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Allow managing OPA policy sets, attachments, and exemptions. Backward-compatible: omitted in requests to older Terrakube APIs when unset.",
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
 		},
 	}
 }
@@ -228,6 +237,11 @@ func (r *TeamResource) Create(ctx context.Context, req resource.CreateRequest, r
 		bodyRequest.Role = &role
 	}
 
+	if !plan.ManagePolicies.IsNull() && !plan.ManagePolicies.IsUnknown() {
+		mp := plan.ManagePolicies.ValueBool()
+		bodyRequest.ManagePolicies = &mp
+	}
+
 	var out = new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, bodyRequest)
 
@@ -286,6 +300,7 @@ func (r *TeamResource) Create(ctx context.Context, req resource.CreateRequest, r
 	plan.PlanJob = types.BoolValue(newTeam.PlanJob)
 	plan.ApproveJob = types.BoolValue(newTeam.ApproveJob)
 	plan.Role = roleToState(newTeam.Role)
+	plan.ManagePolicies = types.BoolPointerValue(newTeam.ManagePolicies)
 
 	tflog.Info(ctx, "Team Resource Created", map[string]any{"success": true})
 
@@ -355,6 +370,7 @@ func (r *TeamResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	state.PlanJob = types.BoolValue(team.PlanJob)
 	state.ApproveJob = types.BoolValue(team.ApproveJob)
 	state.Role = roleToState(team.Role)
+	state.ManagePolicies = types.BoolPointerValue(team.ManagePolicies)
 
 	// Set refreshed state
 	diags = resp.State.Set(ctx, &state)
@@ -394,6 +410,11 @@ func (r *TeamResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	if !plan.Role.IsNull() && !plan.Role.IsUnknown() {
 		role := plan.Role.ValueString()
 		bodyRequest.Role = &role
+	}
+
+	if !plan.ManagePolicies.IsNull() && !plan.ManagePolicies.IsUnknown() {
+		mp := plan.ManagePolicies.ValueBool()
+		bodyRequest.ManagePolicies = &mp
 	}
 
 	var out = new(bytes.Buffer)
@@ -494,6 +515,7 @@ func (r *TeamResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	plan.PlanJob = types.BoolValue(team.PlanJob)
 	plan.ApproveJob = types.BoolValue(team.ApproveJob)
 	plan.Role = roleToState(team.Role)
+	plan.ManagePolicies = types.BoolPointerValue(team.ManagePolicies)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }

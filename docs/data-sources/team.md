@@ -32,6 +32,7 @@ data "terrakube_team" "example" {
 - `manage_collection` (Boolean) Manages collection
 - `manage_job` (Boolean) Manage Jobs
 - `manage_module` (Boolean) Manage modules
+- `manage_policies` (Boolean) Allow managing OPA policy sets, attachments, and exemptions
 - `manage_provider` (Boolean) Manage providers
 - `manage_state` (Boolean) Manage states
 - `manage_template` (Boolean) Manage templatess

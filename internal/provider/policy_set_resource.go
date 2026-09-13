@@ -48,6 +48,7 @@ type PolicySetResourceModel struct {
 	Branch                      types.String `tfsdk:"branch"`
 	Folder                      types.String `tfsdk:"folder"`
 	NotificationConfigurationId types.String `tfsdk:"notification_configuration_id"`
+	OpaVersion                  types.String `tfsdk:"opa_version"`
 }
 
 func NewPolicySetResource() resource.Resource {
@@ -134,6 +135,10 @@ func (r *PolicySetResource) Schema(ctx context.Context, req resource.SchemaReque
 				Optional:    true,
 				Description: "Notification configuration ID to alert on policy violations",
 			},
+			"opa_version": schema.StringAttribute{
+				Optional:    true,
+				Description: "OPA binary version to execute policies (e.g. 0.68.0)",
+			},
 		},
 	}
 }
@@ -205,6 +210,11 @@ func (r *PolicySetResource) Create(ctx context.Context, req resource.CreateReque
 		bodyRequest.NotificationConfiguration = &client.NotificationConfigurationEntity{ID: plan.NotificationConfigurationId.ValueString()}
 	}
 
+	if !plan.OpaVersion.IsNull() && !plan.OpaVersion.IsUnknown() && plan.OpaVersion.ValueString() != "" {
+		opaVer := plan.OpaVersion.ValueString()
+		bodyRequest.OpaVersion = &opaVer
+	}
+
 	var out bytes.Buffer
 	if err := jsonapi.MarshalPayload(&out, bodyRequest); err != nil {
 		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
@@ -264,6 +274,7 @@ func (r *PolicySetResource) Create(ctx context.Context, req resource.CreateReque
 	if newPolicySet.NotificationConfiguration != nil {
 		plan.NotificationConfigurationId = types.StringValue(newPolicySet.NotificationConfiguration.ID)
 	}
+	plan.OpaVersion = types.StringPointerValue(newPolicySet.OpaVersion)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -334,6 +345,7 @@ func (r *PolicySetResource) Read(ctx context.Context, req resource.ReadRequest, 
 	if policySet.NotificationConfiguration != nil {
 		state.NotificationConfigurationId = types.StringValue(policySet.NotificationConfiguration.ID)
 	}
+	state.OpaVersion = types.StringPointerValue(policySet.OpaVersion)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -374,6 +386,11 @@ func (r *PolicySetResource) Update(ctx context.Context, req resource.UpdateReque
 
 	if !plan.NotificationConfigurationId.IsNull() && !plan.NotificationConfigurationId.IsUnknown() && plan.NotificationConfigurationId.ValueString() != "" {
 		bodyRequest.NotificationConfiguration = &client.NotificationConfigurationEntity{ID: plan.NotificationConfigurationId.ValueString()}
+	}
+
+	if !plan.OpaVersion.IsNull() && !plan.OpaVersion.IsUnknown() && plan.OpaVersion.ValueString() != "" {
+		opaVer := plan.OpaVersion.ValueString()
+		bodyRequest.OpaVersion = &opaVer
 	}
 
 	var out bytes.Buffer

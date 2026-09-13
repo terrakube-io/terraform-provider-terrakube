@@ -41,7 +41,8 @@ type WorkspaceCliResourceModel struct {
 	IaCVersion     types.String `tfsdk:"iac_version"`
 	ExecutionMode  types.String `tfsdk:"execution_mode"`
 	ProjectId      types.String `tfsdk:"project_id"`
-	ModuleSshKey   types.String `tfsdk:"module_ssh_key"`
+	ModuleSshKey           types.String `tfsdk:"module_ssh_key"`
+	PolicyComplianceStatus types.String `tfsdk:"policy_compliance_status"`
 }
 
 func NewWorkspaceCliResource() resource.Resource {
@@ -107,6 +108,10 @@ func (r *WorkspaceCliResource) Schema(ctx context.Context, req resource.SchemaRe
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
+			},
+			"policy_compliance_status": schema.StringAttribute{
+				Computed:    true,
+				Description: "OPA Policy compliance status: UNKNOWN, COMPLIANT, NON_COMPLIANT, or EXEMPTED",
 			},
 		},
 	}
@@ -221,6 +226,7 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 		plan.ProjectId = types.StringNull()
 	}
 	plan.ModuleSshKey = types.StringPointerValue(newWorkspaceCli.ModuleSshKey)
+	plan.PolicyComplianceStatus = types.StringValue(newWorkspaceCli.PolicyComplianceStatus)
 
 	tflog.Info(ctx, "Workspace Cli Resource Created", map[string]any{"success": true})
 
@@ -283,6 +289,7 @@ func (r *WorkspaceCliResource) Read(ctx context.Context, req resource.ReadReques
 		state.ProjectId = types.StringNull()
 	}
 	state.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
+	state.PolicyComplianceStatus = types.StringValue(workspace.PolicyComplianceStatus)
 
 	// Set refreshed state
 	diags = resp.State.Set(ctx, &state)
@@ -393,6 +400,7 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 		plan.ProjectId = types.StringNull()
 	}
 	plan.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
+	plan.PolicyComplianceStatus = types.StringValue(workspace.PolicyComplianceStatus)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
