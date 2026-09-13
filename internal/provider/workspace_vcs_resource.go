@@ -37,21 +37,21 @@ type WorkspaceVcsResource struct {
 }
 
 type WorkspaceVcsResourceModel struct {
-	ID               types.String `tfsdk:"id"`
-	Name             types.String `tfsdk:"name"`
-	OrganizationId   types.String `tfsdk:"organization_id"`
-	Description      types.String `tfsdk:"description"`
-	IaCType          types.String `tfsdk:"iac_type"`
-	TemplateId       types.String `tfsdk:"template_id"`
-	IaCVersion       types.String `tfsdk:"iac_version"`
-	Repository       types.String `tfsdk:"repository"`
-	Branch           types.String `tfsdk:"branch"`
-	Folder           types.String `tfsdk:"folder"`
-	ExecutionMode    types.String `tfsdk:"execution_mode"`
-	VcsId            types.String `tfsdk:"vcs_id"`
-	SshId            types.String `tfsdk:"ssh_id"`
-	AllowRemoteApply types.Bool   `tfsdk:"allow_remote_apply"`
-	ProjectId        types.String `tfsdk:"project_id"`
+	ID                     types.String `tfsdk:"id"`
+	Name                   types.String `tfsdk:"name"`
+	OrganizationId         types.String `tfsdk:"organization_id"`
+	Description            types.String `tfsdk:"description"`
+	IaCType                types.String `tfsdk:"iac_type"`
+	TemplateId             types.String `tfsdk:"template_id"`
+	IaCVersion             types.String `tfsdk:"iac_version"`
+	Repository             types.String `tfsdk:"repository"`
+	Branch                 types.String `tfsdk:"branch"`
+	Folder                 types.String `tfsdk:"folder"`
+	ExecutionMode          types.String `tfsdk:"execution_mode"`
+	VcsId                  types.String `tfsdk:"vcs_id"`
+	SshId                  types.String `tfsdk:"ssh_id"`
+	AllowRemoteApply       types.Bool   `tfsdk:"allow_remote_apply"`
+	ProjectId              types.String `tfsdk:"project_id"`
 	ModuleSshKey           types.String `tfsdk:"module_ssh_key"`
 	PolicyComplianceStatus types.String `tfsdk:"policy_compliance_status"`
 }

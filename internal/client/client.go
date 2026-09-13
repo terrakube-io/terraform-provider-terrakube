@@ -60,23 +60,23 @@ type HistoryEntity struct {
 }
 
 type WorkspaceEntity struct {
-	ID               string         `jsonapi:"primary,workspace"`
-	Name             string         `jsonapi:"attr,name"`
-	Description      *string        `jsonapi:"attr,description"`
-	Source           string         `jsonapi:"attr,source"`
-	Branch           string         `jsonapi:"attr,branch"`
-	Folder           string         `jsonapi:"attr,folder"`
-	TemplateId       string         `jsonapi:"attr,defaultTemplate"`
-	IaCType          string         `jsonapi:"attr,iacType"`
-	IaCVersion       string         `jsonapi:"attr,terraformVersion"`
-	ExecutionMode    string         `jsonapi:"attr,executionMode"`
-	Deleted          bool           `jsonapi:"attr,deleted"`
-	Vcs              *VcsEntity     `jsonapi:"relation,vcs,omitempty"`
-	Ssh              *SshEntity     `jsonapi:"relation,ssh,omitempty"`
-	Project          *ProjectEntity `jsonapi:"relation,project,omitempty"`
-	AllowRemoteApply bool           `jsonapi:"attr,allowRemoteApply"`
-	ModuleSshKey     *string        `jsonapi:"attr,moduleSshKey,omitempty"`
-	PolicyComplianceStatus string   `jsonapi:"attr,policyComplianceStatus,omitempty"`
+	ID                     string         `jsonapi:"primary,workspace"`
+	Name                   string         `jsonapi:"attr,name"`
+	Description            *string        `jsonapi:"attr,description"`
+	Source                 string         `jsonapi:"attr,source"`
+	Branch                 string         `jsonapi:"attr,branch"`
+	Folder                 string         `jsonapi:"attr,folder"`
+	TemplateId             string         `jsonapi:"attr,defaultTemplate"`
+	IaCType                string         `jsonapi:"attr,iacType"`
+	IaCVersion             string         `jsonapi:"attr,terraformVersion"`
+	ExecutionMode          string         `jsonapi:"attr,executionMode"`
+	Deleted                bool           `jsonapi:"attr,deleted"`
+	Vcs                    *VcsEntity     `jsonapi:"relation,vcs,omitempty"`
+	Ssh                    *SshEntity     `jsonapi:"relation,ssh,omitempty"`
+	Project                *ProjectEntity `jsonapi:"relation,project,omitempty"`
+	AllowRemoteApply       bool           `jsonapi:"attr,allowRemoteApply"`
+	ModuleSshKey           *string        `jsonapi:"attr,moduleSshKey,omitempty"`
+	PolicyComplianceStatus string         `jsonapi:"attr,policyComplianceStatus,omitempty"`
 }
 
 type WorkspaceTagEntity struct {
@@ -309,7 +309,7 @@ type PolicySetEntity struct {
 	Branch                    string                           `jsonapi:"attr,branch,omitempty"`
 	Folder                    string                           `jsonapi:"attr,folder,omitempty"`
 	Vcs                       *VcsEntity                       `jsonapi:"relation,vcs,omitempty"`
-	Organization              *OrganizationEntity             `jsonapi:"relation,organization,omitempty"`
+	Organization              *OrganizationEntity              `jsonapi:"relation,organization,omitempty"`
 	NotificationConfiguration *NotificationConfigurationEntity `jsonapi:"relation,notificationConfiguration,omitempty"`
 	OpaVersion                *string                          `jsonapi:"attr,opaVersion,omitempty"`
 }

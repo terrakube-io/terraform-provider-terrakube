@@ -33,14 +33,14 @@ type WorkspaceCliResource struct {
 }
 
 type WorkspaceCliResourceModel struct {
-	ID             types.String `tfsdk:"id"`
-	Name           types.String `tfsdk:"name"`
-	OrganizationId types.String `tfsdk:"organization_id"`
-	Description    types.String `tfsdk:"description"`
-	IaCType        types.String `tfsdk:"iac_type"`
-	IaCVersion     types.String `tfsdk:"iac_version"`
-	ExecutionMode  types.String `tfsdk:"execution_mode"`
-	ProjectId      types.String `tfsdk:"project_id"`
+	ID                     types.String `tfsdk:"id"`
+	Name                   types.String `tfsdk:"name"`
+	OrganizationId         types.String `tfsdk:"organization_id"`
+	Description            types.String `tfsdk:"description"`
+	IaCType                types.String `tfsdk:"iac_type"`
+	IaCVersion             types.String `tfsdk:"iac_version"`
+	ExecutionMode          types.String `tfsdk:"execution_mode"`
+	ProjectId              types.String `tfsdk:"project_id"`
 	ModuleSshKey           types.String `tfsdk:"module_ssh_key"`
 	PolicyComplianceStatus types.String `tfsdk:"policy_compliance_status"`
 }

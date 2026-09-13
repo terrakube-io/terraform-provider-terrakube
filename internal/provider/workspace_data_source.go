@@ -29,21 +29,21 @@ type WorkspaceDataSource struct {
 }
 
 type WorkspaceDataSourceModel struct {
-	ID               types.String `tfsdk:"id"`
-	Name             types.String `tfsdk:"name"`
-	Description      types.String `tfsdk:"description"`
-	Organization     types.String `tfsdk:"organization"`
-	OrganizationID   types.String `tfsdk:"organization_id"`
-	Source           types.String `tfsdk:"source"`
-	Branch           types.String `tfsdk:"branch"`
-	Folder           types.String `tfsdk:"folder"`
-	TemplateID       types.String `tfsdk:"template_id"`
-	IaCType          types.String `tfsdk:"iactype"`
-	IaCVersion       types.String `tfsdk:"iacversion"`
-	ExecutionMode    types.String `tfsdk:"executionmode"`
-	Deleted          types.Bool   `tfsdk:"deleted"`
-	AllowRemoteApply types.Bool   `tfsdk:"allowremoteapply"`
-	VCSID            types.String `tfsdk:"vcsid"`
+	ID                     types.String `tfsdk:"id"`
+	Name                   types.String `tfsdk:"name"`
+	Description            types.String `tfsdk:"description"`
+	Organization           types.String `tfsdk:"organization"`
+	OrganizationID         types.String `tfsdk:"organization_id"`
+	Source                 types.String `tfsdk:"source"`
+	Branch                 types.String `tfsdk:"branch"`
+	Folder                 types.String `tfsdk:"folder"`
+	TemplateID             types.String `tfsdk:"template_id"`
+	IaCType                types.String `tfsdk:"iactype"`
+	IaCVersion             types.String `tfsdk:"iacversion"`
+	ExecutionMode          types.String `tfsdk:"executionmode"`
+	Deleted                types.Bool   `tfsdk:"deleted"`
+	AllowRemoteApply       types.Bool   `tfsdk:"allowremoteapply"`
+	VCSID                  types.String `tfsdk:"vcsid"`
 	SSHID                  types.String `tfsdk:"sshid"`
 	ModuleSshKey           types.String `tfsdk:"module_ssh_key"`
 	PolicyComplianceStatus types.String `tfsdk:"policy_compliance_status"`
