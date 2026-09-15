@@ -165,6 +165,10 @@ func (d *ProjectDataSource) ReadDataFromApi(url string, ctx context.Context, res
 
 	tflog.Info(ctx, string(body))
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading project", resApi, body) {
+		return
+	}
+
 	data, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(structType))
 
 	if err != nil {

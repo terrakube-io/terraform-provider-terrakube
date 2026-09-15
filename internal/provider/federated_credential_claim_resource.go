@@ -145,6 +145,10 @@ func (r *FederatedCredentialClaimResource) Create(ctx context.Context, req resou
 		tflog.Error(ctx, "Error reading federated credential claim resource response")
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating federated credential claim", claimResponse, bodyResponse) {
+		return
+	}
+
 	newClaim := &client.FederatedClaimEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newClaim)
 	if err != nil {
@@ -194,6 +198,10 @@ func (r *FederatedCredentialClaimResource) Read(ctx context.Context, req resourc
 	bodyResponse, err := io.ReadAll(claimResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, "Error reading federated credential claim resource response")
+	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading federated credential claim", claimResponse, bodyResponse) {
+		return
 	}
 
 	claim := &client.FederatedClaimEntity{}
@@ -259,6 +267,10 @@ func (r *FederatedCredentialClaimResource) Update(ctx context.Context, req resou
 	}
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating federated credential claim", claimResponse, bodyResponse) {
+		return
+	}
+
 	claimRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/federated/%s/claims/%s", r.endpoint, state.FederatedCredentialId.ValueString(), state.ID.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating federated credential claim resource request", fmt.Sprintf("Error creating federated credential claim resource request: %s", err))
@@ -279,6 +291,10 @@ func (r *FederatedCredentialClaimResource) Update(ctx context.Context, req resou
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading federated credential claim after update", claimResponse, bodyResponse) {
+		return
+	}
 
 	claim := &client.FederatedClaimEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), claim)

@@ -203,6 +203,11 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace cli resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating workspace", workspaceCliResponse, bodyResponse) {
+		return
+	}
+
 	newWorkspaceCli := &client.WorkspaceEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newWorkspaceCli)
@@ -265,6 +270,11 @@ func (r *WorkspaceCliResource) Read(ctx context.Context, req resource.ReadReques
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace cli resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace", workspaceResponse, bodyResponse) {
+		return
+	}
+
 	workspace := &client.WorkspaceEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -357,6 +367,10 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 		tflog.Error(ctx, "Error reading workspace cli resource response")
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating workspace", organizationResponse, bodyResponse) {
+		return
+	}
+
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	organizationRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
@@ -379,6 +393,10 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace after update", organizationResponse, bodyResponse) {
+		return
+	}
 
 	workspace := &client.WorkspaceEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspace)

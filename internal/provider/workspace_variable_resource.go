@@ -176,6 +176,11 @@ func (r *WorkspaceVariableResource) Create(ctx context.Context, req resource.Cre
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace variable  resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating workspace variable", workspaceVarResponse, bodyResponse) {
+		return
+	}
+
 	workspaceVariable := &client.WorkspaceVariableEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspaceVariable)
@@ -239,6 +244,11 @@ func (r *WorkspaceVariableResource) Read(ctx context.Context, req resource.ReadR
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace variable resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace variable", workspaceVariableResponse, bodyResponse) {
+		return
+	}
+
 	workspaceVariable := &client.WorkspaceVariableEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -325,6 +335,10 @@ func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.Upd
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating workspace variable", workspaceVariableResponse, bodyResponse) {
+		return
+	}
+
 	workspaceVariableReq, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/variable/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Workspace variable resource request", fmt.Sprintf("Error creating Workspace variable resource request: %s", err))
@@ -345,6 +359,10 @@ func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.Upd
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace variable after update", workspaceVariableResponse, bodyResponse) {
+		return
+	}
 
 	workspaceVariable := &client.WorkspaceVariableEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspaceVariable)

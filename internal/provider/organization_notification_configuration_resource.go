@@ -299,6 +299,10 @@ func (r *OrganizationNotificationConfigurationResource) Read(ctx context.Context
 		return
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization notification configuration", response, body) {
+		return
+	}
+
 	configuration := &client.NotificationConfigurationEntity{}
 	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(body)), configuration); err != nil {
 		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))

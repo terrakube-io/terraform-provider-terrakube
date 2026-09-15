@@ -172,6 +172,11 @@ func (r *OrganizationVariableResource) Create(ctx context.Context, req resource.
 	if err != nil {
 		tflog.Error(ctx, "Error reading organization variable  resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating organization variable", organizationVarResponse, bodyResponse) {
+		return
+	}
+
 	organizationVariable := &client.OrganizationVariableEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organizationVariable)
@@ -235,6 +240,11 @@ func (r *OrganizationVariableResource) Read(ctx context.Context, req resource.Re
 	if err != nil {
 		tflog.Error(ctx, "Error reading organization variable resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization variable", organizationVariableResponse, bodyResponse) {
+		return
+	}
+
 	organizationVariable := &client.OrganizationVariableEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -320,6 +330,10 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 		tflog.Error(ctx, "Error reading organization variable resource response")
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating organization variable", organizationVarResponse, bodyResponse) {
+		return
+	}
+
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	organizationVarRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/globalvar/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
@@ -343,6 +357,11 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 	tflog.Info(ctx, "Status"+strconv.Itoa(organizationVarResponse.StatusCode))
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization variable after update", organizationVarResponse, bodyResponse) {
+		return
+	}
+
 	organizationVariable := &client.OrganizationVariableEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organizationVariable)
 

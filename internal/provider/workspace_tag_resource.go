@@ -145,6 +145,11 @@ func (r *WorkspaceTagResource) Create(ctx context.Context, req resource.CreateRe
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace tag resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating workspace tag", workspaceTagResponse, bodyResponse) {
+		return
+	}
+
 	newWorkspaceTag := &client.WorkspaceTagEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newWorkspaceTag)
@@ -200,6 +205,11 @@ func (r *WorkspaceTagResource) Read(ctx context.Context, req resource.ReadReques
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace tag resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace tag", workspaceTagResponse, bodyResponse) {
+		return
+	}
+
 	workspaceTag := &client.WorkspaceTagEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})

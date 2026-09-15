@@ -173,6 +173,10 @@ func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		tflog.Error(ctx, fmt.Sprintf("Error reading Output response part 4, response status: %s, error: %s", resFile.Status, err))
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "downloading workspace output", resFile, bodyFile) {
+		return
+	}
+
 	var result map[string]interface{}
 	err = json.Unmarshal(bodyFile, &result)
 	if err != nil {
@@ -452,6 +456,10 @@ func (d *OutputDataSource) ReadDataFromApi(url string, ctx context.Context, resp
 	}
 
 	tflog.Info(ctx, string(body))
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace output", resApi, body) {
+		return
+	}
 
 	data, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(structType))
 

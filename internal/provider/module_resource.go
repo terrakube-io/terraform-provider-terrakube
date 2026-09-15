@@ -204,6 +204,10 @@ func (r *ModuleResource) Create(ctx context.Context, req resource.CreateRequest,
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating module", moduleResponse, bodyResponse) {
+		return
+	}
+
 	newModule := &client.ModuleEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newModule)
@@ -266,6 +270,11 @@ func (r *ModuleResource) Read(ctx context.Context, req resource.ReadRequest, res
 	if err != nil {
 		tflog.Error(ctx, "Error reading module resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading module", moduleResponse, bodyResponse) {
+		return
+	}
+
 	module := &client.ModuleEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -376,6 +385,10 @@ func (r *ModuleResource) Update(ctx context.Context, req resource.UpdateRequest,
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating module", teamResponse, bodyResponse) {
+		return
+	}
+
 	moduleRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/module/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating module resource request", fmt.Sprintf("Error creating team resource request: %s", err))
@@ -396,6 +409,10 @@ func (r *ModuleResource) Update(ctx context.Context, req resource.UpdateRequest,
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading module after update", teamResponse, bodyResponse) {
+		return
+	}
 
 	module := &client.ModuleEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), module)

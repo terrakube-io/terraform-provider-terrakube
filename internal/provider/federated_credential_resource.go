@@ -143,6 +143,10 @@ func (r *FederatedCredentialResource) Create(ctx context.Context, req resource.C
 		tflog.Error(ctx, "Error reading federated credential resource response")
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating federated credential", federatedResponse, bodyResponse) {
+		return
+	}
+
 	newFederated := &client.FederatedEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newFederated)
 	if err != nil {
@@ -193,6 +197,10 @@ func (r *FederatedCredentialResource) Read(ctx context.Context, req resource.Rea
 	bodyResponse, err := io.ReadAll(federatedResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, "Error reading federated credential resource response")
+	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading federated credential", federatedResponse, bodyResponse) {
+		return
 	}
 
 	federated := &client.FederatedEntity{}
@@ -260,6 +268,10 @@ func (r *FederatedCredentialResource) Update(ctx context.Context, req resource.U
 	}
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating federated credential", federatedResponse, bodyResponse) {
+		return
+	}
+
 	federatedRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/federated/%s", r.endpoint, state.ID.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating federated credential resource request", fmt.Sprintf("Error creating federated credential resource request: %s", err))
@@ -280,6 +292,10 @@ func (r *FederatedCredentialResource) Update(ctx context.Context, req resource.U
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading federated credential after update", federatedResponse, bodyResponse) {
+		return
+	}
 
 	federated := &client.FederatedEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), federated)

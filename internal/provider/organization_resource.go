@@ -157,6 +157,10 @@ func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRe
 		tflog.Error(ctx, "Error reading organization resource response")
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating organization", organizationResponse, bodyResponse) {
+		return
+	}
+
 	newOrganization := &client.OrganizationEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newOrganization)
@@ -212,6 +216,11 @@ func (r *OrganizationResource) Read(ctx context.Context, req resource.ReadReques
 	if err != nil {
 		tflog.Error(ctx, "Error reading organization resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization", organizationResponse, bodyResponse) {
+		return
+	}
+
 	organization := &client.OrganizationEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -287,6 +296,10 @@ func (r *OrganizationResource) Update(ctx context.Context, req resource.UpdateRe
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating organization", organizationResponse, bodyResponse) {
+		return
+	}
+
 	organizationRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s", r.endpoint, state.ID.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization resource request", fmt.Sprintf("Error creating organization resource request: %s", err))
@@ -307,6 +320,10 @@ func (r *OrganizationResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization after update", organizationResponse, bodyResponse) {
+		return
+	}
 
 	organization := &client.OrganizationEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organization)
