@@ -180,6 +180,10 @@ func (r *TeamTokenResource) Create(ctx context.Context, req resource.CreateReque
 	if err != nil {
 		tflog.Error(ctx, "Error reading team token resource response")
 	}
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating team token", teamTokenResponse, bodyResponse) {
+		return
+	}
+
 	newTeamToken := &client.TeamTokenEntity{}
 
 	err = json.Unmarshal(bodyResponse, newTeamToken)
@@ -229,6 +233,10 @@ func (r *TeamTokenResource) Read(ctx context.Context, req resource.ReadRequest, 
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading team token resource response, error: %s, response status %s", err, teamTokenResponse.Status))
 	}
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading team tokens", teamTokenResponse, bodyResponse) {
+		return
+	}
+
 	teamTokens := &[]client.TeamTokenEntity{}
 
 	tflog.Debug(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})

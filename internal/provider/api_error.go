@@ -10,6 +10,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 )
 
+// Terraform prints diagnostic details in full, so an HTML error page or stack
+// trace from a failing backend would otherwise become the entire error output.
+const maxErrorDetailBytes = 4096
+
 // reportAPIErrorStatus adds a diagnostic naming the HTTP status and the API's own
 // error message when the response is not 2xx, and reports whether it did so.
 // Call it before unmarshaling a response body: jsonapi rejects an error payload
@@ -41,8 +45,11 @@ func apiErrorDetail(body []byte) string {
 	}
 
 	if raw := strings.TrimSpace(string(body)); raw != "" {
+		if len(raw) > maxErrorDetailBytes {
+			return raw[:maxErrorDetailBytes] + "\n[response body truncated]"
+		}
 		return raw
 	}
 
-	return "The API returned no response body."
+	return "The API returned no readable response body."
 }

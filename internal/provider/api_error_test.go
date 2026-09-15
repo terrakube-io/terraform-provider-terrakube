@@ -59,7 +59,7 @@ func TestReportAPIErrorStatus(t *testing.T) {
 			body:        "",
 			wantError:   true,
 			wantSummary: "Error creating organization variable: 403 Forbidden",
-			wantDetail:  "The API returned no response body.",
+			wantDetail:  "The API returned no readable response body.",
 		},
 		{
 			name:        "error list without details falls back to the body",
@@ -95,6 +95,17 @@ func TestReportAPIErrorStatus(t *testing.T) {
 				t.Errorf("detail: expected %q, got %q", test.wantDetail, got)
 			}
 		})
+	}
+}
+
+func TestApiErrorDetailTruncatesLongBody(t *testing.T) {
+	detail := apiErrorDetail([]byte("<html>" + strings.Repeat("x", 2*maxErrorDetailBytes) + "</html>"))
+
+	if len(detail) > maxErrorDetailBytes+len("\n[response body truncated]") {
+		t.Fatalf("expected detail to be capped, got %d bytes", len(detail))
+	}
+	if !strings.HasSuffix(detail, "[response body truncated]") {
+		t.Errorf("expected truncation marker, got tail %q", detail[len(detail)-40:])
 	}
 }
 

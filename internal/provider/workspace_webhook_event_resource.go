@@ -277,6 +277,10 @@ func (r *WorkspaceWebhookEventResource) Create(ctx context.Context, req resource
 		return
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace webhook", webhookResponse, webhookBody) {
+		return
+	}
+
 	var webhookResp webhookAPIResponse
 	if err := json.Unmarshal(webhookBody, &webhookResp); err != nil {
 		resp.Diagnostics.AddError("Error parsing webhook response", fmt.Sprintf("Error parsing webhook response: %s", err))
@@ -448,6 +452,10 @@ func (r *WorkspaceWebhookEventResource) Delete(ctx context.Context, req resource
 	if webhookResponse.StatusCode == http.StatusNotFound {
 		// If the webhook is not found, we can consider the event deleted
 		tflog.Info(ctx, "Webhook not found, considering event deleted", map[string]any{"success": true})
+		return
+	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace webhook", webhookResponse, webhookBody) {
 		return
 	}
 
@@ -682,6 +690,10 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 		return
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace webhook", webhookResponse, webhookBody) {
+		return
+	}
+
 	var webhookDetails webhookAPIResponse
 	if err := json.Unmarshal(webhookBody, &webhookDetails); err != nil {
 		resp.Diagnostics.AddError("Error parsing webhook response", fmt.Sprintf("Error parsing webhook response: %s", err))
@@ -748,6 +760,10 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 				} `json:"organization"`
 			} `json:"relationships"`
 		} `json:"data"`
+	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace", workspaceResponse, workspaceBody) {
+		return
 	}
 
 	if err := json.Unmarshal(workspaceBody, &workspaceResp); err != nil {
@@ -903,6 +919,10 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 	bodyResponse, err = io.ReadAll(response.Body)
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading webhook event response", fmt.Sprintf("Error reading webhook event response: %s", err))
+		return
+	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace webhook event after update", response, bodyResponse) {
 		return
 	}
 

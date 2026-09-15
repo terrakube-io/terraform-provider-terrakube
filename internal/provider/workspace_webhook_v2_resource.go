@@ -368,15 +368,11 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating workspace webhook", response, bodyResponse) {
 		tflog.Error(ctx, "API returned error status", map[string]any{
 			"status_code": response.StatusCode,
 			"body":        string(bodyResponse),
 		})
-		resp.Diagnostics.AddError(
-			fmt.Sprintf("Failed to create/update webhook: %s", response.Status),
-			string(bodyResponse),
-		)
 		return
 	}
 
@@ -400,6 +396,10 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace webhook after update", response, bodyResponse) {
+		return
+	}
 
 	var responseData struct {
 		Data struct {
