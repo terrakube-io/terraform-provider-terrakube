@@ -20,6 +20,10 @@ resource "terrakube_workspace_cli" "sample1" {
   execution_mode  = "remote"
   iac_type        = "terraform"
   iac_version     = "1.5.7"
+
+  # Optional: pin the workspace to a specific executor agent
+  # (see terrakube_self_hosted_agent).
+  agent_id = terrakube_self_hosted_agent.example.id
 }
 
 resource "terrakube_workspace_cli" "sample2" {
@@ -59,6 +63,7 @@ resource "terrakube_workspace_cli" "sample3" {
 
 ### Optional
 
+- `agent_id` (String) Id of the executor agent (see terrakube_self_hosted_agent) that runs jobs for this workspace. Leave unset to leave any existing agent assignment (e.g. made outside Terraform) untouched.
 - `description` (String) Workspace CLI description
 - `module_ssh_key` (String) SSH key ID (see terrakube_ssh) used to download private Terraform/OpenTofu modules referenced via git-based module sources within this workspace. Leave unset to leave any existing value untouched; set to an empty string to clear it.
 - `project_id` (String) Id of the project this workspace belongs to. Leave unset to leave any existing project assignment (e.g. made outside Terraform) untouched.

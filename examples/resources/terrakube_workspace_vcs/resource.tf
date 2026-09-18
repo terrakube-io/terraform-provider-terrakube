@@ -11,6 +11,10 @@ resource "terrakube_workspace_vcs" "sample1" {
   iac_version     = "1.5.7"
   project_id      = terrakube_project.project.id
 
+  # Optional: pin the workspace to a specific executor agent
+  # (see terrakube_self_hosted_agent).
+  agent_id = terrakube_self_hosted_agent.example.id
+
   # Optional: use an org SSH key to download private Terraform/OpenTofu
   # modules referenced via git-based module sources in this workspace.
   module_ssh_key = terrakube_ssh.module_key.id

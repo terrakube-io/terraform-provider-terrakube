@@ -199,3 +199,243 @@ func TestWorkspaceVcsResource_Update_ResolvesProjectIdToNullWhenApiReturnsNoProj
 		t.Errorf("expected project_id to be null after update since the API returned no project, got: %v", result.ProjectId)
 	}
 }
+
+// TestWorkspaceVcsResource_Create_IncludesAgentRelationshipWhenAgentIdSet
+// verifies that an explicit agent_id in the plan is sent to the API as an
+// "agent" to-one relationship and that the id is reflected back into state.
+func TestWorkspaceVcsResource_Create_IncludesAgentRelationshipWhenAgentIdSet(t *testing.T) {
+	ctx := context.Background()
+	s, objType := workspaceVcsSchemaAndType(t, ctx)
+
+	const orgID = "org-1"
+
+	var capturedBody []byte
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/organization/"+orgID+"/workspace", func(w http.ResponseWriter, req *http.Request) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("reading request body: %v", err)
+		}
+		capturedBody = body
+		fmt.Fprint(w, `{"data":{"type":"workspace","id":"ws-created-1","attributes":{`+
+			`"name":"my-workspace","description":null,"source":"https://example.com/repo.git",`+
+			`"branch":"main","folder":"/","defaultTemplate":"tmpl-1","iacType":"terraform",`+
+			`"terraformVersion":"1.12.0","executionMode":"remote","allowRemoteApply":false,`+
+			`"policyComplianceStatus":"UNKNOWN"},`+
+			`"relationships":{"agent":{"data":{"type":"agent","id":"agent-123"}}}}}`)
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	r := &WorkspaceVcsResource{
+		client:   server.Client(),
+		endpoint: server.URL,
+		token:    "test-token",
+	}
+
+	planValue := buildObjectValue(objType, map[string]tftypes.Value{
+		"organization_id":    tftypes.NewValue(tftypes.String, orgID),
+		"name":               tftypes.NewValue(tftypes.String, "my-workspace"),
+		"repository":         tftypes.NewValue(tftypes.String, "https://example.com/repo.git"),
+		"template_id":        tftypes.NewValue(tftypes.String, "tmpl-1"),
+		"iac_version":        tftypes.NewValue(tftypes.String, "1.12.0"),
+		"branch":             tftypes.NewValue(tftypes.String, "main"),
+		"folder":             tftypes.NewValue(tftypes.String, "/"),
+		"iac_type":           tftypes.NewValue(tftypes.String, "terraform"),
+		"execution_mode":     tftypes.NewValue(tftypes.String, "remote"),
+		"allow_remote_apply": tftypes.NewValue(tftypes.Bool, false),
+		"agent_id":           tftypes.NewValue(tftypes.String, "agent-123"),
+		// project_id is intentionally left null.
+	})
+
+	req := resource.CreateRequest{Plan: tfsdk.Plan{Schema: s, Raw: planValue}}
+	resp := &resource.CreateResponse{State: tfsdk.State{Schema: s}}
+
+	r.Create(ctx, req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Create returned diagnostics: %v", resp.Diagnostics)
+	}
+
+	if !strings.Contains(string(capturedBody), `"agent"`) {
+		t.Errorf("expected request body to include the agent relationship when agent_id is set, got: %s", capturedBody)
+	}
+	if !strings.Contains(string(capturedBody), `"agent-123"`) {
+		t.Errorf("expected request body to include the agent id, got: %s", capturedBody)
+	}
+
+	var result WorkspaceVcsResourceModel
+	if diags := resp.State.Get(ctx, &result); diags.HasError() {
+		t.Fatalf("reading resulting state: %v", diags)
+	}
+
+	if result.AgentId.IsUnknown() {
+		t.Error("expected agent_id to be resolved after create, but it is still unknown")
+	}
+	if result.AgentId.ValueString() != "agent-123" {
+		t.Errorf("expected agent_id to be %q after create, got: %v", "agent-123", result.AgentId)
+	}
+}
+
+// TestWorkspaceVcsResource_Create_OmitsAgentRelationshipWhenAgentIdUnset
+// mirrors the project_id regression test: agent_id is Optional+Computed with
+// no Default, so an absent config value arrives as *unknown* during Create.
+// The provider must omit the relationship entirely and resolve state to null.
+func TestWorkspaceVcsResource_Create_OmitsAgentRelationshipWhenAgentIdUnset(t *testing.T) {
+	ctx := context.Background()
+	s, objType := workspaceVcsSchemaAndType(t, ctx)
+
+	const orgID = "org-1"
+
+	var capturedBody []byte
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/organization/"+orgID+"/workspace", func(w http.ResponseWriter, req *http.Request) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("reading request body: %v", err)
+		}
+		capturedBody = body
+		fmt.Fprint(w, `{"data":{"type":"workspace","id":"ws-created-1","attributes":{`+
+			`"name":"my-workspace","description":null,"source":"https://example.com/repo.git",`+
+			`"branch":"main","folder":"/","defaultTemplate":"tmpl-1","iacType":"terraform",`+
+			`"terraformVersion":"1.12.0","executionMode":"remote","allowRemoteApply":false,`+
+			`"policyComplianceStatus":"UNKNOWN"}}}`)
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	r := &WorkspaceVcsResource{
+		client:   server.Client(),
+		endpoint: server.URL,
+		token:    "test-token",
+	}
+
+	planValue := buildObjectValue(objType, map[string]tftypes.Value{
+		"organization_id":    tftypes.NewValue(tftypes.String, orgID),
+		"name":               tftypes.NewValue(tftypes.String, "my-workspace"),
+		"repository":         tftypes.NewValue(tftypes.String, "https://example.com/repo.git"),
+		"template_id":        tftypes.NewValue(tftypes.String, "tmpl-1"),
+		"iac_version":        tftypes.NewValue(tftypes.String, "1.12.0"),
+		"branch":             tftypes.NewValue(tftypes.String, "main"),
+		"folder":             tftypes.NewValue(tftypes.String, "/"),
+		"iac_type":           tftypes.NewValue(tftypes.String, "terraform"),
+		"execution_mode":     tftypes.NewValue(tftypes.String, "remote"),
+		"allow_remote_apply": tftypes.NewValue(tftypes.Bool, false),
+		// agent_id is intentionally left unknown, matching what Terraform
+		// actually produces for an Optional+Computed attribute that's absent
+		// from config during Create (never null).
+		"agent_id": tftypes.NewValue(tftypes.String, tftypes.UnknownValue),
+	})
+
+	req := resource.CreateRequest{Plan: tfsdk.Plan{Schema: s, Raw: planValue}}
+	resp := &resource.CreateResponse{State: tfsdk.State{Schema: s}}
+
+	r.Create(ctx, req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Create returned diagnostics: %v", resp.Diagnostics)
+	}
+
+	if strings.Contains(string(capturedBody), `"agent"`) {
+		t.Errorf("expected request body to omit the agent relationship when agent_id is unset, got: %s", capturedBody)
+	}
+
+	var result WorkspaceVcsResourceModel
+	if diags := resp.State.Get(ctx, &result); diags.HasError() {
+		t.Fatalf("reading resulting state: %v", diags)
+	}
+
+	if result.AgentId.IsUnknown() {
+		t.Error("expected agent_id to be resolved to null after create, but it is still unknown (Terraform's protocol rejects unknown values after apply)")
+	}
+	if !result.AgentId.IsNull() {
+		t.Errorf("expected agent_id to be null after create since the API returned no agent, got: %v", result.AgentId)
+	}
+}
+
+// TestWorkspaceVcsResource_Update_ResolvesAgentIdToNullWhenApiReturnsNoAgent
+// mirrors the project_id Update regression test: if the API reports no agent
+// relationship, AgentId must be explicitly set to null rather than left
+// holding a stale prior value (or unknown).
+func TestWorkspaceVcsResource_Update_ResolvesAgentIdToNullWhenApiReturnsNoAgent(t *testing.T) {
+	ctx := context.Background()
+	s, objType := workspaceVcsSchemaAndType(t, ctx)
+
+	const (
+		orgID = "org-1"
+		wsID  = "ws-1"
+	)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/organization/"+orgID+"/workspace/"+wsID, func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprint(w, `{"data":{"type":"workspace","id":"ws-1","attributes":{`+
+			`"name":"my-workspace","description":null,"source":"https://example.com/repo.git",`+
+			`"branch":"main","folder":"/","defaultTemplate":"tmpl-1","iacType":"terraform",`+
+			`"terraformVersion":"1.12.0","executionMode":"remote","allowRemoteApply":false,`+
+			`"policyComplianceStatus":"UNKNOWN"},`+
+			`"relationships":{"agent":{"data":null}}}}`)
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	r := &WorkspaceVcsResource{
+		client:   server.Client(),
+		endpoint: server.URL,
+		token:    "test-token",
+	}
+
+	base := map[string]tftypes.Value{
+		"id":                 tftypes.NewValue(tftypes.String, wsID),
+		"organization_id":    tftypes.NewValue(tftypes.String, orgID),
+		"name":               tftypes.NewValue(tftypes.String, "my-workspace"),
+		"repository":         tftypes.NewValue(tftypes.String, "https://example.com/repo.git"),
+		"template_id":        tftypes.NewValue(tftypes.String, "tmpl-1"),
+		"iac_version":        tftypes.NewValue(tftypes.String, "1.12.0"),
+		"branch":             tftypes.NewValue(tftypes.String, "main"),
+		"folder":             tftypes.NewValue(tftypes.String, "/"),
+		"iac_type":           tftypes.NewValue(tftypes.String, "terraform"),
+		"execution_mode":     tftypes.NewValue(tftypes.String, "remote"),
+		"allow_remote_apply": tftypes.NewValue(tftypes.Bool, false),
+	}
+
+	// Prior state had an agent_id set (e.g. assigned outside Terraform, or
+	// by a previous apply); the new plan drops it.
+	stateOverrides := map[string]tftypes.Value{}
+	for k, v := range base {
+		stateOverrides[k] = v
+	}
+	stateOverrides["agent_id"] = tftypes.NewValue(tftypes.String, "old-agent")
+
+	planOverrides := map[string]tftypes.Value{}
+	for k, v := range base {
+		planOverrides[k] = v
+	}
+	planOverrides["agent_id"] = tftypes.NewValue(tftypes.String, tftypes.UnknownValue)
+
+	req := resource.UpdateRequest{
+		State: tfsdk.State{Schema: s, Raw: buildObjectValue(objType, stateOverrides)},
+		Plan:  tfsdk.Plan{Schema: s, Raw: buildObjectValue(objType, planOverrides)},
+	}
+	resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+
+	r.Update(ctx, req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Update returned diagnostics: %v", resp.Diagnostics)
+	}
+
+	var result WorkspaceVcsResourceModel
+	if diags := resp.State.Get(ctx, &result); diags.HasError() {
+		t.Fatalf("reading resulting state: %v", diags)
+	}
+
+	if result.AgentId.IsUnknown() {
+		t.Error("expected agent_id to be resolved to null after update, but it is still unknown (Terraform's protocol rejects unknown values after apply)")
+	}
+	if !result.AgentId.IsNull() {
+		t.Errorf("expected agent_id to be null after update since the API returned no agent, got: %v", result.AgentId)
+	}
+}

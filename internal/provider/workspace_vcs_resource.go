@@ -52,6 +52,7 @@ type WorkspaceVcsResourceModel struct {
 	SshId                  types.String `tfsdk:"ssh_id"`
 	AllowRemoteApply       types.Bool   `tfsdk:"allow_remote_apply"`
 	ProjectId              types.String `tfsdk:"project_id"`
+	AgentId                types.String `tfsdk:"agent_id"`
 	ModuleSshKey           types.String `tfsdk:"module_ssh_key"`
 	PolicyComplianceStatus types.String `tfsdk:"policy_compliance_status"`
 }
@@ -173,6 +174,14 @@ func (r *WorkspaceVcsResource) Schema(ctx context.Context, req resource.SchemaRe
 					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
+			"agent_id": schema.StringAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Id of the executor agent (see terrakube_self_hosted_agent) that runs jobs for this workspace. Leave unset to leave any existing agent assignment (e.g. made outside Terraform) untouched.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
 			"policy_compliance_status": schema.StringAttribute{
 				Computed:    true,
 				Description: "OPA Policy compliance status: UNKNOWN, COMPLIANT, NON_COMPLIANT, or EXEMPTED",
@@ -254,6 +263,10 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
+	if !plan.AgentId.IsNull() && !plan.AgentId.IsUnknown() {
+		bodyRequest.Agent = &client.AgentEntity{ID: plan.AgentId.ValueString()}
+	}
+
 	var out = new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, bodyRequest)
 
@@ -307,6 +320,12 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 		plan.ProjectId = types.StringValue(newWorkspaceVcs.Project.ID)
 	} else {
 		plan.ProjectId = types.StringNull()
+	}
+
+	if newWorkspaceVcs.Agent != nil {
+		plan.AgentId = types.StringValue(newWorkspaceVcs.Agent.ID)
+	} else {
+		plan.AgentId = types.StringNull()
 	}
 
 	if !plan.VcsId.IsNull() {
@@ -406,6 +425,12 @@ func (r *WorkspaceVcsResource) Read(ctx context.Context, req resource.ReadReques
 		state.ProjectId = types.StringNull()
 	}
 
+	if workspace.Agent != nil {
+		state.AgentId = types.StringValue(workspace.Agent.ID)
+	} else {
+		state.AgentId = types.StringNull()
+	}
+
 	// Set refreshed state
 	diags = resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
@@ -456,6 +481,10 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 
 	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() {
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
+	}
+
+	if !plan.AgentId.IsNull() && !plan.AgentId.IsUnknown() {
+		bodyRequest.Agent = &client.AgentEntity{ID: plan.AgentId.ValueString()}
 	}
 
 	var out = new(bytes.Buffer)
@@ -541,6 +570,12 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 		plan.ProjectId = types.StringValue(workspace.Project.ID)
 	} else {
 		plan.ProjectId = types.StringNull()
+	}
+
+	if workspace.Agent != nil {
+		plan.AgentId = types.StringValue(workspace.Agent.ID)
+	} else {
+		plan.AgentId = types.StringNull()
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)

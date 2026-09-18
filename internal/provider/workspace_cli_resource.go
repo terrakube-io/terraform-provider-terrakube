@@ -41,6 +41,7 @@ type WorkspaceCliResourceModel struct {
 	IaCVersion             types.String `tfsdk:"iac_version"`
 	ExecutionMode          types.String `tfsdk:"execution_mode"`
 	ProjectId              types.String `tfsdk:"project_id"`
+	AgentId                types.String `tfsdk:"agent_id"`
 	ModuleSshKey           types.String `tfsdk:"module_ssh_key"`
 	PolicyComplianceStatus types.String `tfsdk:"policy_compliance_status"`
 }
@@ -95,6 +96,14 @@ func (r *WorkspaceCliResource) Schema(ctx context.Context, req resource.SchemaRe
 				Optional:    true,
 				Computed:    true,
 				Description: "Id of the project this workspace belongs to. Leave unset to leave any existing project assignment (e.g. made outside Terraform) untouched.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"agent_id": schema.StringAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Id of the executor agent (see terrakube_self_hosted_agent) that runs jobs for this workspace. Leave unset to leave any existing agent assignment (e.g. made outside Terraform) untouched.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
@@ -173,6 +182,10 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
+	if !plan.AgentId.IsNull() && !plan.AgentId.IsUnknown() {
+		bodyRequest.Agent = &client.AgentEntity{ID: plan.AgentId.ValueString()}
+	}
+
 	if !plan.ModuleSshKey.IsNull() && !plan.ModuleSshKey.IsUnknown() {
 		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
 	}
@@ -224,6 +237,11 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 		plan.ProjectId = types.StringValue(newWorkspaceCli.Project.ID)
 	} else {
 		plan.ProjectId = types.StringNull()
+	}
+	if newWorkspaceCli.Agent != nil {
+		plan.AgentId = types.StringValue(newWorkspaceCli.Agent.ID)
+	} else {
+		plan.AgentId = types.StringNull()
 	}
 	plan.ModuleSshKey = types.StringPointerValue(newWorkspaceCli.ModuleSshKey)
 	plan.PolicyComplianceStatus = types.StringValue(newWorkspaceCli.PolicyComplianceStatus)
@@ -288,6 +306,11 @@ func (r *WorkspaceCliResource) Read(ctx context.Context, req resource.ReadReques
 	} else {
 		state.ProjectId = types.StringNull()
 	}
+	if workspace.Agent != nil {
+		state.AgentId = types.StringValue(workspace.Agent.ID)
+	} else {
+		state.AgentId = types.StringNull()
+	}
 	state.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
 	state.PolicyComplianceStatus = types.StringValue(workspace.PolicyComplianceStatus)
 
@@ -324,6 +347,10 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 
 	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() {
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
+	}
+
+	if !plan.AgentId.IsNull() && !plan.AgentId.IsUnknown() {
+		bodyRequest.Agent = &client.AgentEntity{ID: plan.AgentId.ValueString()}
 	}
 
 	if !plan.ModuleSshKey.IsNull() && !plan.ModuleSshKey.IsUnknown() {
@@ -398,6 +425,11 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 		plan.ProjectId = types.StringValue(workspace.Project.ID)
 	} else {
 		plan.ProjectId = types.StringNull()
+	}
+	if workspace.Agent != nil {
+		plan.AgentId = types.StringValue(workspace.Agent.ID)
+	} else {
+		plan.AgentId = types.StringNull()
 	}
 	plan.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
 	plan.PolicyComplianceStatus = types.StringValue(workspace.PolicyComplianceStatus)

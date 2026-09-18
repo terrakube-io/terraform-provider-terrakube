@@ -305,3 +305,62 @@ func TestTeamEntity_ManagePolicies_OmitWhenNil(t *testing.T) {
 		t.Errorf("Expected managePolicies to be omitted from JSON when nil, got: %s", rawJSON)
 	}
 }
+
+func TestWorkspaceEntity_Agent_MarshalUnmarshalRoundTrip(t *testing.T) {
+	original := &WorkspaceEntity{
+		Name:          "test-workspace",
+		Source:        "https://github.com/org/repo",
+		Branch:        "main",
+		Folder:        "/",
+		IaCType:       "terraform",
+		IaCVersion:    "1.15.8",
+		ExecutionMode: "remote",
+		Agent:         &AgentEntity{ID: "agent-123"},
+	}
+
+	var out bytes.Buffer
+	if err := jsonapi.MarshalPayload(&out, original); err != nil {
+		t.Fatalf("MarshalPayload: %v", err)
+	}
+
+	// The marshaled payload must carry the agent relationship with the
+	// JSON:API type "agent" (matches @Entity(name = "agent") on the API side).
+	rawJSON := out.String()
+	if !strings.Contains(rawJSON, `"agent"`) {
+		t.Errorf("Expected agent relationship in marshaled payload, got: %s", rawJSON)
+	}
+
+	roundTripped := &WorkspaceEntity{}
+	if err := jsonapi.UnmarshalPayload(strings.NewReader(rawJSON), roundTripped); err != nil {
+		t.Fatalf("UnmarshalPayload: %v", err)
+	}
+
+	if roundTripped.Agent == nil {
+		t.Fatalf("Agent relationship lost during round-trip, payload: %s", rawJSON)
+	}
+	if roundTripped.Agent.ID != "agent-123" {
+		t.Errorf("Agent.ID = %q, want %q", roundTripped.Agent.ID, "agent-123")
+	}
+}
+
+func TestWorkspaceEntity_Agent_OmitWhenNil(t *testing.T) {
+	original := &WorkspaceEntity{
+		Name:          "test-workspace",
+		Source:        "https://github.com/org/repo",
+		Branch:        "main",
+		Folder:        "/",
+		IaCType:       "terraform",
+		IaCVersion:    "1.15.8",
+		ExecutionMode: "remote",
+	}
+
+	var out bytes.Buffer
+	if err := jsonapi.MarshalPayload(&out, original); err != nil {
+		t.Fatalf("MarshalPayload: %v", err)
+	}
+
+	rawJSON := out.String()
+	if strings.Contains(rawJSON, "agent") {
+		t.Errorf("Expected agent relationship to be omitted from JSON when nil, got: %s", rawJSON)
+	}
+}

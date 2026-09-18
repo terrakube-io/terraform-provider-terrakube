@@ -26,6 +26,10 @@ resource "terrakube_workspace_vcs" "sample1" {
   iac_version     = "1.5.7"
   project_id      = terrakube_project.project.id
 
+  # Optional: pin the workspace to a specific executor agent
+  # (see terrakube_self_hosted_agent).
+  agent_id = terrakube_self_hosted_agent.example.id
+
   # Optional: use an org SSH key to download private Terraform/OpenTofu
   # modules referenced via git-based module sources in this workspace.
   module_ssh_key = terrakube_ssh.module_key.id
@@ -60,6 +64,7 @@ resource "terrakube_workspace_vcs" "sample2" {
 
 ### Optional
 
+- `agent_id` (String) Id of the executor agent (see terrakube_self_hosted_agent) that runs jobs for this workspace. Leave unset to leave any existing agent assignment (e.g. made outside Terraform) untouched.
 - `allow_remote_apply` (Boolean) Wether to allow remote apply. By default false to respect VCS philosophy.
 - `branch` (String) Workspace VCS branch
 - `description` (String) Workspace VCS description

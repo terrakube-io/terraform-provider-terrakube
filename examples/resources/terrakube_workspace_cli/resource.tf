@@ -5,6 +5,10 @@ resource "terrakube_workspace_cli" "sample1" {
   execution_mode  = "remote"
   iac_type        = "terraform"
   iac_version     = "1.5.7"
+
+  # Optional: pin the workspace to a specific executor agent
+  # (see terrakube_self_hosted_agent).
+  agent_id = terrakube_self_hosted_agent.example.id
 }
 
 resource "terrakube_workspace_cli" "sample2" {
