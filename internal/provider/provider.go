@@ -88,7 +88,7 @@ func (p *TerrakubeProvider) Configure(ctx context.Context, req provider.Configur
 			path.Root("endpoint"),
 			"Unknown Terrakube API Host",
 			"The provider cannot create the Terrakube API client as there is an unknown configuration value for the Terrakube API host. "+
-				"Either target apply the source of the value first, set the value statically in the configuration, or use the TERRAKUBE_HOSTNAME environment variable.",
+				"Either target apply the source of the value first, set the value statically in the configuration, or use the TERRAKUBE_ENDPOINT environment variable.",
 		)
 	}
 
@@ -96,7 +96,7 @@ func (p *TerrakubeProvider) Configure(ctx context.Context, req provider.Configur
 		resp.Diagnostics.AddAttributeError(
 			path.Root("token"),
 			"Unknown Terrakube API token",
-			"The provider cannot create the Terrakube API client as there is an unknown configuration value for the Terrakube API username. "+
+			"The provider cannot create the Terrakube API client as there is an unknown configuration value for the Terrakube API token. "+
 				"Either target apply the source of the value first, set the value statically in the configuration, or use the TERRAKUBE_TOKEN environment variable.",
 		)
 	}
