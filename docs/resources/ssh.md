@@ -28,12 +28,12 @@ resource "terrakube_ssh" "ssh" {
 ### Required
 
 - `organization_id` (String) Terrakube organization ID
+- `private_key` (String, Sensitive) SSH Key content
 
 ### Optional
 
 - `description` (String) SSH key description
 - `name` (String) Ssh key name
-- `private_key` (String, Sensitive) SSH Key content
 - `ssh_type` (String) SSH key type
 
 ### Read-Only

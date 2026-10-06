@@ -77,7 +77,7 @@ func (r *SshResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 				Description: "SSH key description",
 			},
 			"private_key": schema.StringAttribute{
-				Optional:    true,
+				Required:    true,
 				Sensitive:   true,
 				Description: "SSH Key content",
 			},
