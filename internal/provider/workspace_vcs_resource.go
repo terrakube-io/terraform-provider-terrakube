@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
 	"terraform-provider-terrakube/internal/client"
 
 	"github.com/google/jsonapi"
@@ -27,8 +28,10 @@ import (
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
-var _ resource.Resource = &WorkspaceVcsResource{}
-var _ resource.ResourceWithImportState = &WorkspaceVcsResource{}
+var (
+	_ resource.Resource                = &WorkspaceVcsResource{}
+	_ resource.ResourceWithImportState = &WorkspaceVcsResource{}
+)
 
 type WorkspaceVcsResource struct {
 	client   *http.Client
@@ -48,6 +51,7 @@ type WorkspaceVcsResourceModel struct {
 	Branch                 types.String `tfsdk:"branch"`
 	Folder                 types.String `tfsdk:"folder"`
 	ExecutionMode          types.String `tfsdk:"execution_mode"`
+	AgentId                types.String `tfsdk:"agent_id"`
 	VcsId                  types.String `tfsdk:"vcs_id"`
 	SshId                  types.String `tfsdk:"ssh_id"`
 	AllowRemoteApply       types.Bool   `tfsdk:"allow_remote_apply"`
@@ -97,6 +101,14 @@ func (r *WorkspaceVcsResource) Schema(ctx context.Context, req resource.SchemaRe
 				Description: "Workspace VCS execution mode (remote or local)",
 				Validators: []validator.String{
 					stringvalidator.OneOf("remote", "local"),
+				},
+			},
+			"agent_id": schema.StringAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Workspace executor agent ID. If you leave it empty, it defaults to the organization's default executor.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"iac_type": schema.StringAttribute{
@@ -246,6 +258,11 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 		bodyRequest.Ssh = &client.SshEntity{ID: plan.SshId.ValueString()}
 	}
 
+	if !plan.AgentId.IsNull() && !plan.AgentId.IsUnknown() {
+		tflog.Info(ctx, fmt.Sprintf("Workspace using Agent id: %s", plan.AgentId.ValueString()))
+		bodyRequest.Agent = &client.AgentEntity{ID: plan.AgentId.ValueString()}
+	}
+
 	if !plan.ModuleSshKey.IsNull() && !plan.ModuleSshKey.IsUnknown() {
 		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
 	}
@@ -254,9 +271,8 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
-	var out = new(bytes.Buffer)
+	out := new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, bodyRequest)
-
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
 		return
@@ -283,7 +299,6 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 	newWorkspaceVcs := &client.WorkspaceEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newWorkspaceVcs)
-
 	if err != nil {
 		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", workspaceVcsResponse.Status, string(bodyResponse), err))
 		return
@@ -311,6 +326,12 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 
 	if !plan.VcsId.IsNull() {
 		plan.VcsId = types.StringValue(newWorkspaceVcs.Vcs.ID)
+	}
+
+	if newWorkspaceVcs.Agent != nil {
+		plan.AgentId = types.StringValue(newWorkspaceVcs.Agent.ID)
+	} else {
+		plan.AgentId = types.StringNull()
 	}
 
 	if newWorkspaceVcs.Ssh != nil {
@@ -367,7 +388,6 @@ func (r *WorkspaceVcsResource) Read(ctx context.Context, req resource.ReadReques
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspace)
-
 	if err != nil {
 		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", workspaceResponse.Status, string(bodyResponse), err))
 		return
@@ -395,6 +415,12 @@ func (r *WorkspaceVcsResource) Read(ctx context.Context, req resource.ReadReques
 		state.SshId = types.StringValue(workspace.Ssh.ID)
 	} else {
 		state.SshId = types.StringNull()
+	}
+
+	if workspace.Agent != nil {
+		state.AgentId = types.StringValue(workspace.Agent.ID)
+	} else {
+		state.AgentId = types.StringNull()
 	}
 
 	state.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
@@ -450,6 +476,11 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 		bodyRequest.Ssh = &client.SshEntity{ID: plan.SshId.ValueString()}
 	}
 
+	if !plan.AgentId.IsNull() && !plan.AgentId.IsUnknown() {
+		tflog.Info(ctx, fmt.Sprintf("Workspace using Agent id: %s", plan.AgentId.ValueString()))
+		bodyRequest.Agent = &client.AgentEntity{ID: plan.AgentId.ValueString()}
+	}
+
 	if !plan.ModuleSshKey.IsNull() && !plan.ModuleSshKey.IsUnknown() {
 		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
 	}
@@ -458,9 +489,8 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
-	var out = new(bytes.Buffer)
+	out := new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, bodyRequest)
-
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
 		return
@@ -510,7 +540,6 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 
 	workspace := &client.WorkspaceEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspace)
-
 	if err != nil {
 		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", organizationResponse.Status, string(bodyResponse), err))
 		return
@@ -535,6 +564,11 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 	} else {
 		plan.SshId = types.StringNull()
 	}
+	if workspace.Agent != nil {
+		plan.AgentId = types.StringValue(workspace.Agent.ID)
+	} else {
+		plan.AgentId = types.StringNull()
+	}
 	plan.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
 	plan.PolicyComplianceStatus = types.StringValue(workspace.PolicyComplianceStatus)
 	if workspace.Project != nil {
@@ -556,7 +590,7 @@ func (r *WorkspaceVcsResource) Delete(ctx context.Context, req resource.DeleteRe
 		return
 	}
 
-	var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+	chars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
 
 	ll := len(chars)
 	b := make([]byte, 4)
@@ -566,7 +600,7 @@ func (r *WorkspaceVcsResource) Delete(ctx context.Context, req resource.DeleteRe
 		return
 	}
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		b[i] = chars[int(b[i])%ll]
 	}
 
@@ -587,7 +621,7 @@ func (r *WorkspaceVcsResource) Delete(ctx context.Context, req resource.DeleteRe
 		Deleted:          true,
 	}
 
-	var out = new(bytes.Buffer)
+	out := new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, bodyRequest)
 
 	tflog.Info(ctx, "Request Body...")

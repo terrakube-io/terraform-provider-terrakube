@@ -29,6 +29,10 @@ resource "terrakube_workspace_vcs" "sample1" {
   # Optional: use an org SSH key to download private Terraform/OpenTofu
   # modules referenced via git-based module sources in this workspace.
   module_ssh_key = terrakube_ssh.module_key.id
+
+  # Optional: pin this workspace's remote runs to a specific self-hosted
+  # executor agent instead of the organization's default executor.
+  agent_id = terrakube_self_hosted_agent.collection.id
 }
 
 # Repository accessed over raw SSH instead of an OAuth VCS connection.
@@ -60,6 +64,7 @@ resource "terrakube_workspace_vcs" "sample2" {
 
 ### Optional
 
+- `agent_id` (String) Workspace executor agent ID. If you leave it empty, it defaults to the organization's default executor.
 - `allow_remote_apply` (Boolean) Wether to allow remote apply. By default false to respect VCS philosophy.
 - `branch` (String) Workspace VCS branch
 - `description` (String) Workspace VCS description
