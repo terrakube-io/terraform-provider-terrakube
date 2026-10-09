@@ -80,8 +80,9 @@ type WorkspaceEntity struct {
 }
 
 type WorkspaceTagEntity struct {
-	ID    string `jsonapi:"primary,workspacetag"`
-	TagID string `jsonapi:"attr,tagId"`
+	ID    string  `jsonapi:"primary,workspacetag"`
+	TagID string  `jsonapi:"attr,tagId"`
+	Value *string `jsonapi:"attr,value"`
 }
 
 type WorkspaceVariableEntity struct {

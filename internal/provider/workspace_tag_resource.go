@@ -12,10 +12,12 @@ import (
 
 	"github.com/google/jsonapi"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
@@ -35,6 +37,7 @@ type WorkspaceTagResourceModel struct {
 	OrganizationId types.String `tfsdk:"organization_id"`
 	WorkspaceId    types.String `tfsdk:"workspace_id"`
 	TagID          types.String `tfsdk:"tag_id"`
+	Value          types.String `tfsdk:"value"`
 }
 
 func NewWorkspaceTagResource() resource.Resource {
@@ -47,7 +50,7 @@ func (r *WorkspaceTagResource) Metadata(ctx context.Context, req resource.Metada
 
 func (r *WorkspaceTagResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Adds a tag to a workspace resource.",
+		MarkdownDescription: "Adds a tag to a workspace resource. Set `value` to make it a key/value tag, which the Terraform CLI `cloud` block can select with `tags = { key = \"value\" }`.",
 
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -60,14 +63,30 @@ func (r *WorkspaceTagResource) Schema(ctx context.Context, req resource.SchemaRe
 			"tag_id": schema.StringAttribute{
 				Required:    true,
 				Description: "Tag Id",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"value": schema.StringAttribute{
+				Optional:    true,
+				Description: "Value of the tag in this workspace. Omit it for a key-only tag.",
+				Validators: []validator.String{
+					stringvalidator.LengthBetween(1, 256),
+				},
 			},
 			"organization_id": schema.StringAttribute{
 				Required:    true,
 				Description: "Terrakube organization id",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"workspace_id": schema.StringAttribute{
 				Required:    true,
 				Description: "Terrakube workspace id",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 		},
 	}
@@ -117,6 +136,7 @@ func (r *WorkspaceTagResource) Create(ctx context.Context, req resource.CreateRe
 
 	bodyRequest := &client.WorkspaceTagEntity{
 		TagID: plan.TagID.ValueString(),
+		Value: plan.Value.ValueStringPointer(),
 	}
 
 	var out = new(bytes.Buffer)
@@ -158,6 +178,7 @@ func (r *WorkspaceTagResource) Create(ctx context.Context, req resource.CreateRe
 
 	plan.ID = types.StringValue(newWorkspaceTag.ID)
 	plan.TagID = types.StringValue(newWorkspaceTag.TagID)
+	plan.Value = workspaceTagValue(newWorkspaceTag.Value)
 
 	tflog.Info(ctx, "Workspace Tag Resource Created", map[string]any{"success": true})
 
@@ -165,7 +186,68 @@ func (r *WorkspaceTagResource) Create(ctx context.Context, req resource.CreateRe
 }
 
 func (r *WorkspaceTagResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	tflog.Warn(ctx, "Workspace Tag Resource doesn't have an update action", map[string]any{"success": true})
+	var plan WorkspaceTagResourceModel
+	var state WorkspaceTagResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Only the value can change in place; every other attribute requires replacement.
+	body, err := workspaceTagUpdateRequestBody(plan, state.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		return
+	}
+
+	workspaceTagRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/workspaceTag/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), bytes.NewReader(body))
+	if err != nil {
+		resp.Diagnostics.AddError("Error creating workspace tag resource request", fmt.Sprintf("Error creating workspace tag resource request: %s", err))
+		return
+	}
+	workspaceTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	workspaceTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
+
+	workspaceTagResponse, err := r.client.Do(workspaceTagRequest)
+	if err != nil {
+		resp.Diagnostics.AddError("Error executing workspace tag resource request", fmt.Sprintf("Error executing workspace tag resource request: %s", err))
+		return
+	}
+	defer workspaceTagResponse.Body.Close()
+
+	if workspaceTagResponse.StatusCode != http.StatusNoContent && workspaceTagResponse.StatusCode != http.StatusOK {
+		bodyResponse, _ := io.ReadAll(workspaceTagResponse.Body)
+		resp.Diagnostics.AddError("Error updating workspace tag resource", fmt.Sprintf("Error updating workspace tag resource, response status: %s, response body: %s", workspaceTagResponse.Status, string(bodyResponse)))
+		return
+	}
+
+	plan.ID = state.ID
+
+	tflog.Info(ctx, "Workspace Tag Resource Updated", map[string]any{"success": true})
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+// workspaceTagUpdateRequestBody always sends the value, so removing it from the configuration turns the tag
+// back into a key-only tag (null) instead of leaving the previous value in place.
+func workspaceTagUpdateRequestBody(plan WorkspaceTagResourceModel, id string) ([]byte, error) {
+	var out = new(bytes.Buffer)
+	err := jsonapi.MarshalPayload(out, &client.WorkspaceTagEntity{
+		ID:    id,
+		TagID: plan.TagID.ValueString(),
+		Value: plan.Value.ValueStringPointer(),
+	})
+	return out.Bytes(), err
+}
+
+// workspaceTagValue maps the API value to state. The API stores a key-only tag as null, and the TFE API
+// reports it as "", so both become null here.
+func workspaceTagValue(value *string) types.String {
+	if value == nil || *value == "" {
+		return types.StringNull()
+	}
+	return types.StringValue(*value)
 }
 
 func (r *WorkspaceTagResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -214,6 +296,7 @@ func (r *WorkspaceTagResource) Read(ctx context.Context, req resource.ReadReques
 
 	state.ID = types.StringValue(workspaceTag.ID)
 	state.TagID = types.StringValue(workspaceTag.TagID)
+	state.Value = workspaceTagValue(workspaceTag.Value)
 
 	// Set refreshed state
 	diags = resp.State.Set(ctx, &state)
@@ -235,7 +318,7 @@ func (r *WorkspaceTagResource) Delete(ctx context.Context, req resource.DeleteRe
 		return
 	}
 
-	reqOrg, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/workspaceTag/%s", r.endpoint, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.TagID.ValueString()), nil)
+	reqOrg, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/workspaceTag/%s", r.endpoint, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace tag resource request", fmt.Sprintf("Error creating workspace tag resource request: %s", err))
 		return
