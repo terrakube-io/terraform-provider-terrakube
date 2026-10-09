@@ -139,30 +139,41 @@ func TestWorkspaceTagDataSource_HTTPError(t *testing.T) {
 	}
 }
 
-// Terrakube versions before key/value tags do not return the value attribute.
-func TestWorkspaceTagDataSource_ReadWithoutValue(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/organization/org-1/tag", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"data":[{"type":"tag","id":"tag-1","attributes":{"name":"my tag"}}]}`)
-	})
-	mux.HandleFunc("/api/v1/organization/org-1/workspace/ws-1/workspaceTag", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"data":[{"type":"workspacetag","id":"wstag-1","attributes":{"tagId":"tag-1"}}]}`)
-	})
-
-	resp := readWorkspaceTagDataSource(t, mux, "my tag")
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
+// A key-only tag reads as null whether the API leaves value out (Terrakube versions before key/value tags),
+// returns null, or returns "", matching the terrakube_workspace_tag resource.
+func TestWorkspaceTagDataSource_ReadKeyOnly(t *testing.T) {
+	cases := map[string]string{
+		"value omitted": `{"tagId":"tag-1"}`,
+		"value null":    `{"tagId":"tag-1","value":null}`,
+		"value empty":   `{"tagId":"tag-1","value":""}`,
 	}
 
-	var state WorkspaceTagDataSourceModel
-	if diags := resp.State.Get(context.Background(), &state); diags.HasError() {
-		t.Fatalf("reading state: %v", diags)
-	}
+	for name, attributes := range cases {
+		t.Run(name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/api/v1/organization/org-1/tag", func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, `{"data":[{"type":"tag","id":"tag-1","attributes":{"name":"my tag"}}]}`)
+			})
+			mux.HandleFunc("/api/v1/organization/org-1/workspace/ws-1/workspaceTag", func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprintf(w, `{"data":[{"type":"workspacetag","id":"wstag-1","attributes":%s}]}`, attributes)
+			})
 
-	if state.ID.ValueString() != "wstag-1" {
-		t.Errorf("ID = %q, want wstag-1", state.ID.ValueString())
-	}
-	if !state.Value.IsNull() {
-		t.Errorf("Value = %q, want null", state.Value.ValueString())
+			resp := readWorkspaceTagDataSource(t, mux, "my tag")
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
+			}
+
+			var state WorkspaceTagDataSourceModel
+			if diags := resp.State.Get(context.Background(), &state); diags.HasError() {
+				t.Fatalf("reading state: %v", diags)
+			}
+
+			if state.ID.ValueString() != "wstag-1" {
+				t.Errorf("ID = %q, want wstag-1", state.ID.ValueString())
+			}
+			if !state.Value.IsNull() {
+				t.Errorf("Value = %q, want null", state.Value.ValueString())
+			}
+		})
 	}
 }

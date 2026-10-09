@@ -164,7 +164,7 @@ func (d *WorkspaceTagDataSource) Read(ctx context.Context, req datasource.ReadRe
 		if data != nil && data.TagID == tagId {
 			state.ID = types.StringValue(data.ID)
 			state.TagID = types.StringValue(data.TagID)
-			state.Value = types.StringPointerValue(data.Value)
+			state.Value = workspaceTagValue(data.Value)
 			resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 			return
 		}
