@@ -154,10 +154,18 @@ func (r *WorkspaceTagResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 
+	defer workspaceTagResponse.Body.Close()
+
 	bodyResponse, err := io.ReadAll(workspaceTagResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace tag resource response")
 	}
+
+	if workspaceTagResponse.StatusCode != http.StatusCreated {
+		resp.Diagnostics.AddError("Error creating workspace tag resource", fmt.Sprintf("Error creating workspace tag resource, response status: %s, response body: %s", workspaceTagResponse.Status, string(bodyResponse)))
+		return
+	}
+
 	newWorkspaceTag := &client.WorkspaceTagEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newWorkspaceTag)
@@ -280,6 +288,8 @@ func (r *WorkspaceTagResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 
+	defer workspaceTagResponse.Body.Close()
+
 	if workspaceTagResponse.StatusCode == http.StatusNotFound {
 		tflog.Warn(ctx, "Workspace tag not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
@@ -290,6 +300,12 @@ func (r *WorkspaceTagResource) Read(ctx context.Context, req resource.ReadReques
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace tag resource response")
 	}
+
+	if workspaceTagResponse.StatusCode != http.StatusOK {
+		resp.Diagnostics.AddError("Error reading workspace tag resource", fmt.Sprintf("Error reading workspace tag resource, response status: %s, response body: %s", workspaceTagResponse.Status, string(bodyResponse)))
+		return
+	}
+
 	workspaceTag := &client.WorkspaceTagEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -333,9 +349,17 @@ func (r *WorkspaceTagResource) Delete(ctx context.Context, req resource.DeleteRe
 	}
 	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
-	_, err = r.client.Do(reqOrg)
+	workspaceTagResponse, err := r.client.Do(reqOrg)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing workspace tag resource request", fmt.Sprintf("Error executing workspace tag resource request: %s", err))
+		return
+	}
+	defer workspaceTagResponse.Body.Close()
+
+	// 404 means the tag is already gone, which is what destroy wants.
+	if workspaceTagResponse.StatusCode != http.StatusNoContent && workspaceTagResponse.StatusCode != http.StatusNotFound {
+		bodyResponse, _ := io.ReadAll(workspaceTagResponse.Body)
+		resp.Diagnostics.AddError("Error deleting workspace tag resource", fmt.Sprintf("Error deleting workspace tag resource, response status: %s, response body: %s", workspaceTagResponse.Status, string(bodyResponse)))
 		return
 	}
 }
