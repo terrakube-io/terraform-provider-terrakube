@@ -84,6 +84,49 @@ func TestWorkspaceTagUpdateRequestBody(t *testing.T) {
 			if actual != test.expected {
 				t.Errorf("expected value %#v, got %#v", test.expected, actual)
 			}
+			if _, exists := attributes["tagId"]; exists {
+				t.Errorf("PATCH must only send the value, got %s", body)
+			}
+		})
+	}
+}
+
+func TestWorkspaceTagCreateRequestBody(t *testing.T) {
+	tests := map[string]struct {
+		value         types.String
+		expectedValue any
+		sendsValue    bool
+	}{
+		"key/value tag": {value: types.StringValue("dev"), expectedValue: "dev", sendsValue: true},
+		"key-only tag":  {value: types.StringNull(), sendsValue: false},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			model := WorkspaceTagResourceModel{
+				TagID: types.StringValue("tag-1"),
+				Value: test.value,
+			}
+			body, err := workspaceTagCreateRequestBody(model)
+			if err != nil {
+				t.Fatalf("unexpected marshal error: %v", err)
+			}
+
+			var payload map[string]any
+			if err := json.Unmarshal(body, &payload); err != nil {
+				t.Fatalf("unmarshalling request body: %v", err)
+			}
+			attributes := objectField(t, objectField(t, payload, "data"), "attributes")
+			if attributes["tagId"] != "tag-1" {
+				t.Errorf("expected tagId tag-1, got %s", body)
+			}
+			actual, exists := attributes["value"]
+			if exists != test.sendsValue {
+				t.Fatalf("expected value to be sent: %t, got %s", test.sendsValue, body)
+			}
+			if exists && actual != test.expectedValue {
+				t.Errorf("expected value %#v, got %#v", test.expectedValue, actual)
+			}
 		})
 	}
 }

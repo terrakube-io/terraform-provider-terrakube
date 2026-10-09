@@ -134,20 +134,13 @@ func (r *WorkspaceTagResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 
-	bodyRequest := &client.WorkspaceTagEntity{
-		TagID: plan.TagID.ValueString(),
-		Value: plan.Value.ValueStringPointer(),
-	}
-
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
+	body, err := workspaceTagCreateRequestBody(plan)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
 		return
 	}
 
-	workspaceTagRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/workspaceTag", r.endpoint, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString()), strings.NewReader(out.String()))
+	workspaceTagRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/workspaceTag", r.endpoint, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString()), bytes.NewReader(body))
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace tag resource request", fmt.Sprintf("Error creating workspace tag resource request: %s", err))
 		return
@@ -229,13 +222,28 @@ func (r *WorkspaceTagResource) Update(ctx context.Context, req resource.UpdateRe
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
-// workspaceTagUpdateRequestBody always sends the value, so removing it from the configuration turns the tag
-// back into a key-only tag (null) instead of leaving the previous value in place.
-func workspaceTagUpdateRequestBody(plan WorkspaceTagResourceModel, id string) ([]byte, error) {
+// workspaceTagCreateRequestBody leaves value out for a key-only tag, so key-only tags can still be created on
+// Terrakube versions without key/value tags, whose API rejects the unknown attribute.
+func workspaceTagCreateRequestBody(plan WorkspaceTagResourceModel) ([]byte, error) {
 	var out = new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, &client.WorkspaceTagEntity{
-		ID:    id,
 		TagID: plan.TagID.ValueString(),
+		Value: plan.Value.ValueStringPointer(),
+	})
+	return out.Bytes(), err
+}
+
+// workspaceTagValueUpdate always sends the value, unlike client.WorkspaceTagEntity, so removing it from the
+// configuration turns the tag back into a key-only tag (null) instead of leaving the previous value in place.
+type workspaceTagValueUpdate struct {
+	ID    string  `jsonapi:"primary,workspacetag"`
+	Value *string `jsonapi:"attr,value"`
+}
+
+func workspaceTagUpdateRequestBody(plan WorkspaceTagResourceModel, id string) ([]byte, error) {
+	var out = new(bytes.Buffer)
+	err := jsonapi.MarshalPayload(out, &workspaceTagValueUpdate{
+		ID:    id,
 		Value: plan.Value.ValueStringPointer(),
 	})
 	return out.Bytes(), err
