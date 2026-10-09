@@ -3,18 +3,27 @@
 page_title: "terrakube_workspace_tag Resource - terrakube"
 subcategory: ""
 description: |-
-  Adds a tag to a workspace resource.
+  Adds a tag to a workspace resource. Set value to make it a key/value tag, which the Terraform CLI cloud block can select with tags = { key = "value" }.
 ---
 
 # terrakube_workspace_tag (Resource)
 
-Adds a tag to a workspace resource.
+Adds a tag to a workspace resource. Set `value` to make it a key/value tag, which the Terraform CLI `cloud` block can select with `tags = { key = "value" }`.
 
 ## Example Usage
 
 ```terraform
 resource "terrakube_workspace_tag" "example" {
   tag_id          = terrakube_tag.example.id
+  workspace_id    = terrakube_workspace.example.id
+  organization_id = terrakube_organization.example.id
+}
+
+# Key/value tag, selectable from the Terraform CLI with:
+#   cloud { workspaces { tags = { env = "dev" } } }
+resource "terrakube_workspace_tag" "env" {
+  tag_id          = terrakube_organization_tag.env.id
+  value           = "dev"
   workspace_id    = terrakube_workspace.example.id
   organization_id = terrakube_organization.example.id
 }
@@ -28,6 +37,10 @@ resource "terrakube_workspace_tag" "example" {
 - `organization_id` (String) Terrakube organization id
 - `tag_id` (String) Tag Id
 - `workspace_id` (String) Terrakube workspace id
+
+### Optional
+
+- `value` (String) Value of the tag in this workspace. Omit it for a key-only tag.
 
 ### Read-Only
 
