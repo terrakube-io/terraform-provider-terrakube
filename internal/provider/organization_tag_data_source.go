@@ -120,6 +120,10 @@ func (d *OrganizationTagDataSource) Read(ctx context.Context, req datasource.Rea
 		tflog.Error(ctx, fmt.Sprintf("Error reading organization tag datasource request, error: %s, response status: %s", err, resOrgTag.Status))
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization tag", resOrgTag, body) {
+		return
+	}
+
 	var organizationTags []interface{}
 
 	organizationTags, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.OrganizationTagEntity)))

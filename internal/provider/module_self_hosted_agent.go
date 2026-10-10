@@ -158,6 +158,10 @@ func (r *AgentResource) Create(ctx context.Context, req resource.CreateRequest, 
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating self hosted agent", agentResponse, bodyResponse) {
+		return
+	}
+
 	newAgent := &client.AgentEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newAgent)
@@ -205,6 +209,11 @@ func (r *AgentResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	if err != nil {
 		tflog.Error(ctx, "Error reading self hosted agent resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading self hosted agent", agentResponse, bodyResponse) {
+		return
+	}
+
 	agent := &client.AgentEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -277,6 +286,10 @@ func (r *AgentResource) Update(ctx context.Context, req resource.UpdateRequest, 
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating self hosted agent", agentResponse, bodyResponse) {
+		return
+	}
+
 	agentRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/agent/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating self hosted agent resource request", fmt.Sprintf("Error creating self hosted agent resource request: %s", err))
@@ -297,6 +310,10 @@ func (r *AgentResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading self hosted agent after update", agentResponse, bodyResponse) {
+		return
+	}
 
 	module := &client.AgentEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), module)

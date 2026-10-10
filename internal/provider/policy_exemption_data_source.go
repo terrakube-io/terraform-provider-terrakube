@@ -161,6 +161,10 @@ func (d *PolicyExemptionDataSource) Read(ctx context.Context, req datasource.Rea
 		return
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization", orgResp, orgBody) {
+		return
+	}
+
 	orgs, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(orgBody)), reflect.TypeOf(new(client.OrganizationEntity)))
 	if err != nil || len(orgs) == 0 {
 		resp.Diagnostics.AddError("Organization Not Found", fmt.Sprintf("Organization %s was not found.", state.Organization.ValueString()))
@@ -231,6 +235,10 @@ func (d *PolicyExemptionDataSource) Read(ctx context.Context, req datasource.Rea
 		exBody, err := io.ReadAll(exResp.Body)
 		if err != nil {
 			resp.Diagnostics.AddError("Error reading policy exemption query response", fmt.Sprintf("Error: %s", err))
+			return
+		}
+
+		if reportAPIErrorStatus(&resp.Diagnostics, "reading policy exemption", exResp, exBody) {
 			return
 		}
 

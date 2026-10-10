@@ -280,6 +280,11 @@ func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRe
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading workspace vcs resource response, response status: %s, error: %s", workspaceVcsResponse.Status, err))
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating workspace vcs", workspaceVcsResponse, bodyResponse) {
+		return
+	}
+
 	newWorkspaceVcs := &client.WorkspaceEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newWorkspaceVcs)
@@ -363,6 +368,11 @@ func (r *WorkspaceVcsResource) Read(ctx context.Context, req resource.ReadReques
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading workspace vcs resource response, response status: %s, error: %s", workspaceResponse.Status, err))
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace vcs", workspaceResponse, bodyResponse) {
+		return
+	}
+
 	workspace := &client.WorkspaceEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -487,6 +497,10 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating workspace vcs", organizationResponse, bodyResponse) {
+		return
+	}
+
 	organizationRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating workspace vcs resource request", fmt.Sprintf("Error creating workspace vcs resource request: %s", err))
@@ -507,6 +521,10 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace vcs after update", organizationResponse, bodyResponse) {
+		return
+	}
 
 	workspace := &client.WorkspaceEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspace)

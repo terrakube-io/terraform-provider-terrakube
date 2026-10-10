@@ -160,6 +160,11 @@ func (r *CollectionResource) Create(ctx context.Context, req resource.CreateRequ
 	if err != nil {
 		tflog.Error(ctx, "Error reading collection resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating collection", collectionResponse, bodyResponse) {
+		return
+	}
+
 	newCollection := &client.CollectionEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newCollection)
@@ -213,6 +218,11 @@ func (r *CollectionResource) Read(ctx context.Context, req resource.ReadRequest,
 	if err != nil {
 		tflog.Error(ctx, "Error reading collection resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading collection", collectionResponse, bodyResponse) {
+		return
+	}
+
 	collection := &client.CollectionEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -283,6 +293,10 @@ func (r *CollectionResource) Update(ctx context.Context, req resource.UpdateRequ
 		tflog.Error(ctx, "Error reading collection resource response")
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating collection", collectionResponse, bodyResponse) {
+		return
+	}
+
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	collectionRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
@@ -305,6 +319,10 @@ func (r *CollectionResource) Update(ctx context.Context, req resource.UpdateRequ
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading collection after update", collectionResponse, bodyResponse) {
+		return
+	}
 
 	collection := &client.CollectionEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), collection)

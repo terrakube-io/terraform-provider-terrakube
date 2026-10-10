@@ -168,6 +168,10 @@ func (d *NotificationConfigurationDataSource) Read(ctx context.Context, req data
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(body)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading notification configuration", response, body) {
+		return
+	}
+
 	list, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.NotificationConfigurationEntity)))
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to unmarshal payload: %s", err))

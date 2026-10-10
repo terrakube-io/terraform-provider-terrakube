@@ -183,6 +183,10 @@ func (d *PolicySetDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization", orgResp, orgBody) {
+		return
+	}
+
 	orgs, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(orgBody)), reflect.TypeOf(new(client.OrganizationEntity)))
 	if err != nil || len(orgs) == 0 {
 		resp.Diagnostics.AddError("Organization Not Found", fmt.Sprintf("Organization %s was not found.", state.Organization.ValueString()))
@@ -211,6 +215,10 @@ func (d *PolicySetDataSource) Read(ctx context.Context, req datasource.ReadReque
 	psBody, err := io.ReadAll(psResp.Body)
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading policy set response", fmt.Sprintf("Error: %s", err))
+		return
+	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading policy set", psResp, psBody) {
 		return
 	}
 

@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"html"
 	"io"
 	"net/http"
 	"strings"
@@ -278,6 +277,10 @@ func (r *WorkspaceWebhookEventResource) Create(ctx context.Context, req resource
 		return
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace webhook", webhookResponse, webhookBody) {
+		return
+	}
+
 	var webhookResp webhookAPIResponse
 	if err := json.Unmarshal(webhookBody, &webhookResp); err != nil {
 		resp.Diagnostics.AddError("Error parsing webhook response", fmt.Sprintf("Error parsing webhook response: %s", err))
@@ -367,31 +370,11 @@ func (r *WorkspaceWebhookEventResource) Create(ctx context.Context, req resource
 		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, error: %s", response.Status, err))
 	}
 
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		var errorResp ErrorResponse
-		if err := json.Unmarshal(bodyResponse, &errorResp); err != nil {
-			tflog.Error(ctx, "Failed to parse error response", map[string]any{
-				"error": err.Error(),
-				"body":  string(bodyResponse),
-			})
-			resp.Diagnostics.AddError(
-				fmt.Sprintf("Failed to create/update webhook event: %s", response.Status),
-				string(bodyResponse),
-			)
-			return
-		}
-
-		// Decode HTML entities in the error message
-		decodedDetail := html.UnescapeString(errorResp.Errors[0].Detail)
-
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating or updating workspace webhook event", response, bodyResponse) {
 		tflog.Error(ctx, "API returned error status", map[string]any{
 			"status_code": response.StatusCode,
 			"body":        string(bodyResponse),
 		})
-		resp.Diagnostics.AddError(
-			"Failed to create/update webhook event",
-			decodedDetail,
-		)
 		return
 	}
 
@@ -472,6 +455,10 @@ func (r *WorkspaceWebhookEventResource) Delete(ctx context.Context, req resource
 		return
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace webhook", webhookResponse, webhookBody) {
+		return
+	}
+
 	var webhookDetails webhookAPIResponse
 	if err := json.Unmarshal(webhookBody, &webhookDetails); err != nil {
 		resp.Diagnostics.AddError("Error parsing webhook response", fmt.Sprintf("Error parsing webhook response: %s", err))
@@ -548,31 +535,11 @@ func (r *WorkspaceWebhookEventResource) Delete(ctx context.Context, req resource
 		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, error: %s", response.Status, err))
 	}
 
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		var errorResp ErrorResponse
-		if err := json.Unmarshal(bodyResponse, &errorResp); err != nil {
-			tflog.Error(ctx, "Failed to parse error response", map[string]any{
-				"error": err.Error(),
-				"body":  string(bodyResponse),
-			})
-			resp.Diagnostics.AddError(
-				fmt.Sprintf("Failed to delete webhook event: %s", response.Status),
-				string(bodyResponse),
-			)
-			return
-		}
-
-		// Decode HTML entities in the error message
-		decodedDetail := html.UnescapeString(errorResp.Errors[0].Detail)
-
+	if reportAPIErrorStatus(&resp.Diagnostics, "deleting workspace webhook event", response, bodyResponse) {
 		tflog.Error(ctx, "API returned error status", map[string]any{
 			"status_code": response.StatusCode,
 			"body":        string(bodyResponse),
 		})
-		resp.Diagnostics.AddError(
-			"Failed to delete webhook event",
-			decodedDetail,
-		)
 		return
 	}
 
@@ -723,6 +690,10 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 		return
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace webhook", webhookResponse, webhookBody) {
+		return
+	}
+
 	var webhookDetails webhookAPIResponse
 	if err := json.Unmarshal(webhookBody, &webhookDetails); err != nil {
 		resp.Diagnostics.AddError("Error parsing webhook response", fmt.Sprintf("Error parsing webhook response: %s", err))
@@ -789,6 +760,10 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 				} `json:"organization"`
 			} `json:"relationships"`
 		} `json:"data"`
+	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace", workspaceResponse, workspaceBody) {
+		return
 	}
 
 	if err := json.Unmarshal(workspaceBody, &workspaceResp); err != nil {
@@ -888,31 +863,11 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook event resource, response status %s, error: %s", response.Status, err))
 	}
 
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		var errorResp ErrorResponse
-		if err := json.Unmarshal(bodyResponse, &errorResp); err != nil {
-			tflog.Error(ctx, "Failed to parse error response", map[string]any{
-				"error": err.Error(),
-				"body":  string(bodyResponse),
-			})
-			resp.Diagnostics.AddError(
-				fmt.Sprintf("Failed to create/update webhook event: %s", response.Status),
-				string(bodyResponse),
-			)
-			return
-		}
-
-		// Decode HTML entities in the error message
-		decodedDetail := html.UnescapeString(errorResp.Errors[0].Detail)
-
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating or updating workspace webhook event", response, bodyResponse) {
 		tflog.Error(ctx, "API returned error status", map[string]any{
 			"status_code": response.StatusCode,
 			"body":        string(bodyResponse),
 		})
-		resp.Diagnostics.AddError(
-			"Failed to create/update webhook event",
-			decodedDetail,
-		)
 		return
 	}
 
@@ -964,6 +919,10 @@ func (r *WorkspaceWebhookEventResource) Update(ctx context.Context, req resource
 	bodyResponse, err = io.ReadAll(response.Body)
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading webhook event response", fmt.Sprintf("Error reading webhook event response: %s", err))
+		return
+	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace webhook event after update", response, bodyResponse) {
 		return
 	}
 

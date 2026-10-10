@@ -179,6 +179,11 @@ func (r *CollectionItemResource) Create(ctx context.Context, req resource.Create
 	if err != nil {
 		tflog.Error(ctx, "Error reading collection item resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating collection item", collectionItemResponse, bodyResponse) {
+		return
+	}
+
 	collectionItem := &client.CollectionItemEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), collectionItem)
@@ -278,6 +283,11 @@ func (r *CollectionItemResource) Read(ctx context.Context, req resource.ReadRequ
 			if err != nil {
 				tflog.Error(ctx, "Error reading collection item resource response")
 			}
+
+			if reportAPIErrorStatus(&resp.Diagnostics, "searching collection item by key", collectionItemResponse, bodyResponse) {
+				return
+			}
+
 			collectionItem = &client.CollectionItemEntity{}
 
 			//try to unmarshal but removing the [ ] from around the response, because we want only one match
@@ -371,6 +381,10 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 		tflog.Error(ctx, "Error reading collection item resource response")
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating collection item", collectionItemResponse, bodyResponse) {
+		return
+	}
+
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	collectionItemReq, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item/%s", r.endpoint, state.OrganizationId.ValueString(), state.CollectionId.ValueString(), state.ID.ValueString()), nil)
@@ -393,6 +407,10 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading collection item after update", collectionItemResponse, bodyResponse) {
+		return
+	}
 
 	collectionItem := &client.CollectionItemEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), collectionItem)

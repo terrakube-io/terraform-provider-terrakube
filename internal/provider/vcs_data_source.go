@@ -147,6 +147,10 @@ func (d *VcsDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading vcs connection", responseVcs, bodyResponse) {
+		return
+	}
+
 	var vcss []interface{}
 
 	vcss, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(bodyResponse)), reflect.TypeOf(new(client.VcsEntity)))

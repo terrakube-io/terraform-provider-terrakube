@@ -196,6 +196,11 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 	}
 
 	tflog.Info(ctx, string(body))
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization", resOrg, body) {
+		return
+	}
+
 	var orgs []interface{}
 
 	orgs, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.OrganizationEntity)))
@@ -238,6 +243,11 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 	}
 
 	tflog.Info(ctx, string(bodyws))
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace", resWS, bodyws) {
+		return
+	}
+
 	var workspaces []interface{}
 
 	workspaces, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(bodyws)), reflect.TypeOf(new(client.WorkspaceEntity)))

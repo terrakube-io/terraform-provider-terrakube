@@ -185,6 +185,11 @@ func (r *WorkspaceWebhookResource) Create(ctx context.Context, req resource.Crea
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook resource, response status %s, error: %s", response.Status, err))
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating workspace webhook", response, bodyResponse) {
+		return
+	}
+
 	webhook := &client.WorkspaceWebhookEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), webhook)
@@ -240,6 +245,11 @@ func (r *WorkspaceWebhookResource) Read(ctx context.Context, req resource.ReadRe
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook resource response, response status %s, error: %s", response.Status, err))
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace webhook", response, bodyResponse) {
+		return
+	}
+
 	webhook := &client.WorkspaceWebhookEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -318,6 +328,10 @@ func (r *WorkspaceWebhookResource) Update(ctx context.Context, req resource.Upda
 		tflog.Error(ctx, fmt.Sprintf("Error reading Workspace webhook resource response, response status %s, error: %s", response.Status, err))
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating workspace webhook", response, bodyResponse) {
+		return
+	}
+
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	request, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/webhook/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
@@ -340,6 +354,10 @@ func (r *WorkspaceWebhookResource) Update(ctx context.Context, req resource.Upda
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace webhook after update", response, bodyResponse) {
+		return
+	}
 
 	webhook := &client.WorkspaceWebhookEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), webhook)
