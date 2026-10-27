@@ -162,6 +162,11 @@ func (r *OrganizationTemplateResource) Create(ctx context.Context, req resource.
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading organization template resource response, response status: %s, error: %s", organizationTemplateResponse.Status, err))
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating organization template", organizationTemplateResponse, bodyResponse) {
+		return
+	}
+
 	organizationTemplate := &client.OrganizationTemplateEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organizationTemplate)
@@ -221,6 +226,11 @@ func (r *OrganizationTemplateResource) Read(ctx context.Context, req resource.Re
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading organization template resource response, response status: %s, error: %s", organizationTemplateResponse.Status, err))
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization template", organizationTemplateResponse, bodyResponse) {
+		return
+	}
+
 	organizationTemplate := &client.OrganizationTemplateEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -303,6 +313,10 @@ func (r *OrganizationTemplateResource) Update(ctx context.Context, req resource.
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating organization template", organizationTemplateResponse, bodyResponse) {
+		return
+	}
+
 	organizationTemplateRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/template/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization template resource request", fmt.Sprintf("Error creating organization template resource request: %s", err))
@@ -324,6 +338,11 @@ func (r *OrganizationTemplateResource) Update(ctx context.Context, req resource.
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 	tflog.Info(ctx, "Status"+strconv.Itoa(organizationTemplateResponse.StatusCode))
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization template after update", organizationTemplateResponse, bodyResponse) {
+		return
+	}
+
 	organizationTemplate := &client.OrganizationTemplateEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organizationTemplate)
 

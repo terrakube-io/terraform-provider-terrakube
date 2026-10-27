@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
 	"terraform-provider-terrakube/internal/client"
 
 	"github.com/google/jsonapi"
@@ -23,8 +24,10 @@ import (
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
-var _ resource.Resource = &WorkspaceCliResource{}
-var _ resource.ResourceWithImportState = &WorkspaceCliResource{}
+var (
+	_ resource.Resource                = &WorkspaceCliResource{}
+	_ resource.ResourceWithImportState = &WorkspaceCliResource{}
+)
 
 type WorkspaceCliResource struct {
 	client   *http.Client
@@ -40,6 +43,7 @@ type WorkspaceCliResourceModel struct {
 	IaCType                types.String `tfsdk:"iac_type"`
 	IaCVersion             types.String `tfsdk:"iac_version"`
 	ExecutionMode          types.String `tfsdk:"execution_mode"`
+	AgentId                types.String `tfsdk:"agent_id"`
 	ProjectId              types.String `tfsdk:"project_id"`
 	ModuleSshKey           types.String `tfsdk:"module_ssh_key"`
 	PolicyComplianceStatus types.String `tfsdk:"policy_compliance_status"`
@@ -82,6 +86,14 @@ func (r *WorkspaceCliResource) Schema(ctx context.Context, req resource.SchemaRe
 			"execution_mode": schema.StringAttribute{
 				Required:    true,
 				Description: "Workspace CLI execution mode (remote or local). Remote execution will require setting up executor.",
+			},
+			"agent_id": schema.StringAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Workspace executor agent ID. If you leave it empty, it defaults to the organization's default executor.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"iac_type": schema.StringAttribute{
 				Required:    true,
@@ -173,13 +185,16 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
+	if !plan.AgentId.IsNull() && !plan.AgentId.IsUnknown() {
+		bodyRequest.Agent = &client.AgentEntity{ID: plan.AgentId.ValueString()}
+	}
+
 	if !plan.ModuleSshKey.IsNull() && !plan.ModuleSshKey.IsUnknown() {
 		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
 	}
 
-	var out = new(bytes.Buffer)
+	out := new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, bodyRequest)
-
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
 		return
@@ -203,10 +218,14 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace cli resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating workspace", workspaceCliResponse, bodyResponse) {
+		return
+	}
+
 	newWorkspaceCli := &client.WorkspaceEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newWorkspaceCli)
-
 	if err != nil {
 		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
 		return
@@ -224,6 +243,11 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 		plan.ProjectId = types.StringValue(newWorkspaceCli.Project.ID)
 	} else {
 		plan.ProjectId = types.StringNull()
+	}
+	if newWorkspaceCli.Agent != nil {
+		plan.AgentId = types.StringValue(newWorkspaceCli.Agent.ID)
+	} else {
+		plan.AgentId = types.StringNull()
 	}
 	plan.ModuleSshKey = types.StringPointerValue(newWorkspaceCli.ModuleSshKey)
 	plan.PolicyComplianceStatus = types.StringValue(newWorkspaceCli.PolicyComplianceStatus)
@@ -265,11 +289,15 @@ func (r *WorkspaceCliResource) Read(ctx context.Context, req resource.ReadReques
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace cli resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace", workspaceResponse, bodyResponse) {
+		return
+	}
+
 	workspace := &client.WorkspaceEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspace)
-
 	if err != nil {
 		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
 		return
@@ -287,6 +315,11 @@ func (r *WorkspaceCliResource) Read(ctx context.Context, req resource.ReadReques
 		state.ProjectId = types.StringValue(workspace.Project.ID)
 	} else {
 		state.ProjectId = types.StringNull()
+	}
+	if workspace.Agent != nil {
+		state.AgentId = types.StringValue(workspace.Agent.ID)
+	} else {
+		state.AgentId = types.StringNull()
 	}
 	state.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
 	state.PolicyComplianceStatus = types.StringValue(workspace.PolicyComplianceStatus)
@@ -326,13 +359,16 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
+	if !plan.AgentId.IsNull() && !plan.AgentId.IsUnknown() {
+		bodyRequest.Agent = &client.AgentEntity{ID: plan.AgentId.ValueString()}
+	}
+
 	if !plan.ModuleSshKey.IsNull() && !plan.ModuleSshKey.IsUnknown() {
 		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
 	}
 
-	var out = new(bytes.Buffer)
+	out := new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, bodyRequest)
-
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
 		return
@@ -355,6 +391,10 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 	bodyResponse, err := io.ReadAll(organizationResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace cli resource response")
+	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating workspace", organizationResponse, bodyResponse) {
+		return
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
@@ -380,9 +420,12 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace after update", organizationResponse, bodyResponse) {
+		return
+	}
+
 	workspace := &client.WorkspaceEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspace)
-
 	if err != nil {
 		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
 		return
@@ -398,6 +441,11 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 		plan.ProjectId = types.StringValue(workspace.Project.ID)
 	} else {
 		plan.ProjectId = types.StringNull()
+	}
+	if workspace.Agent != nil {
+		plan.AgentId = types.StringValue(workspace.Agent.ID)
+	} else {
+		plan.AgentId = types.StringNull()
 	}
 	plan.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
 	plan.PolicyComplianceStatus = types.StringValue(workspace.PolicyComplianceStatus)
@@ -415,7 +463,7 @@ func (r *WorkspaceCliResource) Delete(ctx context.Context, req resource.DeleteRe
 		return
 	}
 
-	var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+	chars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
 
 	ll := len(chars)
 	b := make([]byte, 4)
@@ -444,7 +492,7 @@ func (r *WorkspaceCliResource) Delete(ctx context.Context, req resource.DeleteRe
 		Deleted:       true,
 	}
 
-	var out = new(bytes.Buffer)
+	out := new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, bodyRequest)
 
 	tflog.Info(ctx, "Request Body...")
@@ -470,7 +518,6 @@ func (r *WorkspaceCliResource) Delete(ctx context.Context, req resource.DeleteRe
 	}
 
 	tflog.Info(ctx, "Delete response code: "+strconv.Itoa(workspaceCliResponse.StatusCode))
-
 }
 
 func (r *WorkspaceCliResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

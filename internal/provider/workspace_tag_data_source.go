@@ -195,8 +195,7 @@ func (d *WorkspaceTagDataSource) get(requestUrl string, kind string, resp *datas
 		return nil, false
 	}
 
-	if response.StatusCode != http.StatusOK {
-		resp.Diagnostics.AddError(fmt.Sprintf("Error reading %s", kind), fmt.Sprintf("Unexpected status %s, response body: %s", response.Status, body))
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading "+kind, response, body) {
 		return nil, false
 	}
 

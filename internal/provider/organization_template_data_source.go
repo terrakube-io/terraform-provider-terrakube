@@ -122,6 +122,10 @@ func (d *OrganizationTemplateDataSource) Read(ctx context.Context, req datasourc
 		tflog.Error(ctx, "Error reading organization response")
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization template", resTemplate, body) {
+		return
+	}
+
 	var templates []interface{}
 
 	templates, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.OrganizationTemplateEntity)))

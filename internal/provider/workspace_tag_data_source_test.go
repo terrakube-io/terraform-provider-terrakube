@@ -137,6 +137,9 @@ func TestWorkspaceTagDataSource_HTTPError(t *testing.T) {
 	if !resp.Diagnostics.HasError() {
 		t.Fatalf("expected error for non-200 response")
 	}
+	if got := resp.Diagnostics.Errors()[0]; got.Summary() != "Error reading organization tag: 403 Forbidden" || got.Detail() != "forbidden" {
+		t.Errorf("unexpected error: %s: %s", got.Summary(), got.Detail())
+	}
 }
 
 // A key-only tag reads as null whether the API leaves value out (Terrakube versions before key/value tags),

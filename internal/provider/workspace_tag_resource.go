@@ -161,8 +161,7 @@ func (r *WorkspaceTagResource) Create(ctx context.Context, req resource.CreateRe
 		tflog.Error(ctx, "Error reading workspace tag resource response")
 	}
 
-	if workspaceTagResponse.StatusCode != http.StatusCreated {
-		resp.Diagnostics.AddError("Error creating workspace tag resource", fmt.Sprintf("Error creating workspace tag resource, response status: %s, response body: %s", workspaceTagResponse.Status, string(bodyResponse)))
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating workspace tag", workspaceTagResponse, bodyResponse) {
 		return
 	}
 
@@ -217,9 +216,8 @@ func (r *WorkspaceTagResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 	defer workspaceTagResponse.Body.Close()
 
-	if workspaceTagResponse.StatusCode != http.StatusNoContent && workspaceTagResponse.StatusCode != http.StatusOK {
-		bodyResponse, _ := io.ReadAll(workspaceTagResponse.Body)
-		resp.Diagnostics.AddError("Error updating workspace tag resource", fmt.Sprintf("Error updating workspace tag resource, response status: %s, response body: %s", workspaceTagResponse.Status, string(bodyResponse)))
+	bodyResponse, _ := io.ReadAll(workspaceTagResponse.Body)
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating workspace tag", workspaceTagResponse, bodyResponse) {
 		return
 	}
 
@@ -301,8 +299,7 @@ func (r *WorkspaceTagResource) Read(ctx context.Context, req resource.ReadReques
 		tflog.Error(ctx, "Error reading workspace tag resource response")
 	}
 
-	if workspaceTagResponse.StatusCode != http.StatusOK {
-		resp.Diagnostics.AddError("Error reading workspace tag resource", fmt.Sprintf("Error reading workspace tag resource, response status: %s, response body: %s", workspaceTagResponse.Status, string(bodyResponse)))
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace tag", workspaceTagResponse, bodyResponse) {
 		return
 	}
 
@@ -357,11 +354,12 @@ func (r *WorkspaceTagResource) Delete(ctx context.Context, req resource.DeleteRe
 	defer workspaceTagResponse.Body.Close()
 
 	// 404 means the tag is already gone, which is what destroy wants.
-	if workspaceTagResponse.StatusCode != http.StatusNoContent && workspaceTagResponse.StatusCode != http.StatusNotFound {
-		bodyResponse, _ := io.ReadAll(workspaceTagResponse.Body)
-		resp.Diagnostics.AddError("Error deleting workspace tag resource", fmt.Sprintf("Error deleting workspace tag resource, response status: %s, response body: %s", workspaceTagResponse.Status, string(bodyResponse)))
+	if workspaceTagResponse.StatusCode == http.StatusNotFound {
 		return
 	}
+
+	bodyResponse, _ := io.ReadAll(workspaceTagResponse.Body)
+	reportAPIErrorStatus(&resp.Diagnostics, "deleting workspace tag", workspaceTagResponse, bodyResponse)
 }
 
 func (r *WorkspaceTagResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

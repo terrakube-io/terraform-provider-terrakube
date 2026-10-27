@@ -165,6 +165,11 @@ func (r *SshResource) Create(ctx context.Context, req resource.CreateRequest, re
 	if err != nil {
 		tflog.Error(ctx, "Error reading ssh key resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating ssh key", sshResponse, bodyResponse) {
+		return
+	}
+
 	newSshKey := &client.SshEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newSshKey)
 	if err != nil {
@@ -217,6 +222,11 @@ func (r *SshResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	if err != nil {
 		tflog.Error(ctx, "Error reading ssh key resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading ssh key", sshResponse, bodyResponse) {
+		return
+	}
+
 	sshKey := &client.SshEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -289,6 +299,10 @@ func (r *SshResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	}
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating ssh key", sshResponse, bodyResponse) {
+		return
+	}
+
 	sshRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/ssh/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating ssh key resource request", fmt.Sprintf("Error creating ssh key resource request: %s", err))
@@ -309,6 +323,10 @@ func (r *SshResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading ssh key after update", sshResponse, bodyResponse) {
+		return
+	}
 
 	ssh := &client.SshEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), ssh)

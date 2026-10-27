@@ -13,8 +13,13 @@ import (
 	"terraform-provider-terrakube/internal/client"
 
 	"github.com/google/jsonapi"
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -26,6 +31,8 @@ import (
 // Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &CollectionItemResource{}
 var _ resource.ResourceWithImportState = &CollectionItemResource{}
+var _ resource.ResourceWithConfigValidators = &CollectionItemResource{}
+var _ resource.ResourceWithValidateConfig = &CollectionItemResource{}
 
 type CollectionItemResource struct {
 	client   *http.Client
@@ -39,6 +46,8 @@ type CollectionItemResourceModel struct {
 	CollectionId   types.String `tfsdk:"collection_id"`
 	Key            types.String `tfsdk:"key"`
 	Value          types.String `tfsdk:"value"`
+	ValueWo        types.String `tfsdk:"value_wo"`
+	ValueWoVersion types.Int64  `tfsdk:"value_wo_version"`
 	Description    types.String `tfsdk:"description"`
 	Category       types.String `tfsdk:"category"`
 	Sensitive      types.Bool   `tfsdk:"sensitive"`
@@ -78,9 +87,22 @@ func (r *CollectionItemResource) Schema(ctx context.Context, req resource.Schema
 				Description: "Variable key",
 			},
 			"value": schema.StringAttribute{
-				Required:    true,
+				Optional:    true,
 				Sensitive:   true,
-				Description: "Variable value",
+				Description: "Variable value, stored in the Terraform state. Exactly one of `value` or `value_wo` is required.",
+			},
+			"value_wo": schema.StringAttribute{
+				Optional:    true,
+				Sensitive:   true,
+				WriteOnly:   true,
+				Description: "Variable value as a write-only argument: sent to Terrakube but never stored in the plan or state. Requires `sensitive = true` and Terraform 1.11+ or OpenTofu 1.11+. Terraform cannot detect changes to it: bump `value_wo_version` to send a new value.",
+			},
+			"value_wo_version": schema.Int64Attribute{
+				Optional:    true,
+				Description: "Version of `value_wo`. Change it to update the value in Terrakube.",
+				Validators: []validator.Int64{
+					int64validator.AlsoRequires(path.MatchRoot("value_wo")),
+				},
 			},
 			"description": schema.StringAttribute{
 				Optional:    true,
@@ -100,6 +122,49 @@ func (r *CollectionItemResource) Schema(ctx context.Context, req resource.Schema
 			},
 		},
 	}
+}
+
+func (r *CollectionItemResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.ExactlyOneOf(
+			path.MatchRoot("value"),
+			path.MatchRoot("value_wo"),
+		),
+	}
+}
+
+// ValidateConfig requires sensitive = true with value_wo: Terrakube returns the
+// value of a non-sensitive item, so it could not stay out of the state.
+func (r *CollectionItemResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var config CollectionItemResourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if config.ValueWo.IsNull() || config.Sensitive.IsUnknown() {
+		return
+	}
+
+	if !config.Sensitive.ValueBool() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("value_wo"),
+			"value_wo requires sensitive = true",
+			"Terrakube returns the value of a non-sensitive collection item, so it cannot be kept out of the state. Set sensitive = true, or use value.",
+		)
+	}
+}
+
+// itemValue returns the value to send to Terrakube: value from the plan, or
+// value_wo from the configuration (write-only values are never in the plan).
+func itemValue(ctx context.Context, config tfsdk.Config, plan CollectionItemResourceModel) (string, diag.Diagnostics) {
+	if !plan.Value.IsNull() {
+		return plan.Value.ValueString(), nil
+	}
+
+	var valueWo types.String
+	diags := config.GetAttribute(ctx, path.Root("value_wo"), &valueWo)
+	return valueWo.ValueString(), diags
 }
 
 func (r *CollectionItemResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -144,9 +209,15 @@ func (r *CollectionItemResource) Create(ctx context.Context, req resource.Create
 		return
 	}
 
+	value, diags := itemValue(ctx, req.Config, plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	bodyRequest := &client.CollectionItemEntity{
 		Key:         plan.Key.ValueString(),
-		Value:       plan.Value.ValueString(),
+		Value:       value,
 		Description: plan.Description.ValueStringPointer(),
 		Sensitive:   plan.Sensitive.ValueBool(),
 		Category:    plan.Category.ValueString(),
@@ -179,6 +250,11 @@ func (r *CollectionItemResource) Create(ctx context.Context, req resource.Create
 	if err != nil {
 		tflog.Error(ctx, "Error reading collection item resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating collection item", collectionItemResponse, bodyResponse) {
+		return
+	}
+
 	collectionItem := &client.CollectionItemEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), collectionItem)
@@ -191,12 +267,12 @@ func (r *CollectionItemResource) Create(ctx context.Context, req resource.Create
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	if collectionItem.Sensitive {
-		tflog.Info(ctx, "Collection item value is not included in response, setting values the same as the plan for sensitive=true...")
-		plan.Value = types.StringValue(plan.Value.ValueString())
+		tflog.Info(ctx, "Collection item value is not included in response, keeping the planned value for sensitive=true...")
 	} else {
 		tflog.Info(ctx, "Collection item is included in response...")
 		plan.Value = types.StringValue(collectionItem.Value)
 	}
+	plan.ValueWo = types.StringNull()
 
 	plan.Key = types.StringValue(collectionItem.Key)
 	plan.Description = types.StringPointerValue(collectionItem.Description)
@@ -278,6 +354,11 @@ func (r *CollectionItemResource) Read(ctx context.Context, req resource.ReadRequ
 			if err != nil {
 				tflog.Error(ctx, "Error reading collection item resource response")
 			}
+
+			if reportAPIErrorStatus(&resp.Diagnostics, "searching collection item by key", collectionItemResponse, bodyResponse) {
+				return
+			}
+
 			collectionItem = &client.CollectionItemEntity{}
 
 			//try to unmarshal but removing the [ ] from around the response, because we want only one match
@@ -300,8 +381,7 @@ func (r *CollectionItemResource) Read(ctx context.Context, req resource.ReadRequ
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	if collectionItem.Sensitive {
-		tflog.Info(ctx, "Collection item value is not included in response, setting values the same as the current state value")
-		state.Value = types.StringValue(state.Value.ValueString())
+		tflog.Info(ctx, "Collection item value is not included in response, keeping the current state value")
 	} else {
 		tflog.Info(ctx, "Collection item value is included in response...")
 		state.Value = types.StringValue(collectionItem.Value)
@@ -334,9 +414,15 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 		return
 	}
 
+	value, diags := itemValue(ctx, req.Config, plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	bodyRequest := &client.CollectionItemEntity{
 		Key:         plan.Key.ValueString(),
-		Value:       plan.Value.ValueString(),
+		Value:       value,
 		Description: plan.Description.ValueStringPointer(),
 		Category:    plan.Category.ValueString(),
 		Sensitive:   plan.Sensitive.ValueBool(),
@@ -371,6 +457,10 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 		tflog.Error(ctx, "Error reading collection item resource response")
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating collection item", collectionItemResponse, bodyResponse) {
+		return
+	}
+
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	collectionItemReq, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item/%s", r.endpoint, state.OrganizationId.ValueString(), state.CollectionId.ValueString(), state.ID.ValueString()), nil)
@@ -394,6 +484,10 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading collection item after update", collectionItemResponse, bodyResponse) {
+		return
+	}
+
 	collectionItem := &client.CollectionItemEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), collectionItem)
 
@@ -403,12 +497,13 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 	}
 
 	if collectionItem.Sensitive {
-		tflog.Info(ctx, "Collection item is not included in response, setting values the same as the plan for sensitive=true...")
-		plan.Value = types.StringValue(plan.Value.ValueString())
+		// The value is not in the response: keep the planned one (null with value_wo).
+		tflog.Info(ctx, "Collection item is not included in response, keeping the planned value for sensitive=true...")
 	} else {
 		tflog.Info(ctx, "Collection value is included in response...")
 		plan.Value = types.StringValue(collectionItem.Value)
 	}
+	plan.ValueWo = types.StringNull()
 
 	plan.ID = types.StringValue(state.ID.ValueString())
 	plan.Key = types.StringValue(collectionItem.Key)

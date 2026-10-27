@@ -153,6 +153,11 @@ func (r *CollectionReferenceResource) Create(ctx context.Context, req resource.C
 	if err != nil {
 		tflog.Error(ctx, "Error reading collection reference resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating collection reference", collectionReferenceResponse, bodyResponse) {
+		return
+	}
+
 	collectionReference := &client.CollectionReferenceEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), collectionReference)
@@ -214,6 +219,11 @@ func (r *CollectionReferenceResource) Read(ctx context.Context, req resource.Rea
 	if err != nil {
 		tflog.Error(ctx, "Error reading collection item resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading collection reference", collectionReferenceResponse, bodyResponse) {
+		return
+	}
+
 	collectionReference := &client.CollectionReferenceEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -293,6 +303,10 @@ func (r *CollectionReferenceResource) Update(ctx context.Context, req resource.U
 		tflog.Error(ctx, "Error reading collection item resource response")
 	}
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating collection reference", collectionReferenceResponse, bodyResponse) {
+		return
+	}
+
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
 	collectionReferenceReq, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/reference/%s", r.endpoint, state.ID.ValueString()), nil)
@@ -315,6 +329,10 @@ func (r *CollectionReferenceResource) Update(ctx context.Context, req resource.U
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading collection reference after update", collectionReferenceResponse, bodyResponse) {
+		return
+	}
 
 	collectionReference := &client.CollectionReferenceEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), collectionReference)

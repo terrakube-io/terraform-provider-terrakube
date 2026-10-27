@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"html"
 	"io"
 	"net/http"
 	"strings"
@@ -203,31 +202,11 @@ func (r *WorkspaceWebhookV2Resource) Create(ctx context.Context, req resource.Cr
 		tflog.Error(ctx, fmt.Sprintf("Error reading workspace webhook resource, response status %s, error: %s", response.Status, err))
 	}
 
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		var errorResp ErrorResponse
-		if err := json.Unmarshal(bodyResponse, &errorResp); err != nil {
-			tflog.Error(ctx, "Failed to parse error response", map[string]any{
-				"error": err.Error(),
-				"body":  string(bodyResponse),
-			})
-			resp.Diagnostics.AddError(
-				fmt.Sprintf("Failed to create/update webhook: %s", response.Status),
-				string(bodyResponse),
-			)
-			return
-		}
-
-		// Decode HTML entities in the error message
-		decodedDetail := html.UnescapeString(errorResp.Errors[0].Detail)
-
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating workspace webhook", response, bodyResponse) {
 		tflog.Error(ctx, "API returned error status", map[string]any{
 			"status_code": response.StatusCode,
 			"body":        string(bodyResponse),
 		})
-		resp.Diagnostics.AddError(
-			"Failed to create/update webhook",
-			decodedDetail,
-		)
 		return
 	}
 
@@ -389,15 +368,11 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating workspace webhook", response, bodyResponse) {
 		tflog.Error(ctx, "API returned error status", map[string]any{
 			"status_code": response.StatusCode,
 			"body":        string(bodyResponse),
 		})
-		resp.Diagnostics.AddError(
-			fmt.Sprintf("Failed to create/update webhook: %s", response.Status),
-			string(bodyResponse),
-		)
 		return
 	}
 
@@ -421,6 +396,10 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace webhook after update", response, bodyResponse) {
+		return
+	}
 
 	var responseData struct {
 		Data struct {

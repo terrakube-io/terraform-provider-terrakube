@@ -74,6 +74,7 @@ type WorkspaceEntity struct {
 	Vcs                    *VcsEntity     `jsonapi:"relation,vcs,omitempty"`
 	Ssh                    *SshEntity     `jsonapi:"relation,ssh,omitempty"`
 	Project                *ProjectEntity `jsonapi:"relation,project,omitempty"`
+	Agent                  *AgentEntity   `jsonapi:"relation,agent,omitempty"`
 	AllowRemoteApply       bool           `jsonapi:"attr,allowRemoteApply"`
 	ModuleSshKey           *string        `jsonapi:"attr,moduleSshKey,omitempty"`
 	PolicyComplianceStatus string         `jsonapi:"attr,policyComplianceStatus,omitempty"`

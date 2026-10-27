@@ -242,6 +242,11 @@ func (r *VcsResource) Create(ctx context.Context, req resource.CreateRequest, re
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading VCS resource response, error: %s, response status: %s", err, vcsResponse.Status))
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating vcs connection", vcsResponse, bodyResponse) {
+		return
+	}
+
 	vcs := &client.VcsEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), vcs)
@@ -311,6 +316,11 @@ func (r *VcsResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading organization variable resource response, error: %s, response status: %s", err, vcsResponse.Status))
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading vcs connection", vcsResponse, bodyResponse) {
+		return
+	}
+
 	vcs := &client.VcsEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -402,6 +412,10 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating vcs connection", vcsResponse, bodyResponse) {
+		return
+	}
+
 	vcsRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/vcs/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating VCS resource request", fmt.Sprintf("Error creating VCS resource request: %s", err))
@@ -422,6 +436,11 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading vcs connection after update", vcsResponse, bodyResponse) {
+		return
+	}
+
 	vcs := &client.VcsEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), vcs)
 

@@ -141,6 +141,11 @@ func (r *OrganizationTagResource) Create(ctx context.Context, req resource.Creat
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading organization tag resource response, response status: %s, error: %s", organizationTagResponse.Status, err))
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating organization tag", organizationTagResponse, bodyResponse) {
+		return
+	}
+
 	newOrganizationTag := &client.OrganizationTagEntity{}
 
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newOrganizationTag)
@@ -192,6 +197,11 @@ func (r *OrganizationTagResource) Read(ctx context.Context, req resource.ReadReq
 	if err != nil {
 		tflog.Error(ctx, fmt.Sprintf("Error reading organization tag resource response, response status: %s, error: %s", organizationTagResponse.Status, err))
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization tag", organizationTagResponse, bodyResponse) {
+		return
+	}
+
 	organizationTag := &client.OrganizationTagEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -260,6 +270,10 @@ func (r *OrganizationTagResource) Update(ctx context.Context, req resource.Updat
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating organization tag", organizationTagResponse, bodyResponse) {
+		return
+	}
+
 	organizationTagRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/tag/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization tag resource request", fmt.Sprintf("Error creating organization tag resource request: %s", err))
@@ -280,6 +294,10 @@ func (r *OrganizationTagResource) Update(ctx context.Context, req resource.Updat
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization tag after update", organizationTagResponse, bodyResponse) {
+		return
+	}
 
 	organizationTag := &client.OrganizationTagEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organizationTag)

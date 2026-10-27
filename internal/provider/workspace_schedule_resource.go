@@ -147,6 +147,11 @@ func (r *WorkspaceScheduleResource) Create(ctx context.Context, req resource.Cre
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace schedule resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "creating workspace schedule", workspaceScheduleResponse, bodyResponse) {
+		return
+	}
+
 	workspaceSchedule := &client.WorkspaceScheduleEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
@@ -201,6 +206,11 @@ func (r *WorkspaceScheduleResource) Read(ctx context.Context, req resource.ReadR
 	if err != nil {
 		tflog.Error(ctx, "Error reading workspace schedule resource response")
 	}
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace schedule", workspaceScheduleResponse, bodyResponse) {
+		return
+	}
+
 	workspaceSchedule := &client.WorkspaceScheduleEntity{}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
@@ -272,6 +282,10 @@ func (r *WorkspaceScheduleResource) Update(ctx context.Context, req resource.Upd
 
 	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "updating workspace schedule", workspaceScheduleResponse, bodyResponse) {
+		return
+	}
+
 	workspaceScheduleReq, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/workspace/%s/schedule/%s", r.endpoint, state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Workspace schedule resource request", fmt.Sprintf("Error creating Workspace schedule resource request: %s", err))
@@ -292,6 +306,10 @@ func (r *WorkspaceScheduleResource) Update(ctx context.Context, req resource.Upd
 	}
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
+
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace schedule after update", workspaceScheduleResponse, bodyResponse) {
+		return
+	}
 
 	workspaceSchedule := &client.WorkspaceScheduleEntity{}
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspaceSchedule)

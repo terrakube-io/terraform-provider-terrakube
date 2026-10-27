@@ -129,6 +129,10 @@ func (d *FederatedCredentialDataSource) Read(ctx context.Context, req datasource
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(body)})
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading federated credential", federatedResponse, body) {
+		return
+	}
+
 	federatedList, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.FederatedEntity)))
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to unmarshal payload: %s", err))

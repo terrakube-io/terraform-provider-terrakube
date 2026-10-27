@@ -206,6 +206,10 @@ func (d *TeamDataSource) ReadDataFromApi(url string, ctx context.Context, resp *
 
 	tflog.Info(ctx, string(body))
 
+	if reportAPIErrorStatus(&resp.Diagnostics, "reading team", resApi, body) {
+		return
+	}
+
 	data, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(structType))
 
 	if err != nil {
