@@ -61,3 +61,12 @@ resource "terrakube_module" "module" {
 ### Read-Only
 
 - `id` (String) Module Id
+
+## Import
+
+Import is supported using the following syntax:
+
+```shell
+# Module can be imported with organization_id,id
+terraform import terrakube_module.example 00000000-0000-0000-0000-000000000000,00000000-0000-0000-0000-000000000000
+```
