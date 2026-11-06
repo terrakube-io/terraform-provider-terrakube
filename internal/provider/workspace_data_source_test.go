@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
@@ -59,8 +60,8 @@ func TestWorkspaceDataSource_PolicyComplianceStatus(t *testing.T) {
 				"terraformVersion":"1.15.8",
 				"executionMode":"remote",
 				"policyComplianceStatus":"COMPLIANT",
-"restrictApplyToConfiguredBranch":true,
-"requireApproveToApply":false
+				"restrictApplyToConfiguredBranch":true,
+				"requireApproveToApply":false
 			}
 		}]}`)
 	})
@@ -97,5 +98,46 @@ func TestWorkspaceDataSource_PolicyComplianceStatus(t *testing.T) {
 	}
 	if state.PolicyComplianceStatus.ValueString() != "COMPLIANT" {
 		t.Errorf("PolicyComplianceStatus = %q, want COMPLIANT", state.PolicyComplianceStatus.ValueString())
+	}
+}
+
+func TestWorkspaceDataSource_ApplyGuardCompatibility(t *testing.T) {
+	for name, tc := range map[string]struct {
+		attributes string
+		want       types.Bool
+	}{
+		"enabled":   {`,"restrictApplyToConfiguredBranch":true,"requireApproveToApply":true`, types.BoolValue(true)},
+		"disabled":  {`,"restrictApplyToConfiguredBranch":false,"requireApproveToApply":false`, types.BoolValue(false)},
+		"older API": {``, types.BoolNull()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			s, objType := workspaceDataSourceSchemaAndType(t, ctx)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/v1/organization" {
+					_, _ = fmt.Fprint(w, `{"data":[{"type":"organization","id":"org-1","attributes":{"name":"enterprise"}}]}`)
+					return
+				}
+				_, _ = fmt.Fprint(w, `{"data":[{"type":"workspace","id":"ws-1","attributes":{"name":"payments-core"`+tc.attributes+`}}]}`)
+			}))
+			defer server.Close()
+			d := &WorkspaceDataSource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+			config := buildObjectValue(objType, map[string]tftypes.Value{
+				"organization": tftypes.NewValue(tftypes.String, "enterprise"),
+				"name":         tftypes.NewValue(tftypes.String, "payments-core"),
+			})
+			resp := datasource.ReadResponse{State: tfsdk.State{Schema: s}}
+			d.Read(ctx, datasource.ReadRequest{Config: tfsdk.Config{Schema: s, Raw: config}}, &resp)
+			if resp.Diagnostics.HasError() {
+				t.Fatal(resp.Diagnostics)
+			}
+			var state WorkspaceDataSourceModel
+			if diags := resp.State.Get(ctx, &state); diags.HasError() {
+				t.Fatal(diags)
+			}
+			if !state.RestrictApplyToConfiguredBranch.Equal(tc.want) || !state.RequireApproveToApply.Equal(tc.want) {
+				t.Fatalf("guard values = %v / %v, want %v", state.RestrictApplyToConfiguredBranch, state.RequireApproveToApply, tc.want)
+			}
+		})
 	}
 }

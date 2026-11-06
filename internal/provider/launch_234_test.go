@@ -65,7 +65,10 @@ func TestLaunch234ResourcePermissions(t *testing.T) {
 					var sr resource.SchemaResponse
 					r.Schema(ctx, resource.SchemaRequest{}, &sr)
 					s := sr.Schema
-					obj := s.Type().TerraformType(ctx).(tftypes.Object)
+					obj, ok := s.Type().TerraformType(ctx).(tftypes.Object)
+					if !ok {
+						t.Fatal("expected schema type to be a tftypes.Object")
+					}
 					values := map[string]tftypes.Value{"name": tftypes.NewValue(tftypes.String, "test"), "organization_id": tftypes.NewValue(tftypes.String, "org"), "workspace_id": tftypes.NewValue(tftypes.String, "ws"), "project_id": tftypes.NewValue(tftypes.String, "project")}
 					for attr := range tc.flags {
 						switch mode {
@@ -177,7 +180,10 @@ func TestTeamDataSourceRBAC(t *testing.T) {
 			d := &TeamDataSource{client: server.Client(), endpoint: server.URL}
 			var sr datasource.SchemaResponse
 			d.Schema(ctx, datasource.SchemaRequest{}, &sr)
-			obj := sr.Schema.Type().TerraformType(ctx).(tftypes.Object)
+			obj, ok := sr.Schema.Type().TerraformType(ctx).(tftypes.Object)
+			if !ok {
+				t.Fatal("expected schema type to be a tftypes.Object")
+			}
 			resp := datasource.ReadResponse{State: tfsdk.State{Schema: sr.Schema}}
 			d.Read(ctx, datasource.ReadRequest{Config: tfsdk.Config{Schema: sr.Schema, Raw: buildObjectValue(obj, map[string]tftypes.Value{"name": tftypes.NewValue(tftypes.String, "test"), "organization": tftypes.NewValue(tftypes.String, "test")})}}, &resp)
 			if resp.Diagnostics.HasError() {
@@ -240,7 +246,10 @@ func TestWorkspaceUpdateProjectAssignment(t *testing.T) {
 					}
 					var sr resource.SchemaResponse
 					r.Schema(ctx, resource.SchemaRequest{}, &sr)
-					obj := sr.Schema.Type().TerraformType(ctx).(tftypes.Object)
+					obj, ok := sr.Schema.Type().TerraformType(ctx).(tftypes.Object)
+					if !ok {
+						t.Fatal("expected schema type to be a tftypes.Object")
+					}
 					state := tfsdk.State{Schema: sr.Schema, Raw: buildObjectValue(obj, map[string]tftypes.Value{"id": tftypes.NewValue(tftypes.String, "ws"), "name": tftypes.NewValue(tftypes.String, "test"), "organization_id": tftypes.NewValue(tftypes.String, "org"), "project_id": tftypes.NewValue(tftypes.String, "existing-project")})}
 					values := map[string]tftypes.Value{"id": tftypes.NewValue(tftypes.String, "ws"), "name": tftypes.NewValue(tftypes.String, "test"), "organization_id": tftypes.NewValue(tftypes.String, "org"), "project_id": tftypes.NewValue(tftypes.String, projectID)}
 					raw := buildObjectValue(obj, values)
@@ -289,7 +298,10 @@ func TestLaunch234DeleteReportsAPIFailure(t *testing.T) {
 					ctx := context.Background()
 					var sr resource.SchemaResponse
 					r.Schema(ctx, resource.SchemaRequest{}, &sr)
-					obj := sr.Schema.Type().TerraformType(ctx).(tftypes.Object)
+					obj, ok := sr.Schema.Type().TerraformType(ctx).(tftypes.Object)
+					if !ok {
+						t.Fatal("expected schema type to be a tftypes.Object")
+					}
 					state := tfsdk.State{Schema: sr.Schema, Raw: buildObjectValue(obj, map[string]tftypes.Value{
 						"id": tftypes.NewValue(tftypes.String, "test"), "name": tftypes.NewValue(tftypes.String, "test"), "organization_id": tftypes.NewValue(tftypes.String, "org"), "project_id": tftypes.NewValue(tftypes.String, "project"), "workspace_id": tftypes.NewValue(tftypes.String, "workspace"),
 					})}

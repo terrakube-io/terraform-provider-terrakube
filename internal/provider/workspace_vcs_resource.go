@@ -190,7 +190,7 @@ func (r *WorkspaceVcsResource) Schema(ctx context.Context, req resource.SchemaRe
 			},
 			"restrict_apply_to_configured_branch": schema.BoolAttribute{
 				Optional: true, Computed: true,
-				Description:   "Restrict infrastructure-changing runs to the configured workspace branch (Terrakube 2.34.0+). Plan-only runs can use other branches. Updating requires organization workspace management permission. Leave unset to preserve the server value (false on creation).",
+				Description:   "Restrict apply and destroy to the configured workspace branch (Terrakube 2.34.0+). API runs pinned to a commit ID cannot change infrastructure. Terraform CLI uploads of local configuration can only run ordinary terraform plan; terraform apply, terraform destroy, and terraform plan -destroy are refused. Plan-only runs can use other branches. Updating requires organization workspace management permission. Leave unset to preserve the server value (false on creation).",
 				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
 			},
 			"require_approve_to_apply": schema.BoolAttribute{
