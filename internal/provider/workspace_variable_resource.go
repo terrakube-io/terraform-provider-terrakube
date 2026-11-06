@@ -24,6 +24,8 @@ import (
 // Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &WorkspaceVariableResource{}
 var _ resource.ResourceWithImportState = &WorkspaceVariableResource{}
+var _ resource.ResourceWithConfigValidators = &WorkspaceVariableResource{}
+var _ resource.ResourceWithValidateConfig = &WorkspaceVariableResource{}
 
 type WorkspaceVariableResource struct {
 	client   *http.Client
@@ -37,6 +39,8 @@ type WorkspaceVariableResourceModel struct {
 	WorkspaceId    types.String `tfsdk:"workspace_id"`
 	Key            types.String `tfsdk:"key"`
 	Value          types.String `tfsdk:"value"`
+	ValueWo        types.String `tfsdk:"value_wo"`
+	ValueWoVersion types.Int64  `tfsdk:"value_wo_version"`
 	Description    types.String `tfsdk:"description"`
 	Category       types.String `tfsdk:"category"`
 	Sensitive      types.Bool   `tfsdk:"sensitive"`
@@ -76,9 +80,11 @@ func (r *WorkspaceVariableResource) Schema(ctx context.Context, req resource.Sch
 				Description: "Variable key",
 			},
 			"value": schema.StringAttribute{
-				Required:    true,
-				Description: "Variable value",
+				Optional:    true,
+				Description: valueDescription,
 			},
+			"value_wo":         valueWoAttribute(),
+			"value_wo_version": valueWoVersionAttribute(),
 			"description": schema.StringAttribute{
 				Required:    true,
 				Description: "Variable description",
@@ -97,6 +103,14 @@ func (r *WorkspaceVariableResource) Schema(ctx context.Context, req resource.Sch
 			},
 		},
 	}
+}
+
+func (r *WorkspaceVariableResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return valueWoConfigValidators()
+}
+
+func (r *WorkspaceVariableResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	resp.Diagnostics.Append(validateValueWoSensitive(ctx, req.Config, "workspace variable")...)
 }
 
 func (r *WorkspaceVariableResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -141,9 +155,15 @@ func (r *WorkspaceVariableResource) Create(ctx context.Context, req resource.Cre
 		return
 	}
 
+	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	bodyRequest := &client.WorkspaceVariableEntity{
 		Key:         plan.Key.ValueString(),
-		Value:       plan.Value.ValueString(),
+		Value:       value,
 		Description: plan.Description.ValueString(),
 		Sensitive:   plan.Sensitive.ValueBool(),
 		Category:    plan.Category.ValueString(),
@@ -193,12 +213,12 @@ func (r *WorkspaceVariableResource) Create(ctx context.Context, req resource.Cre
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	if workspaceVariable.Sensitive {
-		tflog.Info(ctx, "Variable value is not included in response, setting values the same as the plan for sensitive=true...")
-		plan.Value = types.StringValue(plan.Value.ValueString())
+		tflog.Info(ctx, "Variable value is not included in response, keeping the planned value for sensitive=true...")
 	} else {
 		tflog.Info(ctx, "Variable value is included in response...")
 		plan.Value = types.StringValue(workspaceVariable.Value)
 	}
+	plan.ValueWo = types.StringNull()
 
 	plan.Key = types.StringValue(workspaceVariable.Key)
 	plan.Description = types.StringValue(workspaceVariable.Description)
@@ -262,8 +282,7 @@ func (r *WorkspaceVariableResource) Read(ctx context.Context, req resource.ReadR
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	if workspaceVariable.Sensitive {
-		tflog.Info(ctx, "Variable value is not included in response, setting values the same as the current state value")
-		state.Value = types.StringValue(state.Value.ValueString())
+		tflog.Info(ctx, "Variable value is not included in response, keeping the current state value")
 	} else {
 		tflog.Info(ctx, "Variable value is included in response...")
 		state.Value = types.StringValue(workspaceVariable.Value)
@@ -296,9 +315,15 @@ func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.Upd
 		return
 	}
 
+	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	bodyRequest := &client.WorkspaceVariableEntity{
 		Key:         plan.Key.ValueString(),
-		Value:       plan.Value.ValueString(),
+		Value:       value,
 		Description: plan.Description.ValueString(),
 		Category:    plan.Category.ValueString(),
 		Sensitive:   plan.Sensitive.ValueBool(),
@@ -373,12 +398,12 @@ func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.Upd
 	}
 
 	if workspaceVariable.Sensitive {
-		tflog.Info(ctx, "Variable value is not included in response, setting values the same as the plan for sensitive=true...")
-		plan.Value = types.StringValue(plan.Value.ValueString())
+		tflog.Info(ctx, "Variable value is not included in response, keeping the planned value for sensitive=true...")
 	} else {
 		tflog.Info(ctx, "Variable value is included in response...")
 		plan.Value = types.StringValue(workspaceVariable.Value)
 	}
+	plan.ValueWo = types.StringNull()
 
 	plan.ID = types.StringValue(state.ID.ValueString())
 	plan.Key = types.StringValue(workspaceVariable.Key)

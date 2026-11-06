@@ -25,6 +25,8 @@ import (
 // Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &OrganizationVariableResource{}
 var _ resource.ResourceWithImportState = &OrganizationVariableResource{}
+var _ resource.ResourceWithConfigValidators = &OrganizationVariableResource{}
+var _ resource.ResourceWithValidateConfig = &OrganizationVariableResource{}
 
 type OrganizationVariableResource struct {
 	client   *http.Client
@@ -37,6 +39,8 @@ type OrganizationVariableResourceModel struct {
 	OrganizationId types.String `tfsdk:"organization_id"`
 	Key            types.String `tfsdk:"key"`
 	Value          types.String `tfsdk:"value"`
+	ValueWo        types.String `tfsdk:"value_wo"`
+	ValueWoVersion types.Int64  `tfsdk:"value_wo_version"`
 	Description    types.String `tfsdk:"description"`
 	Category       types.String `tfsdk:"category"`
 	Sensitive      types.Bool   `tfsdk:"sensitive"`
@@ -72,9 +76,11 @@ func (r *OrganizationVariableResource) Schema(ctx context.Context, req resource.
 				Description: "Variable key",
 			},
 			"value": schema.StringAttribute{
-				Required:    true,
-				Description: "Variable value",
+				Optional:    true,
+				Description: valueDescription,
 			},
+			"value_wo":         valueWoAttribute(),
+			"value_wo_version": valueWoVersionAttribute(),
 			"description": schema.StringAttribute{
 				Required:    true,
 				Description: "Variable description",
@@ -93,6 +99,14 @@ func (r *OrganizationVariableResource) Schema(ctx context.Context, req resource.
 			},
 		},
 	}
+}
+
+func (r *OrganizationVariableResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return valueWoConfigValidators()
+}
+
+func (r *OrganizationVariableResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	resp.Diagnostics.Append(validateValueWoSensitive(ctx, req.Config, "organization variable")...)
 }
 
 func (r *OrganizationVariableResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -137,9 +151,15 @@ func (r *OrganizationVariableResource) Create(ctx context.Context, req resource.
 		return
 	}
 
+	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	bodyRequest := &client.OrganizationVariableEntity{
 		Key:         plan.Key.ValueString(),
-		Value:       plan.Value.ValueString(),
+		Value:       value,
 		Description: plan.Description.ValueString(),
 		Sensitive:   plan.Sensitive.ValueBoolPointer(),
 		Category:    plan.Category.ValueString(),
@@ -189,12 +209,12 @@ func (r *OrganizationVariableResource) Create(ctx context.Context, req resource.
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	if *organizationVariable.Sensitive {
-		tflog.Info(ctx, "Variable value is not included in response, setting values the same as the plan for sensitive=true...")
-		plan.Value = types.StringValue(plan.Value.ValueString())
+		tflog.Info(ctx, "Variable value is not included in response, keeping the planned value for sensitive=true...")
 	} else {
 		tflog.Info(ctx, "Variable value is included in response...")
 		plan.Value = types.StringValue(organizationVariable.Value)
 	}
+	plan.ValueWo = types.StringNull()
 
 	plan.Key = types.StringValue(organizationVariable.Key)
 	plan.Description = types.StringValue(organizationVariable.Description)
@@ -258,8 +278,7 @@ func (r *OrganizationVariableResource) Read(ctx context.Context, req resource.Re
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	if *organizationVariable.Sensitive {
-		tflog.Info(ctx, "Variable value is not included in response, setting values the same as the current state value")
-		state.Value = types.StringValue(state.Value.ValueString())
+		tflog.Info(ctx, "Variable value is not included in response, keeping the current state value")
 	} else {
 		tflog.Info(ctx, "Variable value is included in response...")
 		state.Value = types.StringValue(organizationVariable.Value)
@@ -292,9 +311,15 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 		return
 	}
 
+	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	bodyRequest := &client.OrganizationVariableEntity{
 		Key:         plan.Key.ValueString(),
-		Value:       plan.Value.ValueString(),
+		Value:       value,
 		Description: plan.Description.ValueString(),
 		Category:    plan.Category.ValueString(),
 		Hcl:         plan.Hcl.ValueBool(),
@@ -374,12 +399,12 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 	plan.Key = types.StringValue(organizationVariable.Key)
 
 	if *organizationVariable.Sensitive {
-		tflog.Info(ctx, "Variable value is not included in response, setting values the same as the plan for sensitive=true...")
-		plan.Value = types.StringValue(plan.Value.ValueString())
+		tflog.Info(ctx, "Variable value is not included in response, keeping the planned value for sensitive=true...")
 	} else {
 		tflog.Info(ctx, "Variable value is included in response...")
 		plan.Value = types.StringValue(organizationVariable.Value)
 	}
+	plan.ValueWo = types.StringNull()
 
 	plan.Description = types.StringValue(organizationVariable.Description)
 	plan.Category = types.StringValue(organizationVariable.Category)

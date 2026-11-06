@@ -13,13 +13,8 @@ import (
 	"terraform-provider-terrakube/internal/client"
 
 	"github.com/google/jsonapi"
-	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
-	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
-	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
-	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -89,21 +84,10 @@ func (r *CollectionItemResource) Schema(ctx context.Context, req resource.Schema
 			"value": schema.StringAttribute{
 				Optional:    true,
 				Sensitive:   true,
-				Description: "Variable value, stored in the Terraform state. Exactly one of `value` or `value_wo` is required.",
+				Description: valueDescription,
 			},
-			"value_wo": schema.StringAttribute{
-				Optional:    true,
-				Sensitive:   true,
-				WriteOnly:   true,
-				Description: "Variable value as a write-only argument: sent to Terrakube but never stored in the plan or state. Requires `sensitive = true` and Terraform 1.11+ or OpenTofu 1.11+. Terraform cannot detect changes to it: bump `value_wo_version` to send a new value.",
-			},
-			"value_wo_version": schema.Int64Attribute{
-				Optional:    true,
-				Description: "Version of `value_wo`. Change it to update the value in Terrakube.",
-				Validators: []validator.Int64{
-					int64validator.AlsoRequires(path.MatchRoot("value_wo")),
-				},
-			},
+			"value_wo":         valueWoAttribute(),
+			"value_wo_version": valueWoVersionAttribute(),
 			"description": schema.StringAttribute{
 				Optional:    true,
 				Description: "Variable description",
@@ -125,46 +109,11 @@ func (r *CollectionItemResource) Schema(ctx context.Context, req resource.Schema
 }
 
 func (r *CollectionItemResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
-	return []resource.ConfigValidator{
-		resourcevalidator.ExactlyOneOf(
-			path.MatchRoot("value"),
-			path.MatchRoot("value_wo"),
-		),
-	}
+	return valueWoConfigValidators()
 }
 
-// ValidateConfig requires sensitive = true with value_wo: Terrakube returns the
-// value of a non-sensitive item, so it could not stay out of the state.
 func (r *CollectionItemResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
-	var config CollectionItemResourceModel
-	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	if config.ValueWo.IsNull() || config.Sensitive.IsUnknown() {
-		return
-	}
-
-	if !config.Sensitive.ValueBool() {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("value_wo"),
-			"value_wo requires sensitive = true",
-			"Terrakube returns the value of a non-sensitive collection item, so it cannot be kept out of the state. Set sensitive = true, or use value.",
-		)
-	}
-}
-
-// itemValue returns the value to send to Terrakube: value from the plan, or
-// value_wo from the configuration (write-only values are never in the plan).
-func itemValue(ctx context.Context, config tfsdk.Config, plan CollectionItemResourceModel) (string, diag.Diagnostics) {
-	if !plan.Value.IsNull() {
-		return plan.Value.ValueString(), nil
-	}
-
-	var valueWo types.String
-	diags := config.GetAttribute(ctx, path.Root("value_wo"), &valueWo)
-	return valueWo.ValueString(), diags
+	resp.Diagnostics.Append(validateValueWoSensitive(ctx, req.Config, "collection item")...)
 }
 
 func (r *CollectionItemResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -209,7 +158,7 @@ func (r *CollectionItemResource) Create(ctx context.Context, req resource.Create
 		return
 	}
 
-	value, diags := itemValue(ctx, req.Config, plan)
+	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -414,7 +363,7 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 		return
 	}
 
-	value, diags := itemValue(ctx, req.Config, plan)
+	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
