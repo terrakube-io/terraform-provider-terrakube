@@ -193,8 +193,9 @@ func TestWorkspaceVcsResource_Update_ResolvesProjectIdToNullWhenApiReturnsNoProj
 	planOverrides["project_id"] = tftypes.NewValue(tftypes.String, tftypes.UnknownValue)
 
 	req := resource.UpdateRequest{
-		State: tfsdk.State{Schema: s, Raw: buildObjectValue(objType, stateOverrides)},
-		Plan:  tfsdk.Plan{Schema: s, Raw: buildObjectValue(objType, planOverrides)},
+		Config: tfsdk.Config{Schema: s, Raw: buildObjectValue(objType, planOverrides)},
+		State:  tfsdk.State{Schema: s, Raw: buildObjectValue(objType, stateOverrides)},
+		Plan:   tfsdk.Plan{Schema: s, Raw: buildObjectValue(objType, planOverrides)},
 	}
 	resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
 

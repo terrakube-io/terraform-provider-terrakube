@@ -29,24 +29,26 @@ type WorkspaceDataSource struct {
 }
 
 type WorkspaceDataSourceModel struct {
-	ID                     types.String `tfsdk:"id"`
-	Name                   types.String `tfsdk:"name"`
-	Description            types.String `tfsdk:"description"`
-	Organization           types.String `tfsdk:"organization"`
-	OrganizationID         types.String `tfsdk:"organization_id"`
-	Source                 types.String `tfsdk:"source"`
-	Branch                 types.String `tfsdk:"branch"`
-	Folder                 types.String `tfsdk:"folder"`
-	TemplateID             types.String `tfsdk:"template_id"`
-	IaCType                types.String `tfsdk:"iactype"`
-	IaCVersion             types.String `tfsdk:"iacversion"`
-	ExecutionMode          types.String `tfsdk:"executionmode"`
-	Deleted                types.Bool   `tfsdk:"deleted"`
-	AllowRemoteApply       types.Bool   `tfsdk:"allowremoteapply"`
-	VCSID                  types.String `tfsdk:"vcsid"`
-	SSHID                  types.String `tfsdk:"sshid"`
-	ModuleSshKey           types.String `tfsdk:"module_ssh_key"`
-	PolicyComplianceStatus types.String `tfsdk:"policy_compliance_status"`
+	RestrictApplyToConfiguredBranch types.Bool   `tfsdk:"restrict_apply_to_configured_branch"`
+	RequireApproveToApply           types.Bool   `tfsdk:"require_approve_to_apply"`
+	ID                              types.String `tfsdk:"id"`
+	Name                            types.String `tfsdk:"name"`
+	Description                     types.String `tfsdk:"description"`
+	Organization                    types.String `tfsdk:"organization"`
+	OrganizationID                  types.String `tfsdk:"organization_id"`
+	Source                          types.String `tfsdk:"source"`
+	Branch                          types.String `tfsdk:"branch"`
+	Folder                          types.String `tfsdk:"folder"`
+	TemplateID                      types.String `tfsdk:"template_id"`
+	IaCType                         types.String `tfsdk:"iactype"`
+	IaCVersion                      types.String `tfsdk:"iacversion"`
+	ExecutionMode                   types.String `tfsdk:"executionmode"`
+	Deleted                         types.Bool   `tfsdk:"deleted"`
+	AllowRemoteApply                types.Bool   `tfsdk:"allowremoteapply"`
+	VCSID                           types.String `tfsdk:"vcsid"`
+	SSHID                           types.String `tfsdk:"sshid"`
+	ModuleSshKey                    types.String `tfsdk:"module_ssh_key"`
+	PolicyComplianceStatus          types.String `tfsdk:"policy_compliance_status"`
 }
 
 func NewWorkspaceDataSource() datasource.DataSource {
@@ -95,6 +97,8 @@ func (d *WorkspaceDataSource) Metadata(_ context.Context, req datasource.Metadat
 func (d *WorkspaceDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
+			"restrict_apply_to_configured_branch": schema.BoolAttribute{Computed: true, Description: "Restrict infrastructure-changing runs to the configured workspace branch (Terrakube 2.34.0+)"},
+			"require_approve_to_apply":            schema.BoolAttribute{Computed: true, Description: "Require approval permission to start an apply without a preceding approval step (Terrakube 2.34.0+)"},
 			"id": schema.StringAttribute{
 				Description: "Workspace Id",
 				Computed:    true,
@@ -274,6 +278,8 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 		state.IaCVersion = types.StringValue(data.IaCVersion)
 		state.ExecutionMode = types.StringValue(data.ExecutionMode)
 		state.Deleted = types.BoolValue(data.Deleted)
+		state.RestrictApplyToConfiguredBranch = types.BoolPointerValue(data.RestrictApplyToConfiguredBranch)
+		state.RequireApproveToApply = types.BoolPointerValue(data.RequireApproveToApply)
 		state.AllowRemoteApply = types.BoolValue(data.AllowRemoteApply)
 		if data.Vcs != nil {
 			state.VCSID = types.StringValue(data.Vcs.ID)

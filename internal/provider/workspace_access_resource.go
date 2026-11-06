@@ -46,6 +46,7 @@ type WorkspaceAccessResourceModel struct {
 	ManageJob       types.Bool   `tfsdk:"manage_job"`
 	PlanJob         types.Bool   `tfsdk:"plan_job"`
 	ApproveJob      types.Bool   `tfsdk:"approve_job"`
+	DestroyJob      types.Bool   `tfsdk:"destroy_job"`
 	Role            types.String `tfsdk:"role"`
 }
 
@@ -122,6 +123,12 @@ func (r *WorkspaceAccessResource) Schema(ctx context.Context, req resource.Schem
 					boolplanmodifier.UseStateForUnknown(),
 				},
 			},
+			"destroy_job": schema.BoolAttribute{
+				Optional:      true,
+				Computed:      true,
+				Description:   "Allow destroy runs when role is custom or unset (Terrakube 2.34.0+). This is an additional gate alongside plan/apply permissions. When unset, preserves the server value (true on creation); omitted for older APIs.",
+				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+			},
 			"role": schema.StringAttribute{
 				Optional:    true,
 				Computed:    true,
@@ -188,6 +195,8 @@ func (r *WorkspaceAccessResource) Create(ctx context.Context, req resource.Creat
 		Name:            plan.Name.ValueString(),
 	}
 
+	bodyRequest.DestroyJob = optionalBoolPointer(plan.DestroyJob)
+
 	if !plan.Role.IsNull() && !plan.Role.IsUnknown() {
 		role := plan.Role.ValueString()
 		bodyRequest.Role = &role
@@ -240,6 +249,7 @@ func (r *WorkspaceAccessResource) Create(ctx context.Context, req resource.Creat
 	plan.ManageJob = types.BoolValue(workspaceAccess.ManageJob)
 	plan.PlanJob = types.BoolValue(workspaceAccess.PlanJob)
 	plan.ApproveJob = types.BoolValue(workspaceAccess.ApproveJob)
+	plan.DestroyJob = types.BoolPointerValue(workspaceAccess.DestroyJob)
 	plan.Role = roleToState(workspaceAccess.Role)
 	plan.ID = types.StringValue(workspaceAccess.ID)
 
@@ -301,6 +311,7 @@ func (r *WorkspaceAccessResource) Read(ctx context.Context, req resource.ReadReq
 	state.ManageJob = types.BoolValue(workspaceAccess.ManageJob)
 	state.PlanJob = types.BoolValue(workspaceAccess.PlanJob)
 	state.ApproveJob = types.BoolValue(workspaceAccess.ApproveJob)
+	state.DestroyJob = types.BoolPointerValue(workspaceAccess.DestroyJob)
 	state.Role = roleToState(workspaceAccess.Role)
 	state.Name = types.StringValue(workspaceAccess.Name)
 	state.ID = types.StringValue(workspaceAccess.ID)
@@ -334,6 +345,8 @@ func (r *WorkspaceAccessResource) Update(ctx context.Context, req resource.Updat
 		Name:            plan.Name.ValueString(),
 		ID:              state.ID.ValueString(),
 	}
+
+	bodyRequest.DestroyJob = optionalBoolPointer(plan.DestroyJob)
 
 	if !plan.Role.IsNull() && !plan.Role.IsUnknown() {
 		role := plan.Role.ValueString()
@@ -431,6 +444,7 @@ func (r *WorkspaceAccessResource) Update(ctx context.Context, req resource.Updat
 	plan.ManageJob = types.BoolValue(workspaceAccess.ManageJob)
 	plan.PlanJob = types.BoolValue(workspaceAccess.PlanJob)
 	plan.ApproveJob = types.BoolValue(workspaceAccess.ApproveJob)
+	plan.DestroyJob = types.BoolPointerValue(workspaceAccess.DestroyJob)
 	plan.Role = roleToState(workspaceAccess.Role)
 	plan.Name = types.StringValue(workspaceAccess.Name)
 

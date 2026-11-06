@@ -39,6 +39,7 @@ type TeamEntity struct {
 	ManageCollection bool    `jsonapi:"attr,manageCollection"`
 	PlanJob          bool    `jsonapi:"attr,planJob"`
 	ApproveJob       bool    `jsonapi:"attr,approveJob"`
+	DestroyJob       *bool   `jsonapi:"attr,destroyJob,omitempty"`
 	Role             *string `jsonapi:"attr,role"`
 	ManagePolicies   *bool   `jsonapi:"attr,managePolicies,omitempty"`
 }
@@ -60,24 +61,26 @@ type HistoryEntity struct {
 }
 
 type WorkspaceEntity struct {
-	ID                     string         `jsonapi:"primary,workspace"`
-	Name                   string         `jsonapi:"attr,name"`
-	Description            *string        `jsonapi:"attr,description"`
-	Source                 string         `jsonapi:"attr,source"`
-	Branch                 string         `jsonapi:"attr,branch"`
-	Folder                 string         `jsonapi:"attr,folder"`
-	TemplateId             string         `jsonapi:"attr,defaultTemplate"`
-	IaCType                string         `jsonapi:"attr,iacType"`
-	IaCVersion             string         `jsonapi:"attr,terraformVersion"`
-	ExecutionMode          string         `jsonapi:"attr,executionMode"`
-	Deleted                bool           `jsonapi:"attr,deleted"`
-	Vcs                    *VcsEntity     `jsonapi:"relation,vcs,omitempty"`
-	Ssh                    *SshEntity     `jsonapi:"relation,ssh,omitempty"`
-	Project                *ProjectEntity `jsonapi:"relation,project,omitempty"`
-	Agent                  *AgentEntity   `jsonapi:"relation,agent,omitempty"`
-	AllowRemoteApply       bool           `jsonapi:"attr,allowRemoteApply"`
-	ModuleSshKey           *string        `jsonapi:"attr,moduleSshKey,omitempty"`
-	PolicyComplianceStatus string         `jsonapi:"attr,policyComplianceStatus,omitempty"`
+	RestrictApplyToConfiguredBranch *bool          `jsonapi:"attr,restrictApplyToConfiguredBranch,omitempty"`
+	RequireApproveToApply           *bool          `jsonapi:"attr,requireApproveToApply,omitempty"`
+	ID                              string         `jsonapi:"primary,workspace"`
+	Name                            string         `jsonapi:"attr,name"`
+	Description                     *string        `jsonapi:"attr,description"`
+	Source                          string         `jsonapi:"attr,source"`
+	Branch                          string         `jsonapi:"attr,branch"`
+	Folder                          string         `jsonapi:"attr,folder"`
+	TemplateId                      string         `jsonapi:"attr,defaultTemplate"`
+	IaCType                         string         `jsonapi:"attr,iacType"`
+	IaCVersion                      string         `jsonapi:"attr,terraformVersion"`
+	ExecutionMode                   string         `jsonapi:"attr,executionMode"`
+	Deleted                         bool           `jsonapi:"attr,deleted"`
+	Vcs                             *VcsEntity     `jsonapi:"relation,vcs,omitempty"`
+	Ssh                             *SshEntity     `jsonapi:"relation,ssh,omitempty"`
+	Project                         *ProjectEntity `jsonapi:"relation,project,omitempty"`
+	Agent                           *AgentEntity   `jsonapi:"relation,agent,omitempty"`
+	AllowRemoteApply                bool           `jsonapi:"attr,allowRemoteApply"`
+	ModuleSshKey                    *string        `jsonapi:"attr,moduleSshKey,omitempty"`
+	PolicyComplianceStatus          string         `jsonapi:"attr,policyComplianceStatus,omitempty"`
 }
 
 type WorkspaceTagEntity struct {
@@ -103,6 +106,7 @@ type WorkspaceAccessEntity struct {
 	ManageJob       bool    `jsonapi:"attr,manageJob"`
 	PlanJob         bool    `jsonapi:"attr,planJob"`
 	ApproveJob      bool    `jsonapi:"attr,approveJob"`
+	DestroyJob      *bool   `jsonapi:"attr,destroyJob,omitempty"`
 	Role            *string `jsonapi:"attr,role"`
 	Name            string  `jsonapi:"attr,name"`
 }
@@ -121,6 +125,7 @@ type ProjectAccessEntity struct {
 	ManageJob       bool    `jsonapi:"attr,manageJob"`
 	PlanJob         bool    `jsonapi:"attr,planJob"`
 	ApproveJob      bool    `jsonapi:"attr,approveJob"`
+	DestroyJob      *bool   `jsonapi:"attr,destroyJob,omitempty"`
 	Role            *string `jsonapi:"attr,role"`
 }
 

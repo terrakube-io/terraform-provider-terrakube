@@ -58,7 +58,9 @@ func TestWorkspaceDataSource_PolicyComplianceStatus(t *testing.T) {
 				"folder":"/",
 				"terraformVersion":"1.15.8",
 				"executionMode":"remote",
-				"policyComplianceStatus":"COMPLIANT"
+				"policyComplianceStatus":"COMPLIANT",
+"restrictApplyToConfiguredBranch":true,
+"requireApproveToApply":false
 			}
 		}]}`)
 	})
@@ -90,6 +92,9 @@ func TestWorkspaceDataSource_PolicyComplianceStatus(t *testing.T) {
 		t.Fatalf("reading state: %v", diags)
 	}
 
+	if !state.RestrictApplyToConfiguredBranch.ValueBool() || state.RequireApproveToApply.IsNull() || state.RequireApproveToApply.ValueBool() {
+		t.Fatalf("unexpected workspace guards: %v / %v", state.RestrictApplyToConfiguredBranch, state.RequireApproveToApply)
+	}
 	if state.PolicyComplianceStatus.ValueString() != "COMPLIANT" {
 		t.Errorf("PolicyComplianceStatus = %q, want COMPLIANT", state.PolicyComplianceStatus.ValueString())
 	}

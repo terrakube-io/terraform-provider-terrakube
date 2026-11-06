@@ -102,6 +102,7 @@ func validatorTestSchema() schema.Schema {
 			"role":        schema.StringAttribute{Optional: true},
 			"plan_job":    schema.BoolAttribute{Optional: true},
 			"approve_job": schema.BoolAttribute{Optional: true},
+			"destroy_job": schema.BoolAttribute{Optional: true},
 		},
 	}
 }
@@ -113,6 +114,7 @@ func validatorTestObjectType() tftypes.Object {
 			"role":        tftypes.String,
 			"plan_job":    tftypes.Bool,
 			"approve_job": tftypes.Bool,
+			"destroy_job": tftypes.Bool,
 		},
 	}
 }
@@ -170,6 +172,12 @@ func TestRbacRoleConflictValidator(t *testing.T) {
 			},
 			wantErrors: 1,
 		},
+		"read role with destroy flag — error": {
+			values: map[string]tftypes.Value{"role": tftypes.NewValue(tftypes.String, "read"), "destroy_job": tftypes.NewValue(tftypes.Bool, false)}, wantErrors: 1,
+		},
+		"custom role with destroy flag — no error": {
+			values: map[string]tftypes.Value{"role": tftypes.NewValue(tftypes.String, "custom"), "destroy_job": tftypes.NewValue(tftypes.Bool, false)}, wantErrors: 0,
+		},
 		"all null — no error": {
 			values: map[string]tftypes.Value{
 				"role":        tftypes.NewValue(tftypes.String, nil),
@@ -186,7 +194,7 @@ func TestRbacRoleConflictValidator(t *testing.T) {
 			req := resource.ValidateConfigRequest{
 				Config: tfsdk.Config{
 					Schema: s,
-					Raw:    tftypes.NewValue(validatorTestObjectType(), tc.values),
+					Raw:    buildObjectValue(validatorTestObjectType(), tc.values),
 				},
 			}
 			resp := &resource.ValidateConfigResponse{}
