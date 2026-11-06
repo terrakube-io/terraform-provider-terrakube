@@ -366,12 +366,12 @@ func (r *OrganizationResource) Delete(ctx context.Context, req resource.DeleteRe
 	}
 
 	tflog.Info(ctx, "Send patch request to mark organization as deleted...")
-	tflog.Info(ctx, fmt.Sprintf("%s_DEL_%s", data.Name.ValueString(), string(b)))
+	tflog.Info(ctx, softDeletedName(data.Name.ValueString(), string(b), 32))
 
 	description := "Deleted from terraform provider"
 	bodyRequest := &client.OrganizationEntity{
 		Disabled:      true,
-		Name:          fmt.Sprintf("%s_DEL_%s", data.Name.ValueString(), string(b)),
+		Name:          softDeletedName(data.Name.ValueString(), string(b), 32),
 		ID:            data.ID.ValueString(),
 		ExecutionMode: data.ExecutionMode.ValueString(),
 		Description:   &description,
@@ -402,6 +402,18 @@ func (r *OrganizationResource) Delete(ctx context.Context, req resource.DeleteRe
 		return
 	}
 
+	defer organizationResponse.Body.Close()
+	body, err := io.ReadAll(organizationResponse.Body)
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading delete response", err.Error())
+		return
+	}
+	if organizationResponse.StatusCode == http.StatusNotFound {
+		return
+	}
+	if reportAPIErrorStatus(&resp.Diagnostics, "deleting organization", organizationResponse, body) {
+		return
+	}
 	tflog.Info(ctx, "Delete Organization response code: "+strconv.Itoa(organizationResponse.StatusCode))
 }
 

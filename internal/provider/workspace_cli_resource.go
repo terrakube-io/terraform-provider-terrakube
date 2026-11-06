@@ -511,11 +511,11 @@ func (r *WorkspaceCliResource) Delete(ctx context.Context, req resource.DeleteRe
 	}
 
 	tflog.Info(ctx, "Send patch request to mark as deleted...")
-	tflog.Info(ctx, fmt.Sprintf("%s_DEL_%s", data.Name.ValueString(), string(b)))
+	tflog.Info(ctx, softDeletedName(data.Name.ValueString(), string(b), 128))
 
 	bodyRequest := &client.WorkspaceEntity{
 		ID:            data.ID.ValueString(),
-		Name:          fmt.Sprintf("%s_DEL_%s", data.Name.ValueString(), string(b)), // FORCE A NAME CHANGE WITH THE SAME LOGIC THAT IN THE UI
+		Name:          softDeletedName(data.Name.ValueString(), string(b), 128), // FORCE A NAME CHANGE WITH THE SAME LOGIC THAT IN THE UI
 		Description:   data.Description.ValueStringPointer(),
 		Source:        "empty",
 		Branch:        "remote-content",

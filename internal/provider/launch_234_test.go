@@ -257,3 +257,50 @@ func TestWorkspaceUpdateProjectAssignment(t *testing.T) {
 		})
 	}
 }
+
+func TestLaunch234DeleteReportsAPIFailure(t *testing.T) {
+	tests := []struct {
+		name         string
+		makeResource func(*httptest.Server) resource.Resource
+	}{
+		{"organization", func(s *httptest.Server) resource.Resource {
+			return &OrganizationResource{client: s.Client(), endpoint: s.URL}
+		}},
+		{"team", func(s *httptest.Server) resource.Resource { return &TeamResource{client: s.Client(), endpoint: s.URL} }},
+		{"workspace_access", func(s *httptest.Server) resource.Resource {
+			return &WorkspaceAccessResource{client: s.Client(), endpoint: s.URL}
+		}},
+		{"project_access", func(s *httptest.Server) resource.Resource {
+			return &ProjectAccessResource{client: s.Client(), endpoint: s.URL}
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, status := range []int{http.StatusNoContent, http.StatusNotFound, http.StatusForbidden, http.StatusInternalServerError} {
+				t.Run(fmt.Sprint(status), func(t *testing.T) {
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+						w.WriteHeader(status)
+						if status != http.StatusNoContent {
+							_, _ = w.Write([]byte(`{"errors":[{"detail":"delete rejected"}]}`))
+						}
+					}))
+					defer server.Close()
+					r := tc.makeResource(server)
+					ctx := context.Background()
+					var sr resource.SchemaResponse
+					r.Schema(ctx, resource.SchemaRequest{}, &sr)
+					obj := sr.Schema.Type().TerraformType(ctx).(tftypes.Object)
+					state := tfsdk.State{Schema: sr.Schema, Raw: buildObjectValue(obj, map[string]tftypes.Value{
+						"id": tftypes.NewValue(tftypes.String, "test"), "name": tftypes.NewValue(tftypes.String, "test"), "organization_id": tftypes.NewValue(tftypes.String, "org"), "project_id": tftypes.NewValue(tftypes.String, "project"), "workspace_id": tftypes.NewValue(tftypes.String, "workspace"),
+					})}
+					resp := resource.DeleteResponse{State: state}
+					r.Delete(ctx, resource.DeleteRequest{State: state}, &resp)
+					wantError := status == http.StatusForbidden || status == http.StatusInternalServerError
+					if resp.Diagnostics.HasError() != wantError {
+						t.Fatalf("delete status %d: diagnostics=%v", status, resp.Diagnostics)
+					}
+				})
+			}
+		})
+	}
+}

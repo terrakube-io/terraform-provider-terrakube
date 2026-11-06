@@ -474,6 +474,15 @@ func (r *ProjectAccessResource) Delete(ctx context.Context, req resource.DeleteR
 		return
 	}
 	defer delResp.Body.Close()
+	body, err := io.ReadAll(delResp.Body)
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading delete response", err.Error())
+		return
+	}
+	if delResp.StatusCode == http.StatusNotFound {
+		return
+	}
+	reportAPIErrorStatus(&resp.Diagnostics, "deleting project access", delResp, body)
 }
 
 func (r *ProjectAccessResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

@@ -557,6 +557,15 @@ func (r *TeamResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 		return
 	}
 	defer delResp.Body.Close()
+	body, err := io.ReadAll(delResp.Body)
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading delete response", err.Error())
+		return
+	}
+	if delResp.StatusCode == http.StatusNotFound {
+		return
+	}
+	reportAPIErrorStatus(&resp.Diagnostics, "deleting team", delResp, body)
 }
 
 func (r *TeamResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

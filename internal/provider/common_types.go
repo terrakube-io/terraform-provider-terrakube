@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"unicode/utf16"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -80,4 +81,17 @@ func optionalBoolPointer(value types.Bool) *bool {
 		return nil
 	}
 	return value.ValueBoolPointer()
+}
+
+// softDeletedName leaves room for the deletion suffix within API name limits.
+func softDeletedName(name, randomSuffix string, maxLength int) string {
+	suffix := "_DEL_" + randomSuffix
+	length := 0
+	for index, character := range name {
+		length += utf16.RuneLen(character)
+		if length > maxLength-len(suffix) {
+			return name[:index] + suffix
+		}
+	}
+	return name + suffix
 }

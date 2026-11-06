@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -206,5 +207,22 @@ func TestRbacRoleConflictValidator(t *testing.T) {
 				t.Errorf("expected %d errors, got %d; diagnostics: %v", tc.wantErrors, got, resp.Diagnostics)
 			}
 		})
+	}
+}
+
+func TestSoftDeletedName(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		limit    int
+		expected string
+	}{
+		{"short", 32, "short_DEL_abcd"},
+		{strings.Repeat("a", 32), 32, strings.Repeat("a", 23) + "_DEL_abcd"},
+		{strings.Repeat("b", 128), 128, strings.Repeat("b", 119) + "_DEL_abcd"},
+		{strings.Repeat("😀", 64), 128, strings.Repeat("😀", 59) + "_DEL_abcd"},
+	} {
+		if got := softDeletedName(tc.name, "abcd", tc.limit); got != tc.expected {
+			t.Errorf("softDeletedName(%q, %d) = %q, want %q", tc.name, tc.limit, got, tc.expected)
+		}
 	}
 }
