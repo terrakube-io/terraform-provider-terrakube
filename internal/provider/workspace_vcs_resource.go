@@ -515,7 +515,8 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
 	}
 
-	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() {
+	// Resending an unchanged project invokes reassignment permissions in Elide.
+	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() && !plan.ProjectId.Equal(state.ProjectId) {
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 

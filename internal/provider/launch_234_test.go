@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -192,6 +193,66 @@ func TestTeamDataSourceRBAC(t *testing.T) {
 				}
 			} else if state.Role.ValueString() != "custom" || !state.PlanJob.ValueBool() || state.ApproveJob.ValueBool() || state.DestroyJob.IsNull() || state.DestroyJob.ValueBool() {
 				t.Fatalf("unexpected RBAC values: %+v", state)
+			}
+		})
+	}
+}
+
+func TestWorkspaceUpdateProjectAssignment(t *testing.T) {
+	for _, kind := range []string{"cli", "vcs"} {
+		t.Run(kind, func(t *testing.T) {
+			for _, changed := range []bool{false, true} {
+				t.Run(fmt.Sprint("changed=", changed), func(t *testing.T) {
+					ctx := context.Background()
+					projectID := "existing-project"
+					if changed {
+						projectID = "new-project"
+					}
+					received := false
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+						if req.Method == http.MethodPatch {
+							received = true
+							var payload struct {
+								Data struct {
+									Relationships map[string]json.RawMessage `json:"relationships"`
+								} `json:"data"`
+							}
+							if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+								t.Fatal(err)
+							}
+							_, sent := payload.Data.Relationships["project"]
+							if sent != changed {
+								t.Errorf("project relationship sent=%v, want %v", sent, changed)
+							}
+							if sent && !changed {
+								w.WriteHeader(http.StatusForbidden)
+								return
+							}
+						}
+						_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"type": "workspace", "id": "ws", "attributes": map[string]any{"name": "test"}, "relationships": map[string]any{"project": map[string]any{"data": map[string]any{"type": "project", "id": projectID}}}}})
+					}))
+					defer server.Close()
+					var r resource.Resource
+					if kind == "cli" {
+						r = &WorkspaceCliResource{client: server.Client(), endpoint: server.URL}
+					} else {
+						r = &WorkspaceVcsResource{client: server.Client(), endpoint: server.URL}
+					}
+					var sr resource.SchemaResponse
+					r.Schema(ctx, resource.SchemaRequest{}, &sr)
+					obj := sr.Schema.Type().TerraformType(ctx).(tftypes.Object)
+					state := tfsdk.State{Schema: sr.Schema, Raw: buildObjectValue(obj, map[string]tftypes.Value{"id": tftypes.NewValue(tftypes.String, "ws"), "name": tftypes.NewValue(tftypes.String, "test"), "organization_id": tftypes.NewValue(tftypes.String, "org"), "project_id": tftypes.NewValue(tftypes.String, "existing-project")})}
+					values := map[string]tftypes.Value{"id": tftypes.NewValue(tftypes.String, "ws"), "name": tftypes.NewValue(tftypes.String, "test"), "organization_id": tftypes.NewValue(tftypes.String, "org"), "project_id": tftypes.NewValue(tftypes.String, projectID)}
+					raw := buildObjectValue(obj, values)
+					resp := resource.UpdateResponse{State: tfsdk.State{Schema: sr.Schema}}
+					r.Update(ctx, resource.UpdateRequest{State: state, Plan: tfsdk.Plan{Schema: sr.Schema, Raw: raw}, Config: tfsdk.Config{Schema: sr.Schema, Raw: raw}}, &resp)
+					if resp.Diagnostics.HasError() {
+						t.Fatal(resp.Diagnostics)
+					}
+					if !received {
+						t.Fatal("workspace update was not sent")
+					}
+				})
 			}
 		})
 	}

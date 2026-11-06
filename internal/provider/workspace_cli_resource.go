@@ -375,7 +375,8 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 		ID:            state.ID.ValueString(),
 	}
 
-	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() {
+	// Resending an unchanged project invokes reassignment permissions in Elide.
+	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() && !plan.ProjectId.Equal(state.ProjectId) {
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
