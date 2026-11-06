@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -36,17 +37,19 @@ type WorkspaceCliResource struct {
 }
 
 type WorkspaceCliResourceModel struct {
-	ID                     types.String `tfsdk:"id"`
-	Name                   types.String `tfsdk:"name"`
-	OrganizationId         types.String `tfsdk:"organization_id"`
-	Description            types.String `tfsdk:"description"`
-	IaCType                types.String `tfsdk:"iac_type"`
-	IaCVersion             types.String `tfsdk:"iac_version"`
-	ExecutionMode          types.String `tfsdk:"execution_mode"`
-	AgentId                types.String `tfsdk:"agent_id"`
-	ProjectId              types.String `tfsdk:"project_id"`
-	ModuleSshKey           types.String `tfsdk:"module_ssh_key"`
-	PolicyComplianceStatus types.String `tfsdk:"policy_compliance_status"`
+	RestrictApplyToConfiguredBranch types.Bool   `tfsdk:"restrict_apply_to_configured_branch"`
+	RequireApproveToApply           types.Bool   `tfsdk:"require_approve_to_apply"`
+	ID                              types.String `tfsdk:"id"`
+	Name                            types.String `tfsdk:"name"`
+	OrganizationId                  types.String `tfsdk:"organization_id"`
+	Description                     types.String `tfsdk:"description"`
+	IaCType                         types.String `tfsdk:"iac_type"`
+	IaCVersion                      types.String `tfsdk:"iac_version"`
+	ExecutionMode                   types.String `tfsdk:"execution_mode"`
+	AgentId                         types.String `tfsdk:"agent_id"`
+	ProjectId                       types.String `tfsdk:"project_id"`
+	ModuleSshKey                    types.String `tfsdk:"module_ssh_key"`
+	PolicyComplianceStatus          types.String `tfsdk:"policy_compliance_status"`
 }
 
 func NewWorkspaceCliResource() resource.Resource {
@@ -121,6 +124,16 @@ func (r *WorkspaceCliResource) Schema(ctx context.Context, req resource.SchemaRe
 					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
+			"restrict_apply_to_configured_branch": schema.BoolAttribute{
+				Optional: true, Computed: true,
+				Description:   "Restrict infrastructure-changing runs to the configured workspace branch (Terrakube 2.34.0+). CLI workspaces use uploaded configuration rather than a VCS branch. Enabling this guard permits ordinary terraform plan but refuses terraform apply, terraform destroy, and terraform plan -destroy through the Terraform CLI. Updating requires organization workspace management permission. Leave unset to preserve the server value (false on creation).",
+				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+			},
+			"require_approve_to_apply": schema.BoolAttribute{
+				Optional: true, Computed: true,
+				Description:   "Require approval permission to start an apply without a preceding approval step (Terrakube 2.34.0+). Updating requires organization workspace management permission. Leave unset to preserve the server value (false on creation).",
+				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+			},
 			"policy_compliance_status": schema.StringAttribute{
 				Computed:    true,
 				Description: "OPA Policy compliance status: UNKNOWN, COMPLIANT, NON_COMPLIANT, or EXEMPTED",
@@ -193,6 +206,9 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
 	}
 
+	bodyRequest.RestrictApplyToConfiguredBranch = optionalBoolPointer(plan.RestrictApplyToConfiguredBranch)
+	bodyRequest.RequireApproveToApply = optionalBoolPointer(plan.RequireApproveToApply)
+
 	out := new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, bodyRequest)
 	if err != nil {
@@ -251,6 +267,8 @@ func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRe
 	}
 	plan.ModuleSshKey = types.StringPointerValue(newWorkspaceCli.ModuleSshKey)
 	plan.PolicyComplianceStatus = types.StringValue(newWorkspaceCli.PolicyComplianceStatus)
+	plan.RestrictApplyToConfiguredBranch = types.BoolPointerValue(newWorkspaceCli.RestrictApplyToConfiguredBranch)
+	plan.RequireApproveToApply = types.BoolPointerValue(newWorkspaceCli.RequireApproveToApply)
 
 	tflog.Info(ctx, "Workspace Cli Resource Created", map[string]any{"success": true})
 
@@ -323,6 +341,8 @@ func (r *WorkspaceCliResource) Read(ctx context.Context, req resource.ReadReques
 	}
 	state.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
 	state.PolicyComplianceStatus = types.StringValue(workspace.PolicyComplianceStatus)
+	state.RestrictApplyToConfiguredBranch = types.BoolPointerValue(workspace.RestrictApplyToConfiguredBranch)
+	state.RequireApproveToApply = types.BoolPointerValue(workspace.RequireApproveToApply)
 
 	// Set refreshed state
 	diags = resp.State.Set(ctx, &state)
@@ -355,7 +375,8 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 		ID:            state.ID.ValueString(),
 	}
 
-	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() {
+	// Resending an unchanged project invokes reassignment permissions in Elide.
+	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() && !plan.ProjectId.Equal(state.ProjectId) {
 		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
@@ -366,6 +387,16 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 	if !plan.ModuleSshKey.IsNull() && !plan.ModuleSshKey.IsUnknown() {
 		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
 	}
+
+	// Read config rather than refreshed state: omitted guards must not be written
+	// by a workspace manager who lacks organization-level guard permissions.
+	var config WorkspaceCliResourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	bodyRequest.RestrictApplyToConfiguredBranch = optionalBoolPointer(config.RestrictApplyToConfiguredBranch)
+	bodyRequest.RequireApproveToApply = optionalBoolPointer(config.RequireApproveToApply)
 
 	out := new(bytes.Buffer)
 	err := jsonapi.MarshalPayload(out, bodyRequest)
@@ -449,6 +480,8 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 	plan.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
 	plan.PolicyComplianceStatus = types.StringValue(workspace.PolicyComplianceStatus)
+	plan.RestrictApplyToConfiguredBranch = types.BoolPointerValue(workspace.RestrictApplyToConfiguredBranch)
+	plan.RequireApproveToApply = types.BoolPointerValue(workspace.RequireApproveToApply)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -478,11 +511,11 @@ func (r *WorkspaceCliResource) Delete(ctx context.Context, req resource.DeleteRe
 	}
 
 	tflog.Info(ctx, "Send patch request to mark as deleted...")
-	tflog.Info(ctx, fmt.Sprintf("%s_DEL_%s", data.Name.ValueString(), string(b)))
+	tflog.Info(ctx, softDeletedName(data.Name.ValueString(), string(b), 128))
 
 	bodyRequest := &client.WorkspaceEntity{
 		ID:            data.ID.ValueString(),
-		Name:          fmt.Sprintf("%s_DEL_%s", data.Name.ValueString(), string(b)), // FORCE A NAME CHANGE WITH THE SAME LOGIC THAT IN THE UI
+		Name:          softDeletedName(data.Name.ValueString(), string(b), 128), // FORCE A NAME CHANGE WITH THE SAME LOGIC THAT IN THE UI
 		Description:   data.Description.ValueStringPointer(),
 		Source:        "empty",
 		Branch:        "remote-content",

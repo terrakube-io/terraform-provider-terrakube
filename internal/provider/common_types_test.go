@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -102,6 +103,7 @@ func validatorTestSchema() schema.Schema {
 			"role":        schema.StringAttribute{Optional: true},
 			"plan_job":    schema.BoolAttribute{Optional: true},
 			"approve_job": schema.BoolAttribute{Optional: true},
+			"destroy_job": schema.BoolAttribute{Optional: true},
 		},
 	}
 }
@@ -113,6 +115,7 @@ func validatorTestObjectType() tftypes.Object {
 			"role":        tftypes.String,
 			"plan_job":    tftypes.Bool,
 			"approve_job": tftypes.Bool,
+			"destroy_job": tftypes.Bool,
 		},
 	}
 }
@@ -170,6 +173,12 @@ func TestRbacRoleConflictValidator(t *testing.T) {
 			},
 			wantErrors: 1,
 		},
+		"read role with destroy flag — error": {
+			values: map[string]tftypes.Value{"role": tftypes.NewValue(tftypes.String, "read"), "destroy_job": tftypes.NewValue(tftypes.Bool, false)}, wantErrors: 1,
+		},
+		"custom role with destroy flag — no error": {
+			values: map[string]tftypes.Value{"role": tftypes.NewValue(tftypes.String, "custom"), "destroy_job": tftypes.NewValue(tftypes.Bool, false)}, wantErrors: 0,
+		},
 		"all null — no error": {
 			values: map[string]tftypes.Value{
 				"role":        tftypes.NewValue(tftypes.String, nil),
@@ -186,7 +195,7 @@ func TestRbacRoleConflictValidator(t *testing.T) {
 			req := resource.ValidateConfigRequest{
 				Config: tfsdk.Config{
 					Schema: s,
-					Raw:    tftypes.NewValue(validatorTestObjectType(), tc.values),
+					Raw:    buildObjectValue(validatorTestObjectType(), tc.values),
 				},
 			}
 			resp := &resource.ValidateConfigResponse{}
@@ -198,5 +207,22 @@ func TestRbacRoleConflictValidator(t *testing.T) {
 				t.Errorf("expected %d errors, got %d; diagnostics: %v", tc.wantErrors, got, resp.Diagnostics)
 			}
 		})
+	}
+}
+
+func TestSoftDeletedName(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		limit    int
+		expected string
+	}{
+		{"short", 32, "short_DEL_abcd"},
+		{strings.Repeat("a", 32), 32, strings.Repeat("a", 23) + "_DEL_abcd"},
+		{strings.Repeat("b", 128), 128, strings.Repeat("b", 119) + "_DEL_abcd"},
+		{strings.Repeat("😀", 64), 128, strings.Repeat("😀", 59) + "_DEL_abcd"},
+	} {
+		if got := softDeletedName(tc.name, "abcd", tc.limit); got != tc.expected {
+			t.Errorf("softDeletedName(%q, %d) = %q, want %q", tc.name, tc.limit, got, tc.expected)
+		}
 	}
 }

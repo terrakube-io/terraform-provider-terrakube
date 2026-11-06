@@ -37,6 +37,7 @@ resource "terrakube_team" "team" {
   manage_collection = true
   plan_job          = true     # RBAC v2: required for "New Run" button
   approve_job       = true     # RBAC v2: required for apply approval
+  destroy_job       = false    # Terrakube 2.34.0+: deny destroy runs for this custom role
   role              = "custom" # "custom" defers to boolean flags
 }
 ```
@@ -52,6 +53,7 @@ resource "terrakube_team" "team" {
 ### Optional
 
 - `approve_job` (Boolean) Allow approving/applying runs (RBAC v2). Inherits manage_job when not set. Only used when role is unset or "custom". Note: inheritance only applies on create/update — imported resources retain the remote value.
+- `destroy_job` (Boolean) Allow destroy runs when role is custom or unset (Terrakube 2.34.0+). This is an additional gate alongside plan/apply permissions. When unset, preserves the server value (true on creation); omitted for older APIs.
 - `manage_collection` (Boolean) Allow to manage variables collection
 - `manage_job` (Boolean) Allow to manage and trigger jobs. Legacy field — in RBAC v2, plan_job/approve_job inherit from this when unset.
 - `manage_module` (Boolean) Allow to manage modules

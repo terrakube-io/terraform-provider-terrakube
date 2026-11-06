@@ -29,6 +29,8 @@ data "terrakube_team" "example" {
 
 ### Read-Only
 
+- `approve_job` (Boolean) Allow approving/applying runs
+- `destroy_job` (Boolean) Allow destroy runs for custom roles (Terrakube 2.34.0+)
 - `manage_collection` (Boolean) Manages collection
 - `manage_job` (Boolean) Manage Jobs
 - `manage_module` (Boolean) Manage modules
@@ -38,3 +40,5 @@ data "terrakube_team" "example" {
 - `manage_template` (Boolean) Manage templatess
 - `manage_vcs` (Boolean) Manage vcs
 - `manage_workspace` (Boolean) Manage workspaces
+- `plan_job` (Boolean) Allow queuing plans
+- `role` (String) Predefined RBAC role

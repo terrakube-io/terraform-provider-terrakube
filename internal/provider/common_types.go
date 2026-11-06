@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"unicode/utf16"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -42,13 +43,13 @@ func resolveJobFlag(explicit, inherit types.Bool) bool {
 	return inherit.ValueBool()
 }
 
-// rbacRoleConflictValidator rejects configs where plan_job or approve_job are
+// rbacRoleConflictValidator rejects configs where plan_job, approve_job, or destroy_job are
 // explicitly set alongside a non-custom role. For non-custom roles the server
 // ignores boolean flags, so setting them produces a contradictory config.
 type rbacRoleConflictValidator struct{}
 
 func (v rbacRoleConflictValidator) Description(_ context.Context) string {
-	return "Rejects configs where plan_job/approve_job are set alongside a non-custom role"
+	return "Rejects configs where plan_job/approve_job/destroy_job are set alongside a non-custom role"
 }
 
 func (v rbacRoleConflictValidator) MarkdownDescription(ctx context.Context) string {
@@ -62,7 +63,7 @@ func (v rbacRoleConflictValidator) ValidateResource(ctx context.Context, req res
 		return
 	}
 
-	for _, attr := range []string{"plan_job", "approve_job"} {
+	for _, attr := range []string{"plan_job", "approve_job", "destroy_job"} {
 		var flag types.Bool
 		resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root(attr), &flag)...)
 		if !flag.IsNull() && !flag.IsUnknown() {
@@ -72,4 +73,25 @@ func (v rbacRoleConflictValidator) ValidateResource(ctx context.Context, req res
 			)
 		}
 	}
+}
+
+// optionalBoolPointer preserves omission for attributes unsupported by older APIs.
+func optionalBoolPointer(value types.Bool) *bool {
+	if value.IsNull() || value.IsUnknown() {
+		return nil
+	}
+	return value.ValueBoolPointer()
+}
+
+// softDeletedName leaves room for the deletion suffix within API name limits.
+func softDeletedName(name, randomSuffix string, maxLength int) string {
+	suffix := "_DEL_" + randomSuffix
+	length := 0
+	for index, character := range name {
+		length += utf16.RuneLen(character)
+		if length > maxLength-len(suffix) {
+			return name[:index] + suffix
+		}
+	}
+	return name + suffix
 }

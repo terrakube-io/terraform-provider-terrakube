@@ -11,6 +11,10 @@ resource "terrakube_workspace_vcs" "sample1" {
   iac_version     = "1.5.7"
   project_id      = terrakube_project.project.id
 
+  # Terrakube 2.34.0+ apply guards; requires organization workspace management.
+  restrict_apply_to_configured_branch = true
+  require_approve_to_apply            = true
+
   # Optional: use an org SSH key to download private Terraform/OpenTofu
   # modules referenced via git-based module sources in this workspace.
   module_ssh_key = terrakube_ssh.module_key.id

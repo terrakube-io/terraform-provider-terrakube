@@ -23,6 +23,10 @@ var (
 )
 
 type TeamDataSourceModel struct {
+	Role             types.String `tfsdk:"role"`
+	PlanJob          types.Bool   `tfsdk:"plan_job"`
+	ApproveJob       types.Bool   `tfsdk:"approve_job"`
+	DestroyJob       types.Bool   `tfsdk:"destroy_job"`
 	Organization     types.String `tfsdk:"organization"`
 	Name             types.String `tfsdk:"name"`
 	ManageCollection types.Bool   `tfsdk:"manage_collection"`
@@ -88,6 +92,10 @@ func (d *TeamDataSource) Metadata(_ context.Context, req datasource.MetadataRequ
 func (d *TeamDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
+			"role":        schema.StringAttribute{Computed: true, Description: "Predefined RBAC role"},
+			"plan_job":    schema.BoolAttribute{Computed: true, Description: "Allow queuing plans"},
+			"approve_job": schema.BoolAttribute{Computed: true, Description: "Allow approving/applying runs"},
+			"destroy_job": schema.BoolAttribute{Computed: true, Description: "Allow destroy runs for custom roles (Terrakube 2.34.0+)"},
 			"organization": schema.StringAttribute{
 				Required:    true,
 				Description: "Organization Name",
@@ -166,6 +174,10 @@ func (d *TeamDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 
 	for _, team := range teams {
 		data, _ := team.(*client.TeamEntity)
+		state.Role = roleToState(data.Role)
+		state.PlanJob = types.BoolValue(data.PlanJob)
+		state.ApproveJob = types.BoolValue(data.ApproveJob)
+		state.DestroyJob = types.BoolPointerValue(data.DestroyJob)
 		state.ManageCollection = types.BoolValue(data.ManageCollection)
 		state.ManageJob = types.BoolValue(data.ManageJob)
 		state.ManageModule = types.BoolValue(data.ManageModule)

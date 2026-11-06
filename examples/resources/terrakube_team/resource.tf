@@ -11,5 +11,6 @@ resource "terrakube_team" "team" {
   manage_collection = true
   plan_job          = true     # RBAC v2: required for "New Run" button
   approve_job       = true     # RBAC v2: required for apply approval
+  destroy_job       = false    # Terrakube 2.34.0+: deny destroy runs for this custom role
   role              = "custom" # "custom" defers to boolean flags
 }

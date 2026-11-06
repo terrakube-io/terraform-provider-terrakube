@@ -40,6 +40,9 @@ resource "terrakube_workspace_cli" "sample3" {
   iac_version     = "1.5.7"
   project_id      = terrakube_project.project.id
 
+  # Terrakube 2.34.0+: require approval permission for applies without an approval step.
+  require_approve_to_apply = true
+
   # Optional: use an org SSH key to download private Terraform/OpenTofu
   # modules referenced via git-based module sources in this workspace.
   module_ssh_key = terrakube_ssh.module_key.id
@@ -67,6 +70,8 @@ resource "terrakube_workspace_cli" "sample3" {
 - `description` (String) Workspace CLI description
 - `module_ssh_key` (String) SSH key ID (see terrakube_ssh) used to download private Terraform/OpenTofu modules referenced via git-based module sources within this workspace. Leave unset to leave any existing value untouched; set to an empty string to clear it.
 - `project_id` (String) Id of the project this workspace belongs to. Leave unset to leave any existing project assignment (e.g. made outside Terraform) untouched.
+- `require_approve_to_apply` (Boolean) Require approval permission to start an apply without a preceding approval step (Terrakube 2.34.0+). Updating requires organization workspace management permission. Leave unset to preserve the server value (false on creation).
+- `restrict_apply_to_configured_branch` (Boolean) Restrict infrastructure-changing runs to the configured workspace branch (Terrakube 2.34.0+). CLI workspaces use uploaded configuration rather than a VCS branch. Enabling this guard permits ordinary terraform plan but refuses terraform apply, terraform destroy, and terraform plan -destroy through the Terraform CLI. Updating requires organization workspace management permission. Leave unset to preserve the server value (false on creation).
 
 ### Read-Only
 

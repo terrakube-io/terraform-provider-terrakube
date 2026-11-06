@@ -50,6 +50,7 @@ type TeamResourceModel struct {
 	ManageCollection types.Bool   `tfsdk:"manage_collection"`
 	PlanJob          types.Bool   `tfsdk:"plan_job"`
 	ApproveJob       types.Bool   `tfsdk:"approve_job"`
+	DestroyJob       types.Bool   `tfsdk:"destroy_job"`
 	Role             types.String `tfsdk:"role"`
 	ManagePolicies   types.Bool   `tfsdk:"manage_policies"`
 }
@@ -153,6 +154,12 @@ func (r *TeamResource) Schema(ctx context.Context, req resource.SchemaRequest, r
 					boolplanmodifier.UseStateForUnknown(),
 				},
 			},
+			"destroy_job": schema.BoolAttribute{
+				Optional:      true,
+				Computed:      true,
+				Description:   "Allow destroy runs when role is custom or unset (Terrakube 2.34.0+). This is an additional gate alongside plan/apply permissions. When unset, preserves the server value (true on creation); omitted for older APIs.",
+				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+			},
 			"role": schema.StringAttribute{
 				Optional:    true,
 				Computed:    true,
@@ -232,6 +239,8 @@ func (r *TeamResource) Create(ctx context.Context, req resource.CreateRequest, r
 		ApproveJob:       resolveJobFlag(plan.ApproveJob, plan.ManageJob),
 	}
 
+	bodyRequest.DestroyJob = optionalBoolPointer(plan.DestroyJob)
+
 	if !plan.Role.IsNull() && !plan.Role.IsUnknown() {
 		role := plan.Role.ValueString()
 		bodyRequest.Role = &role
@@ -299,6 +308,7 @@ func (r *TeamResource) Create(ctx context.Context, req resource.CreateRequest, r
 	plan.ManageCollection = types.BoolValue(newTeam.ManageCollection)
 	plan.PlanJob = types.BoolValue(newTeam.PlanJob)
 	plan.ApproveJob = types.BoolValue(newTeam.ApproveJob)
+	plan.DestroyJob = types.BoolPointerValue(newTeam.DestroyJob)
 	plan.Role = roleToState(newTeam.Role)
 	plan.ManagePolicies = types.BoolPointerValue(newTeam.ManagePolicies)
 
@@ -369,6 +379,7 @@ func (r *TeamResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	state.ManageCollection = types.BoolValue(team.ManageCollection)
 	state.PlanJob = types.BoolValue(team.PlanJob)
 	state.ApproveJob = types.BoolValue(team.ApproveJob)
+	state.DestroyJob = types.BoolPointerValue(team.DestroyJob)
 	state.Role = roleToState(team.Role)
 	state.ManagePolicies = types.BoolPointerValue(team.ManagePolicies)
 
@@ -406,6 +417,8 @@ func (r *TeamResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		ID:               state.ID.ValueString(),
 		Name:             state.Name.ValueString(),
 	}
+
+	bodyRequest.DestroyJob = optionalBoolPointer(plan.DestroyJob)
 
 	if !plan.Role.IsNull() && !plan.Role.IsUnknown() {
 		role := plan.Role.ValueString()
@@ -514,6 +527,7 @@ func (r *TeamResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	plan.ManageCollection = types.BoolValue(team.ManageCollection)
 	plan.PlanJob = types.BoolValue(team.PlanJob)
 	plan.ApproveJob = types.BoolValue(team.ApproveJob)
+	plan.DestroyJob = types.BoolPointerValue(team.DestroyJob)
 	plan.Role = roleToState(team.Role)
 	plan.ManagePolicies = types.BoolPointerValue(team.ManagePolicies)
 
@@ -543,6 +557,15 @@ func (r *TeamResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 		return
 	}
 	defer delResp.Body.Close()
+	body, err := io.ReadAll(delResp.Body)
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading delete response", err.Error())
+		return
+	}
+	if delResp.StatusCode == http.StatusNotFound {
+		return
+	}
+	reportAPIErrorStatus(&resp.Diagnostics, "deleting team", delResp, body)
 }
 
 func (r *TeamResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
