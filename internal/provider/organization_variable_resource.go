@@ -151,7 +151,7 @@ func (r *OrganizationVariableResource) Create(ctx context.Context, req resource.
 		return
 	}
 
-	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value)
+	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value, plan.Sensitive, "organization variable")
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -311,7 +311,7 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 		return
 	}
 
-	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value)
+	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value, plan.Sensitive, "organization variable")
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return

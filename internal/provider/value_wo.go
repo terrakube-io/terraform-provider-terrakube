@@ -64,22 +64,37 @@ func validateValueWoSensitive(ctx context.Context, config tfsdk.Config, kind str
 		return diags
 	}
 
-	diags.AddAttributeError(
-		path.Root("value_wo"),
-		"value_wo requires sensitive = true",
-		fmt.Sprintf("Terrakube returns the value of a non-sensitive %s, so it cannot be kept out of the state. Set sensitive = true, or use value.", kind),
-	)
+	addValueWoNotSensitiveError(&diags, kind)
 	return diags
 }
 
 // valueOrWriteOnly returns the value to send to Terrakube: value from the plan,
 // or value_wo from the configuration (write-only values are never in the plan).
-func valueOrWriteOnly(ctx context.Context, config tfsdk.Config, value types.String) (string, diag.Diagnostics) {
+// It repeats the sensitive check of validateValueWoSensitive, which skips an
+// unknown sensitive at validate time; at apply it is known.
+func valueOrWriteOnly(ctx context.Context, config tfsdk.Config, value types.String, sensitive types.Bool, kind string) (string, diag.Diagnostics) {
 	if !value.IsNull() {
 		return value.ValueString(), nil
 	}
 
 	var valueWo types.String
 	diags := config.GetAttribute(ctx, path.Root("value_wo"), &valueWo)
+	if diags.HasError() {
+		return "", diags
+	}
+
+	if !valueWo.IsNull() && !sensitive.ValueBool() {
+		addValueWoNotSensitiveError(&diags, kind)
+		return "", diags
+	}
+
 	return valueWo.ValueString(), diags
+}
+
+func addValueWoNotSensitiveError(diags *diag.Diagnostics, kind string) {
+	diags.AddAttributeError(
+		path.Root("value_wo"),
+		"value_wo requires sensitive = true",
+		fmt.Sprintf("Terrakube returns the value of a non-sensitive %s, so it cannot be kept out of the state. Set sensitive = true, or use value.", kind),
+	)
 }

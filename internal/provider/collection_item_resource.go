@@ -158,7 +158,7 @@ func (r *CollectionItemResource) Create(ctx context.Context, req resource.Create
 		return
 	}
 
-	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value)
+	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value, plan.Sensitive, "collection item")
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -363,7 +363,7 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 		return
 	}
 
-	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value)
+	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value, plan.Sensitive, "collection item")
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return

@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -429,5 +430,104 @@ func TestVariableResource_ExactlyOneValue(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// sensitive can be unknown at validate time (from a variable or another
+// resource), so ValidateConfig lets it through; Create and Update must then
+// refuse value_wo once sensitive resolves to false.
+func TestVariableResource_ValueWo_SensitiveUnknownThenFalse(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range variableTestCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			s, objType := tc.schemaAndType(t, ctx)
+
+			validateReq := resource.ValidateConfigRequest{
+				Config: tfsdk.Config{Schema: s, Raw: tc.values(objType, map[string]tftypes.Value{
+					"value_wo":  tftypes.NewValue(tftypes.String, variableTestSecret),
+					"sensitive": tftypes.NewValue(tftypes.Bool, tftypes.UnknownValue),
+				})},
+			}
+			validateResp := &resource.ValidateConfigResponse{}
+			tc.newResource(nil, "").ValidateConfig(ctx, validateReq, validateResp)
+			if validateResp.Diagnostics.HasError() {
+				t.Fatalf("expected no error with sensitive unknown at validate, got: %v", validateResp.Diagnostics)
+			}
+
+			var captured []byte
+			server := tc.server(t, &captured)
+			defer server.Close()
+
+			r := tc.newResource(server.Client(), server.URL)
+
+			plan := map[string]tftypes.Value{
+				"id":               tftypes.NewValue(tftypes.String, "var-1"),
+				"sensitive":        tftypes.NewValue(tftypes.Bool, false),
+				"value_wo_version": tftypes.NewValue(tftypes.Number, 1),
+			}
+			config := map[string]tftypes.Value{
+				"sensitive":        tftypes.NewValue(tftypes.Bool, false),
+				"value_wo":         tftypes.NewValue(tftypes.String, variableTestSecret),
+				"value_wo_version": tftypes.NewValue(tftypes.Number, 1),
+			}
+
+			createResp := &resource.CreateResponse{State: tfsdk.State{Schema: s}}
+			r.Create(ctx, resource.CreateRequest{
+				Plan:   tfsdk.Plan{Schema: s, Raw: tc.values(objType, plan)},
+				Config: tfsdk.Config{Schema: s, Raw: tc.values(objType, config)},
+			}, createResp)
+			if !createResp.Diagnostics.HasError() {
+				t.Errorf("expected Create to refuse value_wo with sensitive=false")
+			}
+
+			updateResp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+			r.Update(ctx, resource.UpdateRequest{
+				State:  tfsdk.State{Schema: s, Raw: tc.values(objType, plan)},
+				Plan:   tfsdk.Plan{Schema: s, Raw: tc.values(objType, plan)},
+				Config: tfsdk.Config{Schema: s, Raw: tc.values(objType, config)},
+			}, updateResp)
+			if !updateResp.Diagnostics.HasError() {
+				t.Errorf("expected Update to refuse value_wo with sensitive=false")
+			}
+
+			if captured != nil {
+				t.Errorf("expected no request to Terrakube, got body: %s", captured)
+			}
+		})
+	}
+}
+
+func TestVariableResource_ValueWoVersionRequiresValueWo(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range variableTestCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			s, objType := tc.schemaAndType(t, ctx)
+
+			attr, ok := s.Attributes["value_wo_version"].(schema.Int64Attribute)
+			if !ok {
+				t.Fatalf("expected value_wo_version to be an Int64Attribute")
+			}
+
+			req := validator.Int64Request{
+				Path:           path.Root("value_wo_version"),
+				PathExpression: path.MatchRoot("value_wo_version"),
+				ConfigValue:    types.Int64Value(1),
+				Config: tfsdk.Config{Schema: s, Raw: tc.values(objType, map[string]tftypes.Value{
+					"value":            tftypes.NewValue(tftypes.String, "plain"),
+					"value_wo_version": tftypes.NewValue(tftypes.Number, 1),
+				})},
+			}
+
+			var gotError bool
+			for _, v := range attr.Validators {
+				resp := &validator.Int64Response{}
+				v.ValidateInt64(ctx, req, resp)
+				gotError = gotError || resp.Diagnostics.HasError()
+			}
+
+			if !gotError {
+				t.Errorf("expected value_wo_version without value_wo to be rejected")
+			}
+		})
 	}
 }

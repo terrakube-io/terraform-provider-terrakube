@@ -155,7 +155,7 @@ func (r *WorkspaceVariableResource) Create(ctx context.Context, req resource.Cre
 		return
 	}
 
-	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value)
+	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value, plan.Sensitive, "workspace variable")
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -315,7 +315,7 @@ func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.Upd
 		return
 	}
 
-	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value)
+	value, diags := valueOrWriteOnly(ctx, req.Config, plan.Value, plan.Sensitive, "workspace variable")
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
