@@ -218,6 +218,7 @@ func (p *TerrakubeProvider) DataSources(ctx context.Context) []func() datasource
 		NewFederatedCredentialDataSource,
 		NewProjectDataSource,
 		NewNotificationConfigurationDataSource,
+		NewSelfHostedAgentDataSource,
 		NewPolicySetDataSource,
 		NewPolicySetParameterDataSource,
 		NewPolicyAttachmentDataSource,
