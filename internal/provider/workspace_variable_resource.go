@@ -81,6 +81,7 @@ func (r *WorkspaceVariableResource) Schema(ctx context.Context, req resource.Sch
 			},
 			"value": schema.StringAttribute{
 				Optional:    true,
+				Sensitive:   true,
 				Description: valueDescription,
 			},
 			"value_wo":         valueWoAttribute(),
