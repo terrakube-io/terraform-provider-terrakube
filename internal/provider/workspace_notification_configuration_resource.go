@@ -251,7 +251,7 @@ func (r *WorkspaceNotificationConfigurationResource) Create(ctx context.Context,
 	plan.Description = optionalStringValue(created.Description)
 	plan.ChannelType = types.StringValue(created.ChannelType)
 	plan.DestinationUrl = types.StringValue(created.DestinationUrl)
-	plan.SigningSecret = optionalStringValue(created.SigningSecret)
+	// signing_secret stays as planned: Terrakube never returns it (see the Read comment).
 	plan.Active = types.BoolValue(created.Active)
 	plan.MessageStyle = types.StringValue(created.MessageStyle)
 	triggerList, listDiags := types.ListValueFrom(ctx, types.StringType, triggerStatuses)
@@ -334,7 +334,9 @@ func (r *WorkspaceNotificationConfigurationResource) Read(ctx context.Context, r
 	state.Description = optionalStringValue(configuration.Description)
 	state.ChannelType = types.StringValue(configuration.ChannelType)
 	state.DestinationUrl = types.StringValue(configuration.DestinationUrl)
-	state.SigningSecret = optionalStringValue(configuration.SigningSecret)
+	// signing_secret is kept from the state: Terrakube never returns it (its
+	// "read notification signing secret" check always denies), so the response
+	// value is always empty.
 	state.Active = types.BoolValue(configuration.Active)
 	state.MessageStyle = types.StringValue(configuration.MessageStyle)
 	state.TriggerStatuses = triggerList
