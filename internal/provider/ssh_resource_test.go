@@ -43,13 +43,21 @@ func TestSshResource_Schema(t *testing.T) {
 		t.Errorf("expected organization_id to be required")
 	}
 
-	// private_key must be required and sensitive
+	// private_key is optional (private_key_wo is the alternative) and sensitive
 	privKeyAttr := s.Attributes["private_key"]
-	if !privKeyAttr.IsRequired() {
-		t.Errorf("expected private_key to be required")
+	if !privKeyAttr.IsOptional() {
+		t.Errorf("expected private_key to be optional")
 	}
 	if !privKeyAttr.IsSensitive() {
 		t.Errorf("expected private_key to be sensitive")
+	}
+
+	woAttr := s.Attributes["private_key_wo"]
+	if !woAttr.IsOptional() || !woAttr.IsSensitive() || !woAttr.IsWriteOnly() {
+		t.Errorf("expected private_key_wo to be optional, sensitive and write-only")
+	}
+	if !s.Attributes["private_key_wo_version"].IsOptional() {
+		t.Errorf("expected private_key_wo_version to be optional")
 	}
 
 	// id must be computed

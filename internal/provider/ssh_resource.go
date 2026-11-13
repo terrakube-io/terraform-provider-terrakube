@@ -11,6 +11,7 @@ import (
 	"terraform-provider-terrakube/internal/client"
 
 	"github.com/google/jsonapi"
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
@@ -26,6 +27,7 @@ import (
 
 var _ resource.Resource = &SshResource{}
 var _ resource.ResourceWithImportState = &SshResource{}
+var _ resource.ResourceWithConfigValidators = &SshResource{}
 
 type SshResource struct {
 	client   *http.Client
@@ -34,12 +36,14 @@ type SshResource struct {
 }
 
 type SshResourceModel struct {
-	ID             types.String `tfsdk:"id"`
-	Name           types.String `tfsdk:"name"`
-	OrganizationId types.String `tfsdk:"organization_id"`
-	Description    types.String `tfsdk:"description"`
-	PrivateKey     types.String `tfsdk:"private_key"`
-	SshType        types.String `tfsdk:"ssh_type"`
+	ID                  types.String `tfsdk:"id"`
+	Name                types.String `tfsdk:"name"`
+	OrganizationId      types.String `tfsdk:"organization_id"`
+	Description         types.String `tfsdk:"description"`
+	PrivateKey          types.String `tfsdk:"private_key"`
+	PrivateKeyWo        types.String `tfsdk:"private_key_wo"`
+	PrivateKeyWoVersion types.Int64  `tfsdk:"private_key_wo_version"`
+	SshType             types.String `tfsdk:"ssh_type"`
 }
 
 func NewSshResource() resource.Resource {
@@ -77,10 +81,12 @@ func (r *SshResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 				Description: "SSH key description",
 			},
 			"private_key": schema.StringAttribute{
-				Required:    true,
+				Optional:    true,
 				Sensitive:   true,
-				Description: "SSH Key content",
+				Description: "SSH Key content, stored in the Terraform state. Exactly one of `private_key` or `private_key_wo` is required.",
 			},
+			"private_key_wo":         writeOnlyAttribute("private_key", "SSH Key content", false),
+			"private_key_wo_version": writeOnlyVersionAttribute("private_key"),
 			"ssh_type": schema.StringAttribute{
 				Optional:    true,
 				Computed:    true,
@@ -134,10 +140,16 @@ func (r *SshResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 
+	privateKey, _, diags := writeOnlyValue(ctx, req.Config, plan.PrivateKey, "private_key")
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	bodyRequest := &client.SshEntity{
 		Name:        plan.Name.ValueString(),
 		Description: plan.Description.ValueStringPointer(),
-		PrivateKey:  plan.PrivateKey.ValueString(),
+		PrivateKey:  privateKey,
 		SshType:     plan.SshType.ValueString(),
 	}
 
@@ -181,7 +193,8 @@ func (r *SshResource) Create(ctx context.Context, req resource.CreateRequest, re
 
 	plan.ID = types.StringValue(newSshKey.ID)
 	plan.Name = types.StringValue(newSshKey.Name)
-	plan.PrivateKey = types.StringValue(plan.PrivateKey.ValueString())
+	// private_key stays as planned (null with private_key_wo): Terrakube never returns it.
+	plan.PrivateKeyWo = types.StringNull()
 	plan.SshType = types.StringValue(newSshKey.SshType)
 	plan.Description = types.StringPointerValue(newSshKey.Description)
 	tflog.Info(ctx, "Ssh Key Resource Created", map[string]any{"success": true})
@@ -239,7 +252,8 @@ func (r *SshResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 	state.Name = types.StringValue(sshKey.Name)
-	state.PrivateKey = types.StringValue(state.PrivateKey.ValueString()) //value is not inside the response getting the value from the current state
+	// private_key is kept from the state: Terrakube never returns it ("read
+	// private key" permission). Null stays null, so private_key_wo shows no diff.
 	state.SshType = types.StringValue(sshKey.SshType)
 	state.Description = types.StringPointerValue(sshKey.Description)
 	state.ID = types.StringValue(sshKey.ID)
@@ -265,11 +279,20 @@ func (r *SshResource) Update(ctx context.Context, req resource.UpdateRequest, re
 		return
 	}
 
+	// The PATCH carries every attribute, so the key is always sent: from
+	// private_key, or from private_key_wo in the configuration. Sending an empty
+	// key on an unrelated change would clear it in Terrakube.
+	privateKey, _, diags := writeOnlyValue(ctx, req.Config, plan.PrivateKey, "private_key")
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	bodyRequest := &client.SshEntity{
 		ID:          plan.ID.ValueString(),
 		Name:        plan.Name.ValueString(),
 		Description: plan.Description.ValueStringPointer(),
-		PrivateKey:  plan.PrivateKey.ValueString(),
+		PrivateKey:  privateKey,
 		SshType:     plan.SshType.ValueString(),
 	}
 	var out = new(bytes.Buffer)
@@ -339,7 +362,7 @@ func (r *SshResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	plan.ID = types.StringValue(state.ID.ValueString())
 	plan.Name = types.StringValue(ssh.Name)
 	plan.Description = types.StringPointerValue(ssh.Description)
-	plan.PrivateKey = types.StringValue(plan.PrivateKey.ValueString())
+	plan.PrivateKeyWo = types.StringNull()
 	plan.SshType = types.StringValue(ssh.SshType)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -367,6 +390,15 @@ func (r *SshResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing ssh key resource request", fmt.Sprintf("Error executing ssh key resource request: %s", err))
 		return
+	}
+}
+
+func (r *SshResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.ExactlyOneOf(
+			path.MatchRoot("private_key"),
+			path.MatchRoot("private_key_wo"),
+		),
 	}
 }
 
