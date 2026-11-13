@@ -1,12 +1,9 @@
-# Release automation.
+# Release automation. See RELEASING.md.
 #
-# Every push to main (or to a release/* maintenance branch) updates a "release"
-# pull request that carries the next version and its CHANGELOG.md section,
-# computed from the conventional commit titles merged since the last release.
-# Merging that pull request tags the release and creates it as a draft; the
-# release job then builds, signs and publishes it with GoReleaser.
-#
-# See RELEASING.md.
+# A push to main or release/** updates the release pull request (next version and
+# CHANGELOG.md section, from the conventional commit titles since the last
+# release). Merging it tags the release and creates a draft, then the release
+# job builds, signs and publishes it with GoReleaser.
 name: Release Please
 
 on:
@@ -15,10 +12,10 @@ on:
       - main
       - 'release/**'
 
-# Nothing by default; each job asks for what it needs.
+# No default token permissions; each job sets its own.
 permissions: {}
 
-# One run per branch at a time, and never cancel one halfway through a release.
+# One run per branch, never cancelled mid-release.
 concurrency:
   group: release-please-${{ github.ref }}
   cancel-in-progress: false
@@ -38,16 +35,14 @@ jobs:
       - id: release-please
         uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         with:
-          # Run against the branch that was pushed, so a release/* branch gets
-          # its own release PR (0.31.1 on release/0.31) from its own manifest.
+          # Release PR per branch, from that branch's manifest (0.31.1 on release/0.31).
           target-branch: ${{ github.ref_name }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  # The tag already exists when this runs (force-tag-creation), and the GitHub
-  # release is a draft carrying the release-please notes. GoReleaser uploads
-  # the signed assets to it and publishes it, so the Terraform Registry never
-  # sees a release without assets.
+  # The tag exists (force-tag-creation) and the release is a draft with the
+  # changelog as notes. GoReleaser attaches the signed assets and publishes it,
+  # so the Terraform Registry never sees a release without assets.
   release:
     name: Publish
     needs: release-please

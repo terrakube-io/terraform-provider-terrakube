@@ -1,10 +1,9 @@
 # Terraform Provider release workflow.
 #
 # Builds, signs and publishes the release for an existing tag with GoReleaser.
-# It is called by release-please.yml when a release pull request is merged.
-# Run it by hand (Actions > Release > Run workflow) to retry a release whose
-# publish step failed: the tag and the draft release already exist, so it is
-# safe to run again.
+# Called by release-please.yml when a release pull request is merged. Run it
+# manually with the tag to retry a failed publish; the tag and draft release
+# already exist, so it can run again.
 name: Release
 
 on:

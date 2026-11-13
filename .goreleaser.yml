@@ -54,9 +54,9 @@ release:
   extra_files:
     - glob: 'terraform-registry-manifest.json'
       name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
-  # release-please creates the GitHub release as a draft, with the changelog as
-  # its notes. GoReleaser finds that draft by its name (the tag), keeps the
-  # notes, uploads the signed assets and then publishes it.
+  # release-please creates the release as a draft with the changelog as notes.
+  # GoReleaser finds the draft by name (the tag), keeps the notes, uploads the
+  # signed assets and publishes it.
   name_template: '{{ .Tag }}'
   use_existing_draft: true
   mode: keep-existing

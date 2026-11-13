@@ -8,7 +8,7 @@
   "draft": true,
   "force-tag-creation": true,
   "pull-request-title-pattern": "chore: release ${version}",
-  "pull-request-header": ":robot: Release PR. Merging it tags the release and publishes it through GoReleaser.",
+  "pull-request-header": "Merging this pull request tags the release and publishes it with GoReleaser. See RELEASING.md.",
   "changelog-sections": [
     { "type": "feat", "section": "Features" },
     { "type": "fix", "section": "Bug Fixes" },

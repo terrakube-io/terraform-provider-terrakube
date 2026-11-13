@@ -1,12 +1,11 @@
-# Pull requests are squash-merged, so the pull request title becomes the commit
-# message on main, and release-please reads it to pick the version bump and
-# write the changelog. This check keeps the title in the conventional commit
-# format: type(scope): description. See RELEASING.md.
+# Pull requests are squash-merged and the title becomes the commit message on
+# main, which release-please reads for the version bump and changelog. Requires
+# the conventional commit format: type(scope): description. See RELEASING.md.
 name: PR Title
 
 on:
-  # pull_request_target so the check can also run on pull requests from forks.
-  # It never checks out or runs code from the pull request.
+  # pull_request_target runs the check on fork pull requests. No pull request
+  # code is checked out or run.
   pull_request_target:
     types:
       - opened
@@ -39,7 +38,7 @@ jobs:
             ci
             chore
           requireScope: false
-          # The subject starts with a lowercase letter, e.g. "add value_wo".
+          # Lowercase first letter in the description.
           subjectPattern: ^(?![A-Z]).+$
           subjectPatternError: |
             The subject "{subject}" must not start with an uppercase letter.
