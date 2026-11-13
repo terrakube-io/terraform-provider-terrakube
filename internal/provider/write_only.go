@@ -15,28 +15,58 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
+// Write-only arguments follow the <attr>_wo / <attr>_wo_version convention:
+// <attr>_wo is sent to Terrakube but never stored in the plan or state, and
+// <attr>_wo_version is the only way to make Terraform send a new value.
+
+// writeOnlyAttribute is the <attr>_wo argument. description says what it holds,
+// e.g. "Variable value"; extra lists other requirements before the Terraform
+// version, e.g. "`sensitive = true` and ".
+func writeOnlyAttribute(attr, description, extra string) schema.StringAttribute {
+	return schema.StringAttribute{
+		Optional:  true,
+		Sensitive: true,
+		WriteOnly: true,
+		Description: fmt.Sprintf("%s as a write-only argument: sent to Terrakube but never stored in the plan or state. Requires %sTerraform 1.11+ or OpenTofu 1.11+. Terraform cannot detect changes to it: bump `%s_wo_version` to send a new value.",
+			description, extra, attr),
+	}
+}
+
+// writeOnlyVersionAttribute is the <attr>_wo_version argument.
+func writeOnlyVersionAttribute(attr string) schema.Int64Attribute {
+	return schema.Int64Attribute{
+		Optional:    true,
+		Description: fmt.Sprintf("Version of `%s_wo`. Change it to update the value in Terrakube.", attr),
+		Validators: []validator.Int64{
+			int64validator.AlsoRequires(path.MatchRoot(attr + "_wo")),
+		},
+	}
+}
+
+// writeOnlyValue returns the value to send to Terrakube for attr: attr from the
+// plan, or attr_wo from the configuration (write-only values are never in the
+// plan, but are in the configuration on every apply).
+func writeOnlyValue(ctx context.Context, config tfsdk.Config, value types.String, attr string) (string, bool, diag.Diagnostics) {
+	if !value.IsNull() {
+		return value.ValueString(), false, nil
+	}
+
+	var valueWo types.String
+	diags := config.GetAttribute(ctx, path.Root(attr+"_wo"), &valueWo)
+	return valueWo.ValueString(), !valueWo.IsNull(), diags
+}
+
 // Shared value / value_wo / value_wo_version handling for the resources that
 // hold a variable value (collection items, workspace and organization variables).
 
 const valueDescription = "Variable value, stored in the Terraform state. Exactly one of `value` or `value_wo` is required."
 
 func valueWoAttribute() schema.StringAttribute {
-	return schema.StringAttribute{
-		Optional:    true,
-		Sensitive:   true,
-		WriteOnly:   true,
-		Description: "Variable value as a write-only argument: sent to Terrakube but never stored in the plan or state. Requires `sensitive = true` and Terraform 1.11+ or OpenTofu 1.11+. Terraform cannot detect changes to it: bump `value_wo_version` to send a new value.",
-	}
+	return writeOnlyAttribute("value", "Variable value", "`sensitive = true` and ")
 }
 
 func valueWoVersionAttribute() schema.Int64Attribute {
-	return schema.Int64Attribute{
-		Optional:    true,
-		Description: "Version of `value_wo`. Change it to update the value in Terrakube.",
-		Validators: []validator.Int64{
-			int64validator.AlsoRequires(path.MatchRoot("value_wo")),
-		},
-	}
+	return writeOnlyVersionAttribute("value")
 }
 
 func valueWoConfigValidators() []resource.ConfigValidator {
@@ -69,26 +99,21 @@ func validateValueWoSensitive(ctx context.Context, config tfsdk.Config, kind str
 }
 
 // valueOrWriteOnly returns the value to send to Terrakube: value from the plan,
-// or value_wo from the configuration (write-only values are never in the plan).
+// or value_wo from the configuration.
 // It repeats the sensitive check of validateValueWoSensitive, which skips an
 // unknown sensitive at validate time; at apply it is known.
 func valueOrWriteOnly(ctx context.Context, config tfsdk.Config, value types.String, sensitive types.Bool, kind string) (string, diag.Diagnostics) {
-	if !value.IsNull() {
-		return value.ValueString(), nil
-	}
-
-	var valueWo types.String
-	diags := config.GetAttribute(ctx, path.Root("value_wo"), &valueWo)
+	v, fromWo, diags := writeOnlyValue(ctx, config, value, "value")
 	if diags.HasError() {
 		return "", diags
 	}
 
-	if !valueWo.IsNull() && !sensitive.ValueBool() {
+	if fromWo && !sensitive.ValueBool() {
 		addValueWoNotSensitiveError(&diags, kind)
 		return "", diags
 	}
 
-	return valueWo.ValueString(), diags
+	return v, diags
 }
 
 func addValueWoNotSensitiveError(diags *diag.Diagnostics, kind string) {

@@ -13,10 +13,13 @@ import (
 	"terraform-provider-terrakube/internal/helpers"
 
 	"github.com/google/jsonapi"
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -29,6 +32,7 @@ import (
 // Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &VcsResource{}
 var _ resource.ResourceWithImportState = &VcsResource{}
+var _ resource.ResourceWithConfigValidators = &VcsResource{}
 
 type VcsResource struct {
 	client   *http.Client
@@ -37,19 +41,23 @@ type VcsResource struct {
 }
 
 type VcsResourceModel struct {
-	ID             types.String `tfsdk:"id"`
-	OrganizationId types.String `tfsdk:"organization_id"`
-	Name           types.String `tfsdk:"name"`
-	Description    types.String `tfsdk:"description"`
-	VcsType        types.String `tfsdk:"vcs_type"`
-	ConnectionType types.String `tfsdk:"connection_type"`
-	ClientId       types.String `tfsdk:"client_id"`
-	ClientSecret   types.String `tfsdk:"client_secret"`
-	PrivateKey     types.String `tfsdk:"private_key"`
-	Endpoint       types.String `tfsdk:"endpoint"`
-	ApiUrl         types.String `tfsdk:"api_url"`
-	Status         types.String `tfsdk:"status"`
-	ConnectUrl     types.String `tfsdk:"connect_url"`
+	ID                    types.String `tfsdk:"id"`
+	OrganizationId        types.String `tfsdk:"organization_id"`
+	Name                  types.String `tfsdk:"name"`
+	Description           types.String `tfsdk:"description"`
+	VcsType               types.String `tfsdk:"vcs_type"`
+	ConnectionType        types.String `tfsdk:"connection_type"`
+	ClientId              types.String `tfsdk:"client_id"`
+	ClientSecret          types.String `tfsdk:"client_secret"`
+	ClientSecretWo        types.String `tfsdk:"client_secret_wo"`
+	ClientSecretWoVersion types.Int64  `tfsdk:"client_secret_wo_version"`
+	PrivateKey            types.String `tfsdk:"private_key"`
+	PrivateKeyWo          types.String `tfsdk:"private_key_wo"`
+	PrivateKeyWoVersion   types.Int64  `tfsdk:"private_key_wo_version"`
+	Endpoint              types.String `tfsdk:"endpoint"`
+	ApiUrl                types.String `tfsdk:"api_url"`
+	Status                types.String `tfsdk:"status"`
+	ConnectUrl            types.String `tfsdk:"connect_url"`
 }
 
 func NewVcsResource() resource.Resource {
@@ -110,25 +118,23 @@ func (r *VcsResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 			"client_secret": schema.StringAttribute{
 				Optional:    true,
 				Sensitive:   true,
-				Description: "The secret of the VCS connection",
-				Validators: []validator.String{
-					stringvalidator.AtLeastOneOf(path.MatchRelative().AtParent().AtName("client_secret"), path.MatchRelative().AtParent().AtName("private_key")),
-				},
+				Description: "The secret of the VCS connection, stored in the Terraform state. At least one of `client_secret`, `client_secret_wo`, `private_key` or `private_key_wo` is required.",
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+					requiresReplaceUnlessMovedToWriteOnly("client_secret"),
 				},
 			},
+			"client_secret_wo":         writeOnlyAttribute("client_secret", "The secret of the VCS connection", ""),
+			"client_secret_wo_version": writeOnlyVersionAttribute("client_secret"),
 			"private_key": schema.StringAttribute{
 				Optional:    true,
 				Sensitive:   true,
 				Description: "The private key in PKCS8 format of the VCS connection. Please use command `openssl pkcs8 -topk8 -inform PEM -inform pem -outform pem -in github_rsa_private_key.pem -out private_key.pem -nocrypt` to convert the private key to PKCS8 format form Github default RSA.",
-				Validators: []validator.String{
-					stringvalidator.AtLeastOneOf(path.MatchRelative().AtParent().AtName("client_secret"), path.MatchRelative().AtParent().AtName("private_key")),
-				},
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+					requiresReplaceUnlessMovedToWriteOnly("private_key"),
 				},
 			},
+			"private_key_wo":         writeOnlyAttribute("private_key", "The private key in PKCS8 format of the VCS connection", ""),
+			"private_key_wo_version": writeOnlyVersionAttribute("private_key"),
 			"endpoint": schema.StringAttribute{
 				Optional: true,
 				Computed: true,
@@ -160,6 +166,54 @@ func (r *VcsResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 			},
 		},
 	}
+}
+
+// requiresReplaceUnlessMovedToWriteOnly replaces the connection when attr
+// changes, except when it is removed in favour of attr_wo: moving a secret to
+// its write-only argument sends the same value with an update.
+func requiresReplaceUnlessMovedToWriteOnly(attr string) planmodifier.String {
+	return stringplanmodifier.RequiresReplaceIf(
+		func(ctx context.Context, req planmodifier.StringRequest, resp *stringplanmodifier.RequiresReplaceIfFuncResponse) {
+			if !req.ConfigValue.IsNull() {
+				resp.RequiresReplace = true
+				return
+			}
+
+			var valueWo types.String
+			resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root(attr+"_wo"), &valueWo)...)
+			resp.RequiresReplace = valueWo.IsNull()
+		},
+		fmt.Sprintf("Changing %s replaces the VCS connection, unless it moves to %s_wo.", attr, attr),
+		fmt.Sprintf("Changing `%s` replaces the VCS connection, unless it moves to `%s_wo`.", attr, attr),
+	)
+}
+
+func (r *VcsResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.AtLeastOneOf(
+			path.MatchRoot("client_secret"),
+			path.MatchRoot("client_secret_wo"),
+			path.MatchRoot("private_key"),
+			path.MatchRoot("private_key_wo"),
+		),
+		resourcevalidator.Conflicting(
+			path.MatchRoot("client_secret"),
+			path.MatchRoot("client_secret_wo"),
+		),
+		resourcevalidator.Conflicting(
+			path.MatchRoot("private_key"),
+			path.MatchRoot("private_key_wo"),
+		),
+	}
+}
+
+// vcsSecrets returns client_secret and private_key to send to Terrakube, from
+// the plan or from their write-only arguments in the configuration.
+func vcsSecrets(ctx context.Context, config tfsdk.Config, plan VcsResourceModel) (string, string, diag.Diagnostics) {
+	clientSecret, _, diags := writeOnlyValue(ctx, config, plan.ClientSecret, "client_secret")
+	privateKey, _, keyDiags := writeOnlyValue(ctx, config, plan.PrivateKey, "private_key")
+	diags.Append(keyDiags...)
+	return clientSecret, privateKey, diags
 }
 
 func (r *VcsResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -204,14 +258,20 @@ func (r *VcsResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 
+	clientSecret, privateKey, diags := vcsSecrets(ctx, req.Config, plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	bodyRequest := &client.VcsEntity{
 		Name:           plan.Name.ValueString(),
 		Description:    plan.Description.ValueString(),
 		VcsType:        plan.VcsType.ValueString(),
 		ConnectionType: plan.ConnectionType.ValueString(),
 		ClientId:       plan.ClientId.ValueString(),
-		ClientSecret:   plan.ClientSecret.ValueString(),
-		PrivateKey:     plan.PrivateKey.ValueString(),
+		ClientSecret:   clientSecret,
+		PrivateKey:     privateKey,
 		Endpoint:       plan.Endpoint.ValueString(),
 		ApiUrl:         plan.ApiUrl.ValueString(),
 		Status:         plan.Status.ValueString(),
@@ -272,6 +332,8 @@ func (r *VcsResource) Create(ctx context.Context, req resource.CreateRequest, re
 	if plan.PrivateKey.ValueString() != "" {
 		plan.PrivateKey = types.StringValue(plan.PrivateKey.ValueString())
 	}
+	plan.ClientSecretWo = types.StringNull()
+	plan.PrivateKeyWo = types.StringNull()
 	plan.ConnectUrl = types.StringValue(plan.ConnectUrl.ValueString())
 	plan.Status = types.StringValue(vcs.Status)
 	plan.ConnectionType = types.StringValue(vcs.ConnectionType)
@@ -367,6 +429,12 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 		return
 	}
 
+	clientSecret, privateKey, diags := vcsSecrets(ctx, req.Config, plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	bodyRequest := &client.VcsEntity{
 		ID:             plan.ID.ValueString(),
 		Name:           plan.Name.ValueString(),
@@ -374,8 +442,8 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 		VcsType:        plan.VcsType.ValueString(),
 		ConnectionType: plan.ConnectionType.ValueString(),
 		ClientId:       plan.ClientId.ValueString(),
-		ClientSecret:   plan.ClientSecret.ValueString(),
-		PrivateKey:     plan.PrivateKey.ValueString(),
+		ClientSecret:   clientSecret,
+		PrivateKey:     privateKey,
 		Endpoint:       plan.Endpoint.ValueString(),
 		ApiUrl:         plan.ApiUrl.ValueString(),
 		Status:         plan.Status.ValueString(),
@@ -467,6 +535,8 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	plan.ApiUrl = types.StringValue(vcs.ApiUrl)
 	plan.Status = types.StringValue(vcs.Status)
 	plan.ConnectUrl = types.StringValue(plan.ConnectUrl.ValueString())
+	plan.ClientSecretWo = types.StringNull()
+	plan.PrivateKeyWo = types.StringNull()
 
 	if vcs.Status == "PENDING" {
 		tflog.Warn(ctx, fmt.Sprintf("VCS connection is pending, please logon to %s to connect. Check doc here %s", plan.ConnectUrl, helpers.GetVCSProviderDoc()))
