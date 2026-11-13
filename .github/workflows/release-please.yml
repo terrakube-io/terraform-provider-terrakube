@@ -1,0 +1,62 @@
+# Release automation.
+#
+# Every push to main (or to a release/* maintenance branch) updates a "release"
+# pull request that carries the next version and its CHANGELOG.md section,
+# computed from the conventional commit titles merged since the last release.
+# Merging that pull request tags the release and creates it as a draft; the
+# release job then builds, signs and publishes it with GoReleaser.
+#
+# See RELEASING.md.
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+
+# Nothing by default; each job asks for what it needs.
+permissions: {}
+
+# One run per branch at a time, and never cancel one halfway through a release.
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release-please.outputs.release_created }}
+      tag_name: ${{ steps.release-please.outputs.tag_name }}
+    steps:
+      - id: release-please
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
+        with:
+          # Run against the branch that was pushed, so a release/* branch gets
+          # its own release PR (0.31.1 on release/0.31) from its own manifest.
+          target-branch: ${{ github.ref_name }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # The tag already exists when this runs (force-tag-creation), and the GitHub
+  # release is a draft carrying the release-please notes. GoReleaser uploads
+  # the signed assets to it and publishes it, so the Terraform Registry never
+  # sees a release without assets.
+  release:
+    name: Publish
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets:
+      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      PASSPHRASE: ${{ secrets.PASSPHRASE }}

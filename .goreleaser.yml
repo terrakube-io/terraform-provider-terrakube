@@ -54,7 +54,11 @@ release:
   extra_files:
     - glob: 'terraform-registry-manifest.json'
       name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
-  # If you want to manually examine the release before its live, uncomment this line:
-  # draft: true
+  # release-please creates the GitHub release as a draft, with the changelog as
+  # its notes. GoReleaser finds that draft by its name (the tag), keeps the
+  # notes, uploads the signed assets and then publishes it.
+  name_template: '{{ .Tag }}'
+  use_existing_draft: true
+  mode: keep-existing
 changelog:
   skip: true

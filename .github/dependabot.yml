@@ -6,3 +6,8 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    # Conventional commit titles ("chore(deps): bump ..."), so the PR title
+    # check passes and release-please keeps dependency bumps out of the changelog.
+    commit-message:
+      prefix: "chore"
+      include: "scope"

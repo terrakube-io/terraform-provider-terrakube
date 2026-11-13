@@ -1,0 +1,46 @@
+# Pull requests are squash-merged, so the pull request title becomes the commit
+# message on main, and release-please reads it to pick the version bump and
+# write the changelog. This check keeps the title in the conventional commit
+# format: type(scope): description. See RELEASING.md.
+name: PR Title
+
+on:
+  # pull_request_target so the check can also run on pull requests from forks.
+  # It never checks out or runs code from the pull request.
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+
+permissions:
+  pull-requests: read
+
+jobs:
+  conventional-title:
+    name: Conventional commit title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: amannn/action-semantic-pull-request@2252a14e810aa9b85c2d560bd7070c802206ecf6 # v6.1.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            revert
+            refactor
+            docs
+            test
+            build
+            ci
+            chore
+          requireScope: false
+          # The subject starts with a lowercase letter, e.g. "add value_wo".
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            The subject "{subject}" must not start with an uppercase letter.
+            Example: "feat(vcs): add write-only client_secret_wo"
