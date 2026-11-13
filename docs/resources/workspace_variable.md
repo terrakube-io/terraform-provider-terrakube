@@ -69,7 +69,7 @@ resource "terrakube_workspace_variable" "sample3" {
 
 ### Optional
 
-- `value` (String) Variable value, stored in the Terraform state. Exactly one of `value` or `value_wo` is required.
+- `value` (String, Sensitive) Variable value, stored in the Terraform state. Exactly one of `value` or `value_wo` is required.
 - `value_wo` (String, Sensitive) Variable value as a write-only argument: sent to Terrakube but never stored in the plan or state. Requires `sensitive = true` and Terraform 1.11+ or OpenTofu 1.11+. Terraform cannot detect changes to it: bump `value_wo_version` to send a new value.
 - `value_wo_version` (Number) Version of `value_wo`. Change it to update the value in Terrakube.
 

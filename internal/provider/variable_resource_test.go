@@ -150,8 +150,9 @@ func TestVariableResource_Schema(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, _ := tc.schemaAndType(t, ctx)
 
-			if !s.Attributes["value"].IsOptional() {
-				t.Errorf("expected value to be optional")
+			value := s.Attributes["value"]
+			if !value.IsOptional() || !value.IsSensitive() {
+				t.Errorf("expected value to be optional and sensitive")
 			}
 
 			valueWo := s.Attributes["value_wo"]

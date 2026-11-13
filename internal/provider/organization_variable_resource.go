@@ -77,6 +77,7 @@ func (r *OrganizationVariableResource) Schema(ctx context.Context, req resource.
 			},
 			"value": schema.StringAttribute{
 				Optional:    true,
+				Sensitive:   true,
 				Description: valueDescription,
 			},
 			"value_wo":         valueWoAttribute(),
