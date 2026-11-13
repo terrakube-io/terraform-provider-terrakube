@@ -200,3 +200,44 @@ func TestNotificationConfigurationResource_Read_KeepsSigningSecret(t *testing.T)
 		})
 	}
 }
+
+// Update must keep the planned signing secret: Terrakube does not return it, so
+// copying the response would bring back the "inconsistent result" error.
+func TestNotificationConfigurationResource_Update_KeepsSigningSecret(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range notificationConfigurationTestCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			s, objType := tc.schemaAndType(t, ctx)
+			id := tftypes.NewValue(tftypes.String, "cfg-1")
+
+			state := tc.values(objType, map[string]tftypes.Value{"id": id})
+			plan := tc.values(objType, map[string]tftypes.Value{
+				"id":             id,
+				"signing_secret": tftypes.NewValue(tftypes.String, "new-signing-secret"),
+			})
+
+			var captured []byte
+			server := notificationConfigurationServer(t, &captured)
+			defer server.Close()
+
+			req := resource.UpdateRequest{
+				State:  tfsdk.State{Schema: s, Raw: state},
+				Plan:   tfsdk.Plan{Schema: s, Raw: plan},
+				Config: tfsdk.Config{Schema: s, Raw: plan},
+			}
+			resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+
+			tc.newResource(server).Update(ctx, req, resp)
+
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("Update returned diagnostics: %v", resp.Diagnostics)
+			}
+			if !strings.Contains(string(captured), "new-signing-secret") {
+				t.Errorf("expected the PATCH body to carry the new signing_secret, got: %s", captured)
+			}
+			if got := signingSecretFromState(t, ctx, resp.State); got.ValueString() != "new-signing-secret" {
+				t.Errorf("expected signing_secret to stay as planned, got: %v", got)
+			}
+		})
+	}
+}
