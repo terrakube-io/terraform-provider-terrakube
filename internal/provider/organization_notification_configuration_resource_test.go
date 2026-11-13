@@ -106,7 +106,10 @@ func TestOrganizationNotificationConfigurationResource_Create_PostsConfigThenEac
 		}),
 	})
 
-	req := resource.CreateRequest{Plan: tfsdk.Plan{Schema: s, Raw: planValue}}
+	req := resource.CreateRequest{
+		Plan:   tfsdk.Plan{Schema: s, Raw: planValue},
+		Config: tfsdk.Config{Schema: s, Raw: planValue},
+	}
 	resp := &resource.CreateResponse{State: tfsdk.State{Schema: s}}
 
 	r.Create(ctx, req, resp)

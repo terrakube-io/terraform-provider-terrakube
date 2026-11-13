@@ -12,7 +12,11 @@ import (
 	"terraform-provider-terrakube/internal/client"
 
 	"github.com/google/jsonapi"
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -251,4 +255,31 @@ func (a notificationConfigAPI) replaceNotificationConfigurationTemplates(ctx con
 	}
 
 	return diags
+}
+
+// signingSecretDescription is shared by the organization and workspace notification
+// configuration resources.
+const signingSecretDescription = "If set, outgoing WEBHOOK requests are signed with an X-Terrakube-Signature header (HMAC-SHA256) so the destination can verify they came from Terrakube. Stored in the Terraform state; conflicts with `signing_secret_wo`. Terrakube never returns the secret, so a change made outside Terraform is not detected, an import leaves it null (the next plan shows an update), and removing it from the configuration does not clear it in Terrakube."
+
+// signingSecretConfigValidators allows at most one of signing_secret and
+// signing_secret_wo: both are optional, a configuration may have no secret.
+func signingSecretConfigValidators() []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.Conflicting(
+			path.MatchRoot("signing_secret"),
+			path.MatchRoot("signing_secret_wo"),
+		),
+	}
+}
+
+// signingSecretToSend returns the signing secret for the request body: signing_secret from
+// the plan, or signing_secret_wo from the configuration (write-only values are never in the
+// plan). nil when neither is set, so the attribute is left out of the request
+// (SigningSecret is omitempty) as before.
+func signingSecretToSend(ctx context.Context, config tfsdk.Config, planned types.String) (*string, diag.Diagnostics) {
+	value, fromWo, diags := writeOnlyValue(ctx, config, planned, "signing_secret")
+	if diags.HasError() || (planned.IsNull() && !fromWo) {
+		return nil, diags
+	}
+	return &value, diags
 }
