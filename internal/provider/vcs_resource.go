@@ -123,7 +123,7 @@ func (r *VcsResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 					requiresReplaceUnlessMovedToWriteOnly("client_secret"),
 				},
 			},
-			"client_secret_wo":         writeOnlyAttribute("client_secret", "The secret of the VCS connection", ""),
+			"client_secret_wo":         writeOnlyAttribute("client_secret", "The secret of the VCS connection", false),
 			"client_secret_wo_version": writeOnlyVersionAttribute("client_secret"),
 			"private_key": schema.StringAttribute{
 				Optional:    true,
@@ -133,7 +133,7 @@ func (r *VcsResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 					requiresReplaceUnlessMovedToWriteOnly("private_key"),
 				},
 			},
-			"private_key_wo":         writeOnlyAttribute("private_key", "The private key in PKCS8 format of the VCS connection", ""),
+			"private_key_wo":         writeOnlyAttribute("private_key", "The private key in PKCS8 format of the VCS connection", false),
 			"private_key_wo_version": writeOnlyVersionAttribute("private_key"),
 			"endpoint": schema.StringAttribute{
 				Optional: true,

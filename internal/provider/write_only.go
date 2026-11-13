@@ -20,15 +20,20 @@ import (
 // <attr>_wo_version is the only way to make Terraform send a new value.
 
 // writeOnlyAttribute is the <attr>_wo argument. description says what it holds,
-// e.g. "Variable value"; extra lists other requirements before the Terraform
-// version, e.g. "`sensitive = true` and ".
-func writeOnlyAttribute(attr, description, extra string) schema.StringAttribute {
+// e.g. "Variable value". requiresSensitive documents that the resource must
+// also set sensitive = true (see validateValueWoSensitive).
+func writeOnlyAttribute(attr, description string, requiresSensitive bool) schema.StringAttribute {
+	requirements := ""
+	if requiresSensitive {
+		requirements = "`sensitive = true` and "
+	}
+
 	return schema.StringAttribute{
 		Optional:  true,
 		Sensitive: true,
 		WriteOnly: true,
 		Description: fmt.Sprintf("%s as a write-only argument: sent to Terrakube but never stored in the plan or state. Requires %sTerraform 1.11+ or OpenTofu 1.11+. Terraform cannot detect changes to it: bump `%s_wo_version` to send a new value.",
-			description, extra, attr),
+			description, requirements, attr),
 	}
 }
 
@@ -45,7 +50,9 @@ func writeOnlyVersionAttribute(attr string) schema.Int64Attribute {
 
 // writeOnlyValue returns the value to send to Terrakube for attr: attr from the
 // plan, or attr_wo from the configuration (write-only values are never in the
-// plan, but are in the configuration on every apply).
+// plan, but are in the configuration on every apply). The bool is true when the
+// value came from attr_wo, so a caller can add checks that only apply to the
+// write-only path (as valueOrWriteOnly does for sensitive).
 func writeOnlyValue(ctx context.Context, config tfsdk.Config, value types.String, attr string) (string, bool, diag.Diagnostics) {
 	if !value.IsNull() {
 		return value.ValueString(), false, nil
@@ -62,7 +69,7 @@ func writeOnlyValue(ctx context.Context, config tfsdk.Config, value types.String
 const valueDescription = "Variable value, stored in the Terraform state. Exactly one of `value` or `value_wo` is required."
 
 func valueWoAttribute() schema.StringAttribute {
-	return writeOnlyAttribute("value", "Variable value", "`sensitive = true` and ")
+	return writeOnlyAttribute("value", "Variable value", true)
 }
 
 func valueWoVersionAttribute() schema.Int64Attribute {

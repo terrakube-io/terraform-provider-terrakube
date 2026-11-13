@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -265,75 +266,178 @@ func TestVcsResource_ConfigValidators(t *testing.T) {
 	}
 }
 
-func TestVcsResource_ClientSecretRequiresReplace(t *testing.T) {
+// Each secret is replaced when its value changes or is removed, but not when it
+// moves to its write-only argument.
+func TestVcsResource_SecretRequiresReplace(t *testing.T) {
 	ctx := context.Background()
 	s, objType := vcsResourceSchemaAndType(t, ctx)
 
-	attr, ok := s.Attributes["client_secret"].(schema.StringAttribute)
-	if !ok {
-		t.Fatalf("expected client_secret to be a StringAttribute")
-	}
+	for _, name := range []string{"client_secret", "private_key"} {
+		attr, ok := s.Attributes[name].(schema.StringAttribute)
+		if !ok {
+			t.Fatalf("expected %s to be a StringAttribute", name)
+		}
 
-	stateValue := vcsValues(objType, map[string]tftypes.Value{
-		"id":            tftypes.NewValue(tftypes.String, "vcs-1"),
-		"client_secret": tftypes.NewValue(tftypes.String, "old"),
-	})
+		stateValue := vcsValues(objType, map[string]tftypes.Value{
+			"id": tftypes.NewValue(tftypes.String, "vcs-1"),
+			name: tftypes.NewValue(tftypes.String, "old"),
+		})
 
-	cases := map[string]struct {
-		config      map[string]tftypes.Value
-		planned     types.String
-		wantReplace bool
-	}{
-		"changed": {
-			config: map[string]tftypes.Value{
-				"client_secret": tftypes.NewValue(tftypes.String, "new"),
+		cases := map[string]struct {
+			config      map[string]tftypes.Value
+			planned     types.String
+			wantReplace bool
+		}{
+			"changed": {
+				config: map[string]tftypes.Value{
+					name: tftypes.NewValue(tftypes.String, "new"),
+				},
+				planned:     types.StringValue("new"),
+				wantReplace: true,
 			},
-			planned:     types.StringValue("new"),
-			wantReplace: true,
-		},
-		"removed": {
-			planned:     types.StringNull(),
-			wantReplace: true,
-		},
-		"moved to client_secret_wo": {
-			config: map[string]tftypes.Value{
-				"client_secret_wo":         tftypes.NewValue(tftypes.String, "old"),
-				"client_secret_wo_version": tftypes.NewValue(tftypes.Number, 1),
+			"removed": {
+				planned:     types.StringNull(),
+				wantReplace: true,
 			},
-			planned: types.StringNull(),
-		},
-	}
+			"moved to " + name + "_wo": {
+				config: map[string]tftypes.Value{
+					name + "_wo":         tftypes.NewValue(tftypes.String, "old"),
+					name + "_wo_version": tftypes.NewValue(tftypes.Number, 1),
+				},
+				planned: types.StringNull(),
+			},
+		}
 
-	for name, tc := range cases {
+		for caseName, tc := range cases {
+			t.Run(name+"/"+caseName, func(t *testing.T) {
+				config := vcsValues(objType, tc.config)
+				plan := vcsValues(objType, map[string]tftypes.Value{
+					"id": tftypes.NewValue(tftypes.String, "vcs-1"),
+					name: tftypes.NewValue(tftypes.String, tc.planned.ValueStringPointer()),
+				})
+
+				req := planmodifier.StringRequest{
+					Path:        path.Root(name),
+					Config:      tfsdk.Config{Schema: s, Raw: config},
+					ConfigValue: tc.planned,
+					State:       tfsdk.State{Schema: s, Raw: stateValue},
+					StateValue:  types.StringValue("old"),
+					Plan:        tfsdk.Plan{Schema: s, Raw: plan},
+					PlanValue:   tc.planned,
+				}
+
+				var gotReplace bool
+				for _, m := range attr.PlanModifiers {
+					resp := &planmodifier.StringResponse{PlanValue: req.PlanValue}
+					m.PlanModifyString(ctx, req, resp)
+					if resp.Diagnostics.HasError() {
+						t.Fatalf("plan modifier returned diagnostics: %v", resp.Diagnostics)
+					}
+					gotReplace = gotReplace || resp.RequiresReplace
+				}
+
+				if gotReplace != tc.wantReplace {
+					t.Errorf("expected RequiresReplace=%v, got %v", tc.wantReplace, gotReplace)
+				}
+			})
+		}
+	}
+}
+
+// Bumping *_wo_version is an in-place update that sends the new value.
+func TestVcsResource_Update_WoVersionBump(t *testing.T) {
+	ctx := context.Background()
+	s, objType := vcsResourceSchemaAndType(t, ctx)
+
+	for _, name := range []string{"client_secret", "private_key"} {
 		t.Run(name, func(t *testing.T) {
-			config := vcsValues(objType, tc.config)
-			plan := vcsValues(objType, map[string]tftypes.Value{
-				"id":            tftypes.NewValue(tftypes.String, "vcs-1"),
-				"client_secret": tftypes.NewValue(tftypes.String, tc.planned.ValueStringPointer()),
+			version, ok := s.Attributes[name+"_wo_version"].(schema.Int64Attribute)
+			if !ok {
+				t.Fatalf("expected %s_wo_version to be an Int64Attribute", name)
+			}
+			if len(version.PlanModifiers) != 0 {
+				t.Errorf("expected %s_wo_version to have no plan modifiers (a bump must not replace)", name)
+			}
+
+			var captured []byte
+			server := vcsServer(t, &captured)
+			defer server.Close()
+
+			r := &VcsResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+
+			stateValue := vcsValues(objType, map[string]tftypes.Value{
+				"id":                 tftypes.NewValue(tftypes.String, "vcs-1"),
+				name + "_wo_version": tftypes.NewValue(tftypes.Number, 1),
+			})
+			planValue := vcsValues(objType, map[string]tftypes.Value{
+				"id":                 tftypes.NewValue(tftypes.String, "vcs-1"),
+				name + "_wo_version": tftypes.NewValue(tftypes.Number, 2),
+			})
+			configValue := vcsValues(objType, map[string]tftypes.Value{
+				name + "_wo":         tftypes.NewValue(tftypes.String, "rotated-value"),
+				name + "_wo_version": tftypes.NewValue(tftypes.Number, 2),
 			})
 
-			req := planmodifier.StringRequest{
-				Path:        path.Root("client_secret"),
-				Config:      tfsdk.Config{Schema: s, Raw: config},
-				ConfigValue: tc.planned,
-				State:       tfsdk.State{Schema: s, Raw: stateValue},
-				StateValue:  types.StringValue("old"),
-				Plan:        tfsdk.Plan{Schema: s, Raw: plan},
-				PlanValue:   tc.planned,
+			req := resource.UpdateRequest{
+				State:  tfsdk.State{Schema: s, Raw: stateValue},
+				Plan:   tfsdk.Plan{Schema: s, Raw: planValue},
+				Config: tfsdk.Config{Schema: s, Raw: configValue},
+			}
+			resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+
+			r.Update(ctx, req, resp)
+
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("Update returned diagnostics: %v", resp.Diagnostics)
+			}
+			if !strings.Contains(string(captured), "rotated-value") {
+				t.Errorf("expected the PATCH body to carry the new %s_wo, got: %s", name, captured)
 			}
 
-			var gotReplace bool
-			for _, m := range attr.PlanModifiers {
-				resp := &planmodifier.StringResponse{PlanValue: req.PlanValue}
-				m.PlanModifyString(ctx, req, resp)
-				if resp.Diagnostics.HasError() {
-					t.Fatalf("plan modifier returned diagnostics: %v", resp.Diagnostics)
-				}
-				gotReplace = gotReplace || resp.RequiresReplace
+			var result VcsResourceModel
+			if diags := resp.State.Get(ctx, &result); diags.HasError() {
+				t.Fatalf("reading resulting state: %v", diags)
+			}
+			if result.ID.ValueString() != "vcs-1" {
+				t.Errorf("expected ID vcs-1 to be kept, got: %q", result.ID.ValueString())
+			}
+			if !result.ClientSecretWo.IsNull() || !result.PrivateKeyWo.IsNull() {
+				t.Errorf("expected write-only values to stay null in state")
+			}
+		})
+	}
+}
+
+func TestVcsResource_WoVersionRequiresWo(t *testing.T) {
+	ctx := context.Background()
+	s, objType := vcsResourceSchemaAndType(t, ctx)
+
+	for _, name := range []string{"client_secret", "private_key"} {
+		t.Run(name, func(t *testing.T) {
+			attr, ok := s.Attributes[name+"_wo_version"].(schema.Int64Attribute)
+			if !ok {
+				t.Fatalf("expected %s_wo_version to be an Int64Attribute", name)
 			}
 
-			if gotReplace != tc.wantReplace {
-				t.Errorf("expected RequiresReplace=%v, got %v", tc.wantReplace, gotReplace)
+			req := validator.Int64Request{
+				Path:           path.Root(name + "_wo_version"),
+				PathExpression: path.MatchRoot(name + "_wo_version"),
+				ConfigValue:    types.Int64Value(1),
+				Config: tfsdk.Config{Schema: s, Raw: vcsValues(objType, map[string]tftypes.Value{
+					name:                 tftypes.NewValue(tftypes.String, "plain"),
+					name + "_wo_version": tftypes.NewValue(tftypes.Number, 1),
+				})},
+			}
+
+			var gotError bool
+			for _, v := range attr.Validators {
+				resp := &validator.Int64Response{}
+				v.ValidateInt64(ctx, req, resp)
+				gotError = gotError || resp.Diagnostics.HasError()
+			}
+
+			if !gotError {
+				t.Errorf("expected %s_wo_version without %s_wo to be rejected", name, name)
 			}
 		})
 	}
