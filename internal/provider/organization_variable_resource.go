@@ -188,7 +188,8 @@ func (r *OrganizationVariableResource) Create(ctx context.Context, req resource.
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
-	if *organizationVariable.Sensitive {
+	sensitive := organizationVariable.Sensitive != nil && *organizationVariable.Sensitive
+	if sensitive {
 		tflog.Info(ctx, "Variable value is not included in response, setting values the same as the plan for sensitive=true...")
 		plan.Value = types.StringValue(plan.Value.ValueString())
 	} else {
@@ -199,7 +200,7 @@ func (r *OrganizationVariableResource) Create(ctx context.Context, req resource.
 	plan.Key = types.StringValue(organizationVariable.Key)
 	plan.Description = types.StringValue(organizationVariable.Description)
 	plan.Category = types.StringValue(organizationVariable.Category)
-	plan.Sensitive = types.BoolValue(*organizationVariable.Sensitive)
+	plan.Sensitive = types.BoolValue(sensitive)
 	plan.Hcl = types.BoolValue(organizationVariable.Hcl)
 	plan.ID = types.StringValue(organizationVariable.ID)
 
@@ -257,7 +258,8 @@ func (r *OrganizationVariableResource) Read(ctx context.Context, req resource.Re
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
-	if *organizationVariable.Sensitive {
+	sensitive := organizationVariable.Sensitive != nil && *organizationVariable.Sensitive
+	if sensitive {
 		tflog.Info(ctx, "Variable value is not included in response, setting values the same as the current state value")
 		state.Value = types.StringValue(state.Value.ValueString())
 	} else {
@@ -268,7 +270,7 @@ func (r *OrganizationVariableResource) Read(ctx context.Context, req resource.Re
 	state.Key = types.StringValue(organizationVariable.Key)
 	state.Description = types.StringValue(organizationVariable.Description)
 	state.Category = types.StringValue(organizationVariable.Category)
-	state.Sensitive = types.BoolValue(*organizationVariable.Sensitive)
+	state.Sensitive = types.BoolValue(sensitive)
 	state.Hcl = types.BoolValue(organizationVariable.Hcl)
 	state.ID = types.StringValue(organizationVariable.ID)
 
@@ -373,7 +375,8 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 	plan.ID = types.StringValue(state.ID.ValueString())
 	plan.Key = types.StringValue(organizationVariable.Key)
 
-	if *organizationVariable.Sensitive {
+	sensitive := organizationVariable.Sensitive != nil && *organizationVariable.Sensitive
+	if sensitive {
 		tflog.Info(ctx, "Variable value is not included in response, setting values the same as the plan for sensitive=true...")
 		plan.Value = types.StringValue(plan.Value.ValueString())
 	} else {
@@ -383,7 +386,7 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 
 	plan.Description = types.StringValue(organizationVariable.Description)
 	plan.Category = types.StringValue(organizationVariable.Category)
-	plan.Sensitive = types.BoolValue(*organizationVariable.Sensitive)
+	plan.Sensitive = types.BoolValue(sensitive)
 	plan.Hcl = types.BoolValue(organizationVariable.Hcl)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
