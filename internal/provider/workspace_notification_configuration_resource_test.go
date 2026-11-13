@@ -83,7 +83,10 @@ func TestWorkspaceNotificationConfigurationResource_Create_PostsToWorkspaceScope
 		"template_ids": tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, []tftypes.Value{}),
 	})
 
-	req := resource.CreateRequest{Plan: tfsdk.Plan{Schema: s, Raw: planValue}}
+	req := resource.CreateRequest{
+		Plan:   tfsdk.Plan{Schema: s, Raw: planValue},
+		Config: tfsdk.Config{Schema: s, Raw: planValue},
+	}
 	resp := &resource.CreateResponse{State: tfsdk.State{Schema: s}}
 
 	r.Create(ctx, req, resp)
@@ -172,8 +175,9 @@ func TestWorkspaceNotificationConfigurationResource_Update_ReplacesTemplatesWhol
 	})
 
 	req := resource.UpdateRequest{
-		State: tfsdk.State{Schema: s, Raw: stateValue},
-		Plan:  tfsdk.Plan{Schema: s, Raw: planValue},
+		State:  tfsdk.State{Schema: s, Raw: stateValue},
+		Plan:   tfsdk.Plan{Schema: s, Raw: planValue},
+		Config: tfsdk.Config{Schema: s, Raw: planValue},
 	}
 	resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
 

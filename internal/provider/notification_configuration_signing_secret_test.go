@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -31,6 +32,9 @@ func notificationConfigurationTestCases() []notificationConfigurationTestCase {
 		{
 			name: "organization",
 			newResource: func(server *httptest.Server) resource.Resource {
+				if server == nil {
+					return &OrganizationNotificationConfigurationResource{}
+				}
 				return &OrganizationNotificationConfigurationResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
 			},
 			schemaAndType: organizationNotificationConfigurationSchemaAndType,
@@ -38,6 +42,9 @@ func notificationConfigurationTestCases() []notificationConfigurationTestCase {
 		{
 			name: "workspace",
 			newResource: func(server *httptest.Server) resource.Resource {
+				if server == nil {
+					return &WorkspaceNotificationConfigurationResource{}
+				}
 				return &WorkspaceNotificationConfigurationResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
 			},
 			schemaAndType: workspaceNotificationConfigurationSchemaAndType,
@@ -69,8 +76,9 @@ func (tc notificationConfigurationTestCase) values(objType tftypes.Object, overr
 
 // notificationConfigurationServer answers as Terrakube does: signingSecret is
 // never in a response (its "read notification signing secret" check always
-// denies), and the configuration has the "failed" trigger and no templates.
-func notificationConfigurationServer(t *testing.T) *httptest.Server {
+// denies), and the configuration has the "failed" trigger and no templates. When captured
+// is not nil, it records the body of the last configuration POST or PATCH.
+func notificationConfigurationServer(t *testing.T, captured *[]byte) *httptest.Server {
 	t.Helper()
 
 	config := `{"data":{"type":"notification_configuration","id":"cfg-1","attributes":{` +
@@ -83,6 +91,13 @@ func notificationConfigurationServer(t *testing.T) *httptest.Server {
 		switch {
 		case strings.HasSuffix(req.URL.Path, "/notificationConfiguration"),
 			req.URL.Path == "/api/v1/notification_configuration/cfg-1":
+			if captured != nil && req.Method != http.MethodGet {
+				body, err := io.ReadAll(req.Body)
+				if err != nil {
+					t.Fatalf("reading request body: %v", err)
+				}
+				*captured = body
+			}
 			fmt.Fprint(w, config)
 		case strings.HasSuffix(req.URL.Path, "/triggers"):
 			if req.Method == http.MethodPost {
@@ -124,10 +139,11 @@ func TestNotificationConfigurationResource_Create_KeepsSigningSecret(t *testing.
 	for _, tc := range notificationConfigurationTestCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			s, objType := tc.schemaAndType(t, ctx)
-			server := notificationConfigurationServer(t)
+			server := notificationConfigurationServer(t, nil)
 			defer server.Close()
 
-			req := resource.CreateRequest{Plan: tfsdk.Plan{Schema: s, Raw: tc.values(objType, nil)}}
+			plan := tc.values(objType, nil)
+			req := resource.CreateRequest{Plan: tfsdk.Plan{Schema: s, Raw: plan}, Config: tfsdk.Config{Schema: s, Raw: plan}}
 			resp := &resource.CreateResponse{State: tfsdk.State{Schema: s}}
 
 			tc.newResource(server).Create(ctx, req, resp)
@@ -149,7 +165,7 @@ func TestNotificationConfigurationResource_Read_KeepsSigningSecret(t *testing.T)
 	for _, tc := range notificationConfigurationTestCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			s, objType := tc.schemaAndType(t, ctx)
-			server := notificationConfigurationServer(t)
+			server := notificationConfigurationServer(t, nil)
 			defer server.Close()
 
 			for name, secret := range map[string]tftypes.Value{

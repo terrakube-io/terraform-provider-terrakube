@@ -29,6 +29,7 @@ import (
 
 var _ resource.Resource = &WorkspaceNotificationConfigurationResource{}
 var _ resource.ResourceWithImportState = &WorkspaceNotificationConfigurationResource{}
+var _ resource.ResourceWithConfigValidators = &WorkspaceNotificationConfigurationResource{}
 
 type WorkspaceNotificationConfigurationResource struct {
 	client   *http.Client
@@ -37,18 +38,20 @@ type WorkspaceNotificationConfigurationResource struct {
 }
 
 type WorkspaceNotificationConfigurationResourceModel struct {
-	ID              types.String `tfsdk:"id"`
-	OrganizationId  types.String `tfsdk:"organization_id"`
-	WorkspaceId     types.String `tfsdk:"workspace_id"`
-	Name            types.String `tfsdk:"name"`
-	Description     types.String `tfsdk:"description"`
-	ChannelType     types.String `tfsdk:"channel_type"`
-	DestinationUrl  types.String `tfsdk:"destination_url"`
-	SigningSecret   types.String `tfsdk:"signing_secret"`
-	Active          types.Bool   `tfsdk:"active"`
-	MessageStyle    types.String `tfsdk:"message_style"`
-	TriggerStatuses types.List   `tfsdk:"trigger_statuses"`
-	TemplateIds     types.List   `tfsdk:"template_ids"`
+	ID                     types.String `tfsdk:"id"`
+	OrganizationId         types.String `tfsdk:"organization_id"`
+	WorkspaceId            types.String `tfsdk:"workspace_id"`
+	Name                   types.String `tfsdk:"name"`
+	Description            types.String `tfsdk:"description"`
+	ChannelType            types.String `tfsdk:"channel_type"`
+	DestinationUrl         types.String `tfsdk:"destination_url"`
+	SigningSecret          types.String `tfsdk:"signing_secret"`
+	SigningSecretWo        types.String `tfsdk:"signing_secret_wo"`
+	SigningSecretWoVersion types.Int64  `tfsdk:"signing_secret_wo_version"`
+	Active                 types.Bool   `tfsdk:"active"`
+	MessageStyle           types.String `tfsdk:"message_style"`
+	TriggerStatuses        types.List   `tfsdk:"trigger_statuses"`
+	TemplateIds            types.List   `tfsdk:"template_ids"`
 }
 
 func NewWorkspaceNotificationConfigurationResource() resource.Resource {
@@ -101,8 +104,10 @@ func (r *WorkspaceNotificationConfigurationResource) Schema(ctx context.Context,
 			"signing_secret": schema.StringAttribute{
 				Optional:    true,
 				Sensitive:   true,
-				Description: "If set, outgoing WEBHOOK requests are signed with an X-Terrakube-Signature header (HMAC-SHA256) so the destination can verify they came from Terrakube.",
+				Description: signingSecretDescription,
 			},
+			"signing_secret_wo":         writeOnlyAttribute("signing_secret", "Webhook signing secret", false),
+			"signing_secret_wo_version": writeOnlyVersionAttribute("signing_secret"),
 			"active": schema.BoolAttribute{
 				Optional:    true,
 				Computed:    true,
@@ -189,12 +194,18 @@ func (r *WorkspaceNotificationConfigurationResource) Create(ctx context.Context,
 		}
 	}
 
+	signingSecret, secretDiags := signingSecretToSend(ctx, req.Config, plan.SigningSecret)
+	resp.Diagnostics.Append(secretDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	bodyRequest := &client.NotificationConfigurationEntity{
 		Name:           plan.Name.ValueString(),
 		Description:    plan.Description.ValueStringPointer(),
 		ChannelType:    plan.ChannelType.ValueString(),
 		DestinationUrl: plan.DestinationUrl.ValueString(),
-		SigningSecret:  plan.SigningSecret.ValueStringPointer(),
+		SigningSecret:  signingSecret,
 		Active:         plan.Active.ValueBool(),
 		MessageStyle:   plan.MessageStyle.ValueString(),
 	}
@@ -262,6 +273,7 @@ func (r *WorkspaceNotificationConfigurationResource) Create(ctx context.Context,
 	plan.TemplateIds = templateList
 
 	tflog.Info(ctx, "Workspace Notification Configuration Resource Created", map[string]any{"success": true})
+	plan.SigningSecretWo = types.StringNull()
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -367,13 +379,19 @@ func (r *WorkspaceNotificationConfigurationResource) Update(ctx context.Context,
 		}
 	}
 
+	signingSecret, secretDiags := signingSecretToSend(ctx, req.Config, plan.SigningSecret)
+	resp.Diagnostics.Append(secretDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	bodyRequest := &client.NotificationConfigurationEntity{
 		ID:             state.ID.ValueString(),
 		Name:           plan.Name.ValueString(),
 		Description:    plan.Description.ValueStringPointer(),
 		ChannelType:    plan.ChannelType.ValueString(),
 		DestinationUrl: plan.DestinationUrl.ValueString(),
-		SigningSecret:  plan.SigningSecret.ValueStringPointer(),
+		SigningSecret:  signingSecret,
 		Active:         plan.Active.ValueBool(),
 		MessageStyle:   plan.MessageStyle.ValueString(),
 	}
@@ -432,6 +450,7 @@ func (r *WorkspaceNotificationConfigurationResource) Update(ctx context.Context,
 	resp.Diagnostics.Append(templateListDiags...)
 	plan.TemplateIds = templateList
 
+	plan.SigningSecretWo = types.StringNull()
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -454,6 +473,10 @@ func (r *WorkspaceNotificationConfigurationResource) Delete(ctx context.Context,
 		resp.Diagnostics.AddError("Error executing workspace notification configuration resource request", fmt.Sprintf("Error executing workspace notification configuration resource request: %s", err))
 		return
 	}
+}
+
+func (r *WorkspaceNotificationConfigurationResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
+	return signingSecretConfigValidators()
 }
 
 func (r *WorkspaceNotificationConfigurationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
