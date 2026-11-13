@@ -6,3 +6,7 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    # "chore(deps): bump ..." passes the PR title check and stays out of the changelog.
+    commit-message:
+      prefix: "chore"
+      include: "scope"

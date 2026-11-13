@@ -1,0 +1,57 @@
+# Release automation. See RELEASING.md.
+#
+# A push to main or release/** updates the release pull request (next version and
+# CHANGELOG.md section, from the conventional commit titles since the last
+# release). Merging it tags the release and creates a draft, then the release
+# job builds, signs and publishes it with GoReleaser.
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+
+# No default token permissions; each job sets its own.
+permissions: {}
+
+# One run per branch, never cancelled mid-release.
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release-please.outputs.release_created }}
+      tag_name: ${{ steps.release-please.outputs.tag_name }}
+    steps:
+      - id: release-please
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
+        with:
+          # Release PR per branch, from that branch's manifest (0.31.1 on release/0.31).
+          target-branch: ${{ github.ref_name }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # The tag exists (force-tag-creation) and the release is a draft with the
+  # changelog as notes. GoReleaser attaches the signed assets and publishes it,
+  # so the Terraform Registry never sees a release without assets.
+  release:
+    name: Publish
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets:
+      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      PASSPHRASE: ${{ secrets.PASSPHRASE }}
