@@ -221,6 +221,7 @@ func (p *TerrakubeProvider) DataSources(ctx context.Context) []func() datasource
 		NewSelfHostedAgentDataSource,
 		NewOrganizationVariableDataSource,
 		NewWorkspaceVariableDataSource,
+		NewModuleDataSource,
 		NewPolicySetDataSource,
 		NewPolicySetParameterDataSource,
 		NewPolicyAttachmentDataSource,
