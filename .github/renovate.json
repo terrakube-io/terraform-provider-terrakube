@@ -1,0 +1,38 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "semanticCommits": "enabled",
+  "labels": ["dependencies"],
+  "schedule": ["before 6am on monday"],
+  "postUpdateOptions": ["gomodTidy"],
+  "packageRules": [
+    {
+      "description": "chore(deps) stays out of the changelog and does not cut a release. Retitle a security update to fix(deps) before merging it.",
+      "matchManagers": ["gomod"],
+      "semanticCommitType": "chore",
+      "addLabels": ["go"]
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "semanticCommitType": "ci",
+      "addLabels": ["github_actions", "area/ci"]
+    },
+    {
+      "description": "One pull request for the Terraform plugin libraries, which are released together.",
+      "matchPackageNames": [
+        "github.com/hashicorp/terraform-plugin-*",
+        "!github.com/hashicorp/terraform-plugin-docs"
+      ],
+      "groupName": "terraform-plugin"
+    },
+    {
+      "description": "A new tfplugindocs changes the generated docs, and Renovate cannot run go generate. Tick it in the dependency dashboard to get the pull request, then regenerate docs/ on it.",
+      "matchPackageNames": ["github.com/hashicorp/terraform-plugin-docs"],
+      "dependencyDashboardApproval": true,
+      "addLabels": ["area/docs"]
+    }
+  ]
+}
