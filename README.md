@@ -54,12 +54,6 @@ There is an example for every resource and data source in [examples/](examples/)
 - [Write-only arguments](https://registry.terraform.io/providers/terrakube-io/terrakube/latest/docs/guides/write-only-arguments)
 - [Importing existing resources](https://registry.terraform.io/providers/terrakube-io/terrakube/latest/docs/guides/importing-resources)
 
-## Terrakube versions
-
-Terrakube can change its API in any release, and this provider is released separately. Releases
-from 0.30.0 are built for Terrakube 2.34.0. A few resources and attributes need a newer server
-than others. The guide above lists them.
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for building, testing and the pull request format, and
