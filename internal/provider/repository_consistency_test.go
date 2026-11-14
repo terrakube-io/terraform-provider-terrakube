@@ -31,7 +31,6 @@ var resourcesWithoutTests = map[string]bool{
 	"self_hosted_agent":          true,
 	"team_token":                 true,
 	"workspace_access":           true,
-	"workspace_schedule":         true,
 	"workspace_variable":         true,
 }
 
@@ -51,8 +50,6 @@ var dataSourcesWithoutTests = map[string]bool{
 // Resources whose ImportState returns an error, so there is nothing to document.
 var resourcesWithoutImport = map[string]bool{
 	"workspace_tag": true,
-	// ImportState sets an attribute that is not in the schema, so import always fails.
-	"workspace_schedule": true,
 }
 
 // Example directories that do not match a registered type. See #227.

@@ -48,3 +48,14 @@ resource "terrakube_workspace_schedule" "nightly" {
 ### Read-Only
 
 - `id` (String) Schedule Id
+
+## Import
+
+Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
+```shell
+# Workspace schedule can be imported with workspace_id,id
+terraform import terrakube_workspace_schedule.example 00000000-0000-0000-0000-000000000000,00000000-0000-0000-0000-000000000000
+```
