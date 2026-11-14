@@ -241,3 +241,77 @@ func TestNotificationConfigurationResource_Update_KeepsSigningSecret(t *testing.
 		})
 	}
 }
+
+// updateSigningSecret runs Update with the given state and plan overrides and returns the
+// PATCH body Terrakube would have received.
+func updateSigningSecret(t *testing.T, tc notificationConfigurationTestCase, stateOverrides, planOverrides map[string]tftypes.Value) string {
+	t.Helper()
+	ctx := context.Background()
+	s, objType := tc.schemaAndType(t, ctx)
+	id := tftypes.NewValue(tftypes.String, "cfg-1")
+
+	stateOverrides["id"] = id
+	planOverrides["id"] = id
+	state := tc.values(objType, stateOverrides)
+	plan := tc.values(objType, planOverrides)
+
+	var captured []byte
+	server := notificationConfigurationServer(t, &captured)
+	defer server.Close()
+
+	req := resource.UpdateRequest{
+		State:  tfsdk.State{Schema: s, Raw: state},
+		Plan:   tfsdk.Plan{Schema: s, Raw: plan},
+		Config: tfsdk.Config{Schema: s, Raw: plan},
+	}
+	resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+	tc.newResource(server).Update(ctx, req, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Update returned diagnostics: %v", resp.Diagnostics)
+	}
+	return string(captured)
+}
+
+// Removing the secret must reach Terrakube: a PATCH without the field keeps the old one.
+func TestNotificationConfigurationResource_Update_ClearsRemovedSigningSecret(t *testing.T) {
+	for _, tc := range notificationConfigurationTestCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			body := updateSigningSecret(t, tc,
+				map[string]tftypes.Value{"signing_secret": tftypes.NewValue(tftypes.String, "old-signing-secret")},
+				map[string]tftypes.Value{"signing_secret": tftypes.NewValue(tftypes.String, nil)})
+			if !strings.Contains(body, `"signingSecret":""`) {
+				t.Errorf("expected the PATCH body to send an empty signingSecret, got: %s", body)
+			}
+			if strings.Contains(body, "old-signing-secret") {
+				t.Errorf("the old secret must not be sent again, got: %s", body)
+			}
+		})
+	}
+}
+
+// signing_secret_wo is never in the state, so the version marks that one was set.
+func TestNotificationConfigurationResource_Update_ClearsRemovedSigningSecretWo(t *testing.T) {
+	for _, tc := range notificationConfigurationTestCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			body := updateSigningSecret(t, tc,
+				map[string]tftypes.Value{"signing_secret": tftypes.NewValue(tftypes.String, nil), "signing_secret_wo_version": tftypes.NewValue(tftypes.Number, 1)},
+				map[string]tftypes.Value{"signing_secret": tftypes.NewValue(tftypes.String, nil)})
+			if !strings.Contains(body, `"signingSecret":""`) {
+				t.Errorf("expected the PATCH body to send an empty signingSecret, got: %s", body)
+			}
+		})
+	}
+}
+
+// A configuration that never had a secret must not send the field at all.
+func TestNotificationConfigurationResource_Update_NoSecretLeavesFieldOut(t *testing.T) {
+	for _, tc := range notificationConfigurationTestCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			noSecret := map[string]tftypes.Value{"signing_secret": tftypes.NewValue(tftypes.String, nil)}
+			body := updateSigningSecret(t, tc, noSecret, map[string]tftypes.Value{"signing_secret": tftypes.NewValue(tftypes.String, nil)})
+			if strings.Contains(body, "signingSecret") {
+				t.Errorf("expected no signingSecret in the PATCH body, got: %s", body)
+			}
+		})
+	}
+}

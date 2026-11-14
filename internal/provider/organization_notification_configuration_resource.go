@@ -380,7 +380,7 @@ func (r *OrganizationNotificationConfigurationResource) Update(ctx context.Conte
 		}
 	}
 
-	signingSecret, secretDiags := signingSecretToSend(ctx, req.Config, plan.SigningSecret)
+	signingSecret, secretDiags := signingSecretForUpdate(ctx, req.Config, plan.SigningSecret, state.SigningSecret, state.SigningSecretWoVersion)
 	resp.Diagnostics.Append(secretDiags...)
 	if resp.Diagnostics.HasError() {
 		return

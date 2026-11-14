@@ -259,7 +259,7 @@ func (a notificationConfigAPI) replaceNotificationConfigurationTemplates(ctx con
 
 // signingSecretDescription is shared by the organization and workspace notification
 // configuration resources.
-const signingSecretDescription = "If set, outgoing WEBHOOK requests are signed with an X-Terrakube-Signature header (HMAC-SHA256) so the destination can verify they came from Terrakube. Stored in the Terraform state; conflicts with `signing_secret_wo`. Terrakube never returns the secret, so a change made outside Terraform is not detected, an import leaves it null (the next plan shows an update), and removing it from the configuration does not clear it in Terrakube."
+const signingSecretDescription = "If set, outgoing WEBHOOK requests are signed with an X-Terrakube-Signature header (HMAC-SHA256) so the destination can verify they came from Terrakube. Stored in the Terraform state; conflicts with `signing_secret_wo`. Terrakube never returns the secret, so a change made outside Terraform is not detected, an import leaves it null (the next plan shows an update). Removing it from the configuration clears it in Terrakube."
 
 // signingSecretConfigValidators allows at most one of signing_secret and
 // signing_secret_wo: both are optional, a configuration may have no secret.
@@ -282,4 +282,21 @@ func signingSecretToSend(ctx context.Context, config tfsdk.Config, planned types
 		return nil, diags
 	}
 	return &value, diags
+}
+
+// signingSecretForUpdate is signingSecretToSend for an update. When the plan has no secret but
+// the state had one (signing_secret in the state, or a signing_secret_wo_version, since the
+// write-only value itself is never stored), it returns a pointer to an empty string. Terrakube
+// signs only when the stored secret is not blank, and a PATCH that leaves the field out keeps
+// the old one, so this is how a removal reaches the server.
+func signingSecretForUpdate(ctx context.Context, config tfsdk.Config, planned, stateSecret types.String, stateWoVersion types.Int64) (*string, diag.Diagnostics) {
+	secret, diags := signingSecretToSend(ctx, config, planned)
+	if diags.HasError() || secret != nil {
+		return secret, diags
+	}
+	if !stateSecret.IsNull() || !stateWoVersion.IsNull() {
+		empty := ""
+		return &empty, diags
+	}
+	return nil, diags
 }
