@@ -1,0 +1,21 @@
+area/resource:
+  - changed-files:
+      - any-glob-to-any-file: ['internal/provider/*_resource.go']
+area/data-source:
+  - changed-files:
+      - any-glob-to-any-file: ['internal/provider/*_data_source.go']
+area/provider:
+  - changed-files:
+      - any-glob-to-any-file: ['internal/provider/provider.go', 'internal/client/**', 'internal/helpers/**']
+area/docs:
+  - changed-files:
+      - any-glob-to-any-file: ['docs/**', 'templates/**', 'examples/**', '*.md']
+area/ci:
+  - changed-files:
+      - any-glob-to-any-file: ['.github/**', '.golangci.yml', 'GNUmakefile']
+area/testing:
+  - changed-files:
+      - any-glob-to-any-file: ['internal/**/*_test.go']
+area/release:
+  - changed-files:
+      - any-glob-to-any-file: ['.goreleaser.yml', 'release-please-config.json', '.release-please-manifest.json', 'RELEASING.md', 'CHANGELOG.md']

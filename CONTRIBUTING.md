@@ -70,3 +70,16 @@ Types: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`
 Open an [issue](https://github.com/terrakube-io/terraform-provider-terrakube/issues) with the
 provider, Terrakube and Terraform or OpenTofu versions, a minimal configuration and the error.
 Remove tokens and secrets first.
+
+## Labels
+
+Labels are defined in [.github/labels.yml](.github/labels.yml) and synced on merge to `main`. Add
+or change a label there, not in the GitHub UI.
+
+- `bug`, `enhancement`, `documentation`, `question`: the kind of issue.
+- `area/*`: what it touches. Pull requests get these from the files they change.
+- `priority/*`: set by a maintainer.
+- `needs triage`: new issues. `needs repro`: waiting on the reporter.
+- `terrakube api`: needs a change in the Terrakube server.
+- `breaking change`: changes or fails an existing plan.
+- `good first issue`, `help wanted`: open for contributors.

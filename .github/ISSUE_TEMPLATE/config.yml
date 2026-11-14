@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Terrakube documentation
+    url: https://docs.terrakube.io/
+    about: Questions about how Terrakube itself works.
+  - name: Terrakube server issues
+    url: https://github.com/terrakube-io/terrakube/issues
+    about: Problems in the Terrakube API or UI rather than the provider.

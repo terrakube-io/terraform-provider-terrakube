@@ -1,0 +1,68 @@
+name: Bug report
+description: The provider crashes, plans or applies incorrectly, or behaves differently from the docs.
+labels: ["bug", "needs triage"]
+body:
+  - type: input
+    id: provider-version
+    attributes:
+      label: Provider version
+      placeholder: "0.32.0"
+    validations:
+      required: true
+  - type: input
+    id: terrakube-version
+    attributes:
+      label: Terrakube server version
+      placeholder: "2.34.0"
+    validations:
+      required: true
+  - type: input
+    id: terraform-version
+    attributes:
+      label: Terraform or OpenTofu version
+      placeholder: "Terraform 1.11.0 or OpenTofu 1.11.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected object
+      options:
+        - Resource
+        - Data source
+        - Provider configuration
+        - Import
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Minimal configuration
+      description: Remove tokens and secrets.
+      render: hcl
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. terraform apply
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Include the full error or crash output. Use `TF_LOG=debug` if the API response matters, with secrets removed.
+      render: shell
+    validations:
+      required: true

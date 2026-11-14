@@ -1,0 +1,30 @@
+# Synced to the repository by .github/workflows/labels.yml.
+- {name: bug, color: d73a4a, description: Something is broken}
+- {name: enhancement, color: a2eeef, description: New resource, data source or attribute}
+- {name: documentation, color: 0075ca, description: Improvements or additions to documentation}
+- {name: question, color: d876e3, description: Further information is requested}
+- {name: good first issue, color: 7057ff, description: Well scoped, suitable for a first contribution}
+- {name: help wanted, color: 008672, description: Extra attention is needed}
+- {name: duplicate, color: cfd3d7, description: This issue or pull request already exists}
+- {name: invalid, color: e4e669, description: This doesn't seem right}
+- {name: wontfix, color: ffffff, description: This will not be worked on}
+- {name: dependencies, color: 0366d6, description: Pull requests that update a dependency file}
+- {name: go, color: 16e2e2, description: Pull requests that update go code}
+- {name: github_actions, color: "000000", description: Updates to GitHub Actions workflows}
+- {name: "autorelease: pending", color: ededed, description: ""}
+- {name: "autorelease: tagged", color: ededed, description: ""}
+- {name: area/resource, color: 1d76db, description: A terrakube_* resource}
+- {name: area/data-source, color: 1d76db, description: A terrakube_* data source}
+- {name: area/provider, color: 1d76db, description: "Provider configuration, auth, client or shared code"}
+- {name: area/docs, color: 0075ca, description: "Docs, templates, examples, README"}
+- {name: area/ci, color: 5319e7, description: "Workflows, tooling, dependency updates"}
+- {name: area/testing, color: 5319e7, description: Unit and acceptance tests}
+- {name: area/release, color: 5319e7, description: "release-please, GoReleaser, changelog"}
+- {name: breaking change, color: b60205, description: "Changes or fails an existing plan, or forces replacement"}
+- {name: needs triage, color: fbca04, description: Not yet reviewed by a maintainer}
+- {name: needs repro, color: fbca04, description: Waiting for a minimal configuration or version details}
+- {name: terrakube api, color: c5def5, description: Needs a change or fix in the Terrakube server}
+- {name: write-only, color: bfdadc, description: "Write-only (*_wo) arguments and secrets handling"}
+- {name: priority/high, color: d93f0b, description: "Crash, data loss or blocks common use"}
+- {name: priority/medium, color: fbca04, description: Should be done soon}
+- {name: priority/low, color: c2e0c6, description: Nice to have}
