@@ -17,11 +17,18 @@ data "terrakube_organization" "org" {
   name = "my-organization"
 }
 
+# The key is stored in the Terraform state. Pass it in, for example with
+# TF_VAR_ssh_private_key_pem="$(cat ~/.ssh/id_rsa)".
+variable "ssh_private_key_pem" {
+  type      = string
+  sensitive = true
+}
+
 resource "terrakube_ssh" "ssh" {
   name            = "github-key"
   organization_id = data.terrakube_organization.org.id
   description     = "ssh key to get modules from github"
-  private_key     = file("~/.ssh/id_rsa")
+  private_key     = var.ssh_private_key_pem
   ssh_type        = "rsa"
 }
 
