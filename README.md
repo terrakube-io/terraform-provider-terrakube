@@ -50,9 +50,9 @@ There is an example for every resource and data source in [examples/](examples/)
 
 ## Guides
 
-- [Supported Terrakube versions](https://registry.terraform.io/providers/terrakube-io/terrakube/latest/docs/guides/compatibility)
-- [Write-only arguments](https://registry.terraform.io/providers/terrakube-io/terrakube/latest/docs/guides/write-only-arguments)
-- [Importing existing resources](https://registry.terraform.io/providers/terrakube-io/terrakube/latest/docs/guides/importing-resources)
+- [Supported Terrakube versions](docs/guides/compatibility.md)
+- [Write-only arguments](docs/guides/write-only-arguments.md)
+- [Importing existing resources](docs/guides/importing-resources.md)
 
 ## Contributing
 
