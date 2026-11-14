@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"terraform-provider-terrakube/internal/client"
@@ -106,7 +107,7 @@ func (d *FederatedCredentialDataSource) Read(ctx context.Context, req datasource
 		return
 	}
 
-	reqURL := fmt.Sprintf("%s/api/v1/federated?filter[federated]=name==%s", d.endpoint, state.Name.ValueString())
+	reqURL := fmt.Sprintf("%s/api/v1/federated?filter[federated]=name==%s", d.endpoint, url.QueryEscape(rsqlQuote(state.Name.ValueString())))
 	federatedRequest, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating federated credential datasource request", fmt.Sprintf("Error creating federated credential datasource request: %s", err))
@@ -139,18 +140,15 @@ func (d *FederatedCredentialDataSource) Read(ctx context.Context, req datasource
 		return
 	}
 
-	if len(federatedList) == 0 {
-		resp.Diagnostics.AddError("Federated credential not found", fmt.Sprintf("No federated credential found with name: %s", state.Name.ValueString()))
+	data := findSingleByName(&resp.Diagnostics, "federated credential", state.Name.ValueString(), "", federatedList,
+		func(e *client.FederatedEntity) string { return e.Name })
+	if data == nil {
 		return
 	}
-
-	for _, federated := range federatedList {
-		data, _ := federated.(*client.FederatedEntity)
-		state.ID = types.StringValue(data.ID)
-		state.Name = types.StringValue(data.Name)
-		state.IssuerUrl = types.StringValue(data.IssuerUrl)
-		state.Audience = types.StringValue(data.Audience)
-	}
+	state.ID = types.StringValue(data.ID)
+	state.Name = types.StringValue(data.Name)
+	state.IssuerUrl = types.StringValue(data.IssuerUrl)
+	state.Audience = types.StringValue(data.Audience)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"terraform-provider-terrakube/internal/client"
@@ -153,41 +154,40 @@ func (d *TeamDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 
 	teamName := state.Name.ValueString()
 
-	orgs := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, state.Organization.ValueString()), ctx, resp, new(client.OrganizationEntity))
+	orgs := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, url.QueryEscape(rsqlQuote(state.Organization.ValueString()))), ctx, resp, new(client.OrganizationEntity))
 
-	if len(orgs) == 0 {
-		resp.Diagnostics.AddError(fmt.Sprintf("Organization %s not found!", state.Organization.String()), state.Organization.String())
+	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	var OrganizationID string
-	for _, organization := range orgs {
-		data, _ := organization.(*client.OrganizationEntity)
-		OrganizationID = data.ID
-	}
-
-	teams := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/team?filter[team]=name==%s", d.endpoint, OrganizationID, teamName), ctx, resp, new(client.TeamEntity))
-	if len(teams) == 0 {
-		resp.Diagnostics.AddError(fmt.Sprintf("Team %s not found!", teamName), teamName)
+	organization := findSingleByName(&resp.Diagnostics, "organization", state.Organization.ValueString(), "", orgs,
+		func(e *client.OrganizationEntity) string { return e.Name })
+	if organization == nil {
 		return
 	}
+	OrganizationID := organization.ID
 
-	for _, team := range teams {
-		data, _ := team.(*client.TeamEntity)
-		state.Role = roleToState(data.Role)
-		state.PlanJob = types.BoolValue(data.PlanJob)
-		state.ApproveJob = types.BoolValue(data.ApproveJob)
-		state.DestroyJob = types.BoolPointerValue(data.DestroyJob)
-		state.ManageCollection = types.BoolValue(data.ManageCollection)
-		state.ManageJob = types.BoolValue(data.ManageJob)
-		state.ManageModule = types.BoolValue(data.ManageModule)
-		state.ManageProvider = types.BoolValue(data.ManageProvider)
-		state.ManageState = types.BoolValue(data.ManageState)
-		state.ManageTemplate = types.BoolValue(data.ManageTemplate)
-		state.ManageVcs = types.BoolValue(data.ManageVcs)
-		state.ManageWorkspace = types.BoolValue(data.ManageWorkspace)
-		state.ManagePolicies = types.BoolPointerValue(data.ManagePolicies)
+	teams := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/team?filter[team]=name==%s", d.endpoint, url.PathEscape(OrganizationID), url.QueryEscape(rsqlQuote(teamName))), ctx, resp, new(client.TeamEntity))
+	if resp.Diagnostics.HasError() {
+		return
 	}
+	data := findSingleByName(&resp.Diagnostics, "team", teamName, " in organization "+state.Organization.ValueString(), teams,
+		func(e *client.TeamEntity) string { return e.Name })
+	if data == nil {
+		return
+	}
+	state.Role = roleToState(data.Role)
+	state.PlanJob = types.BoolValue(data.PlanJob)
+	state.ApproveJob = types.BoolValue(data.ApproveJob)
+	state.DestroyJob = types.BoolPointerValue(data.DestroyJob)
+	state.ManageCollection = types.BoolValue(data.ManageCollection)
+	state.ManageJob = types.BoolValue(data.ManageJob)
+	state.ManageModule = types.BoolValue(data.ManageModule)
+	state.ManageProvider = types.BoolValue(data.ManageProvider)
+	state.ManageState = types.BoolValue(data.ManageState)
+	state.ManageTemplate = types.BoolValue(data.ManageTemplate)
+	state.ManageVcs = types.BoolValue(data.ManageVcs)
+	state.ManageWorkspace = types.BoolValue(data.ManageWorkspace)
+	state.ManagePolicies = types.BoolPointerValue(data.ManagePolicies)
 
 	diags := resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)

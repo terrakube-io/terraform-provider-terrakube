@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"terraform-provider-terrakube/internal/client"
@@ -110,31 +111,30 @@ func (d *ProjectDataSource) Read(ctx context.Context, req datasource.ReadRequest
 
 	projectName := state.Name.ValueString()
 
-	orgs := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, state.Organization.ValueString()), ctx, resp, new(client.OrganizationEntity))
+	orgs := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, url.QueryEscape(rsqlQuote(state.Organization.ValueString()))), ctx, resp, new(client.OrganizationEntity))
 
-	if len(orgs) == 0 {
-		resp.Diagnostics.AddError(fmt.Sprintf("Organization %s not found!", state.Organization.String()), state.Organization.String())
+	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	var OrganizationID string
-	for _, organization := range orgs {
-		data, _ := organization.(*client.OrganizationEntity)
-		OrganizationID = data.ID
-	}
-
-	projects := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/project?filter[project]=name==%s", d.endpoint, OrganizationID, projectName), ctx, resp, new(client.ProjectEntity))
-	if len(projects) == 0 {
-		resp.Diagnostics.AddError(fmt.Sprintf("Project %s not found!", projectName), projectName)
+	organization := findSingleByName(&resp.Diagnostics, "organization", state.Organization.ValueString(), "", orgs,
+		func(e *client.OrganizationEntity) string { return e.Name })
+	if organization == nil {
 		return
 	}
+	OrganizationID := organization.ID
 
-	for _, project := range projects {
-		data, _ := project.(*client.ProjectEntity)
-		state.ID = types.StringValue(data.ID)
-		state.Name = types.StringValue(data.Name)
-		state.Description = types.StringPointerValue(data.Description)
+	projects := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/project?filter[project]=name==%s", d.endpoint, url.PathEscape(OrganizationID), url.QueryEscape(rsqlQuote(projectName))), ctx, resp, new(client.ProjectEntity))
+	if resp.Diagnostics.HasError() {
+		return
 	}
+	data := findSingleByName(&resp.Diagnostics, "project", projectName, " in organization "+state.Organization.ValueString(), projects,
+		func(e *client.ProjectEntity) string { return e.Name })
+	if data == nil {
+		return
+	}
+	state.ID = types.StringValue(data.ID)
+	state.Name = types.StringValue(data.Name)
+	state.Description = types.StringPointerValue(data.Description)
 
 	diags := resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)

@@ -36,10 +36,7 @@ var resourcesWithoutTests = map[string]bool{
 
 // Data sources without a unit test file. See #209.
 var dataSourcesWithoutTests = map[string]bool{
-	"federated_credential": true,
-	"output":               true,
-	"project":              true,
-	"team":                 true,
+	"output": true,
 }
 
 // Resources whose ImportState returns an error, so there is nothing to document.
