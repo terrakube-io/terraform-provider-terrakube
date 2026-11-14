@@ -37,3 +37,14 @@ resource "terrakube_organization" "organization" {
 ### Read-Only
 
 - `id` (String) Organization Id
+
+## Import
+
+Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
+```shell
+# Organization can be imported with its id
+terraform import terrakube_organization.example 00000000-0000-0000-0000-000000000000
+```
