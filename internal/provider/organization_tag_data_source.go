@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"terraform-provider-terrakube/internal/client"
@@ -101,7 +102,7 @@ func (d *OrganizationTagDataSource) Read(ctx context.Context, req datasource.Rea
 
 	req.Config.Get(ctx, &state)
 
-	reqOrgTag, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/tag?filter[tag]=name==%s", d.endpoint, state.OrganizationId.ValueString(), state.Name.ValueString()), nil)
+	reqOrgTag, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/tag?filter[tag]=name==%s", d.endpoint, url.PathEscape(state.OrganizationId.ValueString()), url.QueryEscape(rsqlQuote(state.Name.ValueString()))), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization tag datasource request", fmt.Sprintf("Error creating organization tag datasource request: %s", err))
 		return
@@ -133,11 +134,13 @@ func (d *OrganizationTagDataSource) Read(ctx context.Context, req datasource.Rea
 		return
 	}
 
-	for _, organization := range organizationTags {
-		data, _ := organization.(*client.OrganizationTagEntity)
-		state.ID = types.StringValue(data.ID)
-		state.Name = types.StringValue(data.Name)
+	data := findSingleByName(&resp.Diagnostics, "organization tag", state.Name.ValueString(), " in organization "+state.OrganizationId.ValueString(), organizationTags,
+		func(e *client.OrganizationTagEntity) string { return e.Name })
+	if data == nil {
+		return
 	}
+	state.ID = types.StringValue(data.ID)
+	state.Name = types.StringValue(data.Name)
 
 	diags := resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)

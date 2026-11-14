@@ -125,7 +125,7 @@ func (d *VcsDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 
 	req.Config.Get(ctx, &state)
 
-	apiURL := fmt.Sprintf("%s/api/v1/organization/%s/vcs?filter[vcs]=name=='%s'", d.endpoint, state.OrganizationId.ValueString(), url.PathEscape(state.Name.ValueString()))
+	apiURL := fmt.Sprintf("%s/api/v1/organization/%s/vcs?filter[vcs]=name==%s", d.endpoint, url.PathEscape(state.OrganizationId.ValueString()), url.QueryEscape(rsqlQuote(state.Name.ValueString())))
 	requestVcs, err := http.NewRequest(http.MethodGet, apiURL, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating ssh request", fmt.Sprintf("Error creating team resource request: %s", err))
@@ -160,15 +160,17 @@ func (d *VcsDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 		return
 	}
 
-	for _, vcs := range vcss {
-		data, _ := vcs.(*client.VcsEntity)
-		state.ID = types.StringValue(data.ID)
-		state.Description = types.StringValue(data.Description)
-		state.ClientId = types.StringValue(data.ClientId)
-		state.Endpoint = types.StringValue(data.Endpoint)
-		state.ApiUrl = types.StringValue(data.ApiUrl)
-		state.Status = types.StringValue(data.Status)
+	data := findSingleByName(&resp.Diagnostics, "vcs connection", state.Name.ValueString(), " in organization "+state.OrganizationId.ValueString(), vcss,
+		func(e *client.VcsEntity) string { return e.Name })
+	if data == nil {
+		return
 	}
+	state.ID = types.StringValue(data.ID)
+	state.Description = types.StringValue(data.Description)
+	state.ClientId = types.StringValue(data.ClientId)
+	state.Endpoint = types.StringValue(data.Endpoint)
+	state.ApiUrl = types.StringValue(data.ApiUrl)
+	state.Status = types.StringValue(data.Status)
 
 	diags := resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)

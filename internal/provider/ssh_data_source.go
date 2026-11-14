@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"terraform-provider-terrakube/internal/client"
@@ -102,7 +103,7 @@ func (d *SshDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 
 	req.Config.Get(ctx, &state)
 
-	requestSsh, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/ssh?filter[ssh]=name==%s", d.endpoint, state.OrganizationId.ValueString(), state.Name.ValueString()), nil)
+	requestSsh, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/ssh?filter[ssh]=name==%s", d.endpoint, url.PathEscape(state.OrganizationId.ValueString()), url.QueryEscape(rsqlQuote(state.Name.ValueString()))), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating ssh datasource request", fmt.Sprintf("Error creating ssh datasource request: %s", err))
 		return
@@ -136,11 +137,13 @@ func (d *SshDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 		return
 	}
 
-	for _, ssh := range sshList {
-		data, _ := ssh.(*client.SshEntity)
-		state.ID = types.StringValue(data.ID)
-		state.Description = types.StringPointerValue(data.Description)
+	data := findSingleByName(&resp.Diagnostics, "ssh key", state.Name.ValueString(), " in organization "+state.OrganizationId.ValueString(), sshList,
+		func(e *client.SshEntity) string { return e.Name })
+	if data == nil {
+		return
 	}
+	state.ID = types.StringValue(data.ID)
+	state.Description = types.StringPointerValue(data.Description)
 
 	diags := resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)

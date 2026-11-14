@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"terraform-provider-terrakube/internal/client"
@@ -111,7 +112,7 @@ func (d *OrganizationDataSource) Read(ctx context.Context, req datasource.ReadRe
 
 	req.Config.Get(ctx, &state)
 
-	reqOrg, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, state.Name.ValueString()), nil)
+	reqOrg, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, url.QueryEscape(rsqlQuote(state.Name.ValueString()))), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization datasource request", fmt.Sprintf("Error creating organization datasource request: %s", err))
 		return
@@ -143,17 +144,19 @@ func (d *OrganizationDataSource) Read(ctx context.Context, req datasource.ReadRe
 		return
 	}
 
-	for _, organization := range orgs {
-		data, _ := organization.(*client.OrganizationEntity)
-		state.ID = types.StringValue(data.ID)
-		state.Name = types.StringValue(data.Name)
-		state.Description = types.StringPointerValue(data.Description)
-		state.ExecutionMode = types.StringValue(data.ExecutionMode)
-		if data.Icon != nil {
-			state.Icon = types.StringValue(*data.Icon)
-		} else {
-			state.Icon = types.StringNull()
-		}
+	data := findSingleByName(&resp.Diagnostics, "organization", state.Name.ValueString(), "", orgs,
+		func(e *client.OrganizationEntity) string { return e.Name })
+	if data == nil {
+		return
+	}
+	state.ID = types.StringValue(data.ID)
+	state.Name = types.StringValue(data.Name)
+	state.Description = types.StringPointerValue(data.Description)
+	state.ExecutionMode = types.StringValue(data.ExecutionMode)
+	if data.Icon != nil {
+		state.Icon = types.StringValue(*data.Icon)
+	} else {
+		state.Icon = types.StringNull()
 	}
 
 	diags := resp.State.Set(ctx, &state)
