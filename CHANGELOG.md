@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.32.1](https://github.com/terrakube-io/terraform-provider-terrakube/compare/v0.32.0...v0.32.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **ci:** quote label colors so label-sync reads them as strings ([#219](https://github.com/terrakube-io/terraform-provider-terrakube/issues/219)) ([03cb796](https://github.com/terrakube-io/terraform-provider-terrakube/commit/03cb796bb333e331e284fd942282e278afe8226e))
+* **ci:** quote label descriptions that contain commas ([#225](https://github.com/terrakube-io/terraform-provider-terrakube/issues/225)) ([2502f0a](https://github.com/terrakube-io/terraform-provider-terrakube/commit/2502f0a0cd178cc8312db64cfa0ac5ee1954d488))
+* **deps:** update Go and modules to clear govulncheck findings ([#215](https://github.com/terrakube-io/terraform-provider-terrakube/issues/215)) ([ee6ea7e](https://github.com/terrakube-io/terraform-provider-terrakube/commit/ee6ea7e59060fa25288b290380324c31e5e5adae))
+
 ## [0.32.0](https://github.com/terrakube-io/terraform-provider-terrakube/compare/v0.31.0...v0.32.0) (2026-11-13)
 
 
