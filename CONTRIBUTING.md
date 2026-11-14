@@ -45,6 +45,7 @@ go vet ./...
 golangci-lint run    # rules in .golangci.yml
 go test ./...
 go generate ./...    # regenerates docs/; CI fails if it changes any file
+scripts/validate-examples.sh terraform   # every example must validate on its own (or: tofu)
 make testacc         # acceptance tests (TF_ACC=1), need a Terrakube instance
 ```
 
