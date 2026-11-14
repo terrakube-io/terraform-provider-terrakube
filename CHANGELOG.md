@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.33.0](https://github.com/terrakube-io/terraform-provider-terrakube/compare/v0.32.1...v0.33.0) (2026-11-14)
+
+
+### Features
+
+* **access:** add project_access and workspace_access data sources ([#237](https://github.com/terrakube-io/terraform-provider-terrakube/issues/237)) ([510716c](https://github.com/terrakube-io/terraform-provider-terrakube/commit/510716cf22d946395bae82ad72d9e08ee2794bca))
+* **collection:** add collection and collection_item data sources ([#235](https://github.com/terrakube-io/terraform-provider-terrakube/issues/235)) ([7fe28e7](https://github.com/terrakube-io/terraform-provider-terrakube/commit/7fe28e717a4f65413912a9bf880fc6ad0e1c052a))
+* **module:** add terrakube_module data source ([#231](https://github.com/terrakube-io/terraform-provider-terrakube/issues/231)) ([2bdc785](https://github.com/terrakube-io/terraform-provider-terrakube/commit/2bdc785b017580c79315208395adf699b7c082e4))
+* **variable:** add organization_variable and workspace_variable data sources ([#232](https://github.com/terrakube-io/terraform-provider-terrakube/issues/232)) ([e30b5dc](https://github.com/terrakube-io/terraform-provider-terrakube/commit/e30b5dcd5a06922daf09cc836b93114bc99ca93c))
+
+
+### Bug Fixes
+
+* **data-source:** return an error when a lookup finds nothing ([#238](https://github.com/terrakube-io/terraform-provider-terrakube/issues/238)) ([5de3700](https://github.com/terrakube-io/terraform-provider-terrakube/commit/5de37008eeb10de2161e4b6bfba1a79e1dd4c8c0))
+* **workspace_schedule:** make import work with workspace_id,id ([#230](https://github.com/terrakube-io/terraform-provider-terrakube/issues/230)) ([ab3292b](https://github.com/terrakube-io/terraform-provider-terrakube/commit/ab3292bea8533cc14fda68a7e3200ac461dfe0d9))
+* **workspace-tag:** escape backslashes in rsqlQuote ([#236](https://github.com/terrakube-io/terraform-provider-terrakube/issues/236)) ([7398c94](https://github.com/terrakube-io/terraform-provider-terrakube/commit/7398c9475b6fff7822c5c523b7d8f466cd169ee5))
+
 ## [0.32.1](https://github.com/terrakube-io/terraform-provider-terrakube/compare/v0.32.0...v0.32.1) (2026-11-14)
 
 
