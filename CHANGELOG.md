@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.1](https://github.com/terrakube-io/terraform-provider-terrakube/compare/v0.33.0...v0.33.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **notification:** clear the signing secret when it is removed ([#241](https://github.com/terrakube-io/terraform-provider-terrakube/issues/241)) ([6352a07](https://github.com/terrakube-io/terraform-provider-terrakube/commit/6352a0756460e9373889ae11da73acdecaf02d37))
+
 ## [0.33.0](https://github.com/terrakube-io/terraform-provider-terrakube/compare/v0.32.1...v0.33.0) (2026-11-14)
 
 
