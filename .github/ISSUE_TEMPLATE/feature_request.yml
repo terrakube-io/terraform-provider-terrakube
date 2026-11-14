@@ -1,0 +1,41 @@
+name: Feature request
+description: A new resource, data source or attribute.
+labels: ["enhancement", "needs triage"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Type
+      options:
+        - New resource
+        - New data source
+        - New attribute on an existing resource or data source
+        - Provider-level change
+    validations:
+      required: true
+  - type: input
+    id: object
+    attributes:
+      label: Resource or data source
+      placeholder: terrakube_module
+    validations:
+      required: true
+  - type: textarea
+    id: api
+    attributes:
+      label: Terrakube API
+      description: The API entity or endpoint this maps to, and the minimum Terrakube version that has it.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example configuration
+      render: hcl
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Sensitive values, import ID format, behaviour on older Terrakube versions.
