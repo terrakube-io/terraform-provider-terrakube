@@ -102,7 +102,7 @@ func (d *OrganizationTemplateDataSource) Read(ctx context.Context, req datasourc
 
 	req.Config.Get(ctx, &state)
 
-	apiUrl := fmt.Sprintf("%s/api/v1/organization/%s/template?filter[template]=name=='%s'", d.endpoint, state.OrganizationId.ValueString(), url.PathEscape(state.Name.ValueString()))
+	apiUrl := fmt.Sprintf("%s/api/v1/organization/%s/template?filter[template]=name==%s", d.endpoint, url.PathEscape(state.OrganizationId.ValueString()), url.QueryEscape(rsqlQuote(state.Name.ValueString())))
 	reqTemplate, err := http.NewRequest(http.MethodGet, apiUrl, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization template datasource request", fmt.Sprintf("Error creating organization template datasource request: %s", err))
@@ -135,11 +135,13 @@ func (d *OrganizationTemplateDataSource) Read(ctx context.Context, req datasourc
 		return
 	}
 
-	for _, template := range templates {
-		data, _ := template.(*client.OrganizationTemplateEntity)
-		state.ID = types.StringValue(data.ID)
-		state.Name = types.StringValue(data.Name)
+	data := findSingleByName(&resp.Diagnostics, "organization template", state.Name.ValueString(), " in organization "+state.OrganizationId.ValueString(), templates,
+		func(e *client.OrganizationTemplateEntity) string { return e.Name })
+	if data == nil {
+		return
 	}
+	state.ID = types.StringValue(data.ID)
+	state.Name = types.StringValue(data.Name)
 
 	diags := resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
