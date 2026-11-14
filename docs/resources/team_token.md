@@ -42,6 +42,8 @@ resource "terrakube_team_token" "token1" {
 
 Import is supported using the following syntax:
 
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
 ```shell
 # Organization Template can be import with id
 terraform import terrakube_team_token.example 00000000-0000-0000-0000-000000000000

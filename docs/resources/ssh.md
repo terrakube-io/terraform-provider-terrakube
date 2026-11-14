@@ -49,10 +49,12 @@ resource "terrakube_ssh" "ssh_wo" {
 
 ### Optional
 
+> **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
+
 - `description` (String) SSH key description
 - `name` (String) Ssh key name
 - `private_key` (String, Sensitive) SSH Key content, stored in the Terraform state. Exactly one of `private_key` or `private_key_wo` is required.
-- `private_key_wo` (String, Sensitive) SSH Key content as a write-only argument: sent to Terrakube but never stored in the plan or state. Requires Terraform 1.11+ or OpenTofu 1.11+. Terraform cannot detect changes to it: bump `private_key_wo_version` to send a new value.
+- `private_key_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) SSH Key content as a write-only argument: sent to Terrakube but never stored in the plan or state. Requires Terraform 1.11+ or OpenTofu 1.11+. Terraform cannot detect changes to it: bump `private_key_wo_version` to send a new value.
 - `private_key_wo_version` (Number) Version of `private_key_wo`. Change it to update the value in Terrakube.
 - `ssh_type` (String) SSH key type
 
@@ -63,6 +65,8 @@ resource "terrakube_ssh" "ssh_wo" {
 ## Import
 
 Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
 
 ```shell
 # Team can be import with organization_id,id

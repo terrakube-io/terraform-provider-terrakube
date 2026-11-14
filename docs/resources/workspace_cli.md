@@ -82,6 +82,8 @@ resource "terrakube_workspace_cli" "sample3" {
 
 Import is supported using the following syntax:
 
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
 ```shell
 # Workspace_cli can be import with organization_id,id
 terraform import terrakube_workspace_cli.example 00000000-0000-0000-0000-000000000000,00000000-0000-0000-0000-000000000000
