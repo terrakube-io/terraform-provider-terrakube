@@ -13,6 +13,10 @@ Create a SSH key for the desired organization. SSH key  are used by download pri
 ## Example Usage
 
 ```terraform
+data "terrakube_organization" "org" {
+  name = "my-organization"
+}
+
 resource "terrakube_ssh" "ssh" {
   name            = "github-key"
   organization_id = data.terrakube_organization.org.id

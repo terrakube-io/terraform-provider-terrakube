@@ -44,17 +44,6 @@ var resourcesWithoutImport = map[string]bool{
 	"workspace_tag": true,
 }
 
-// Example directories that do not match a registered type. See #227.
-var misnamedExampleDirs = map[string]bool{
-	"resources/terrakube_organization_collection": true,
-	"resources/terrakube_workspace_webhook":       true,
-}
-
-// Resources whose example directory has another name. See #227.
-var resourcesWithRenamedExample = map[string]string{
-	"collection": "terrakube_organization_collection",
-}
-
 func registeredTypes(t *testing.T) (resources, dataSources []string) {
 	t.Helper()
 	ctx := context.Background()
@@ -111,9 +100,6 @@ func TestRepository_ResourcesAreComplete(t *testing.T) {
 	for _, name := range resources {
 		t.Run(name, func(t *testing.T) {
 			exampleDir := "terrakube_" + name
-			if renamed, ok := resourcesWithRenamedExample[name]; ok {
-				exampleDir = renamed
-			}
 
 			if !repoFileExists(t, "examples/resources/"+exampleDir+"/resource.tf") {
 				t.Errorf("missing examples/resources/%s/resource.tf", exampleDir)
@@ -173,8 +159,9 @@ func TestRepository_ExamplesMatchRegisteredTypes(t *testing.T) {
 				continue
 			}
 			dir := kind + "/" + entry.Name()
-			checkAllowed(t, registered[dir], misnamedExampleDirs[dir],
-				"examples/"+dir+" does not match a registered resource or data source")
+			if !registered[dir] {
+				t.Errorf("examples/%s does not match a registered resource or data source", dir)
+			}
 		}
 	}
 }

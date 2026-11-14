@@ -13,6 +13,10 @@ Look up a single notification configuration by name, within an organization and 
 ## Example Usage
 
 ```terraform
+data "terrakube_organization" "org" {
+  name = "my-organization"
+}
+
 data "terrakube_notification_configuration" "prod_alerts" {
   organization_id = data.terrakube_organization.org.id
   name            = "prod-alerts"

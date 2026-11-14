@@ -24,6 +24,10 @@ resource "terrakube_team" "admins" {
 ### Custom role with explicit boolean flags
 
 ```terraform
+data "terrakube_organization" "org" {
+  name = "my-organization"
+}
+
 resource "terrakube_team" "team" {
   name              = "TERRAKUBE_SUPER_ADMIN"
   organization_id   = data.terrakube_organization.org.id

@@ -13,6 +13,20 @@ Create a workspace-level notification configuration (Slack, Teams, or a generic 
 ## Example Usage
 
 ```terraform
+data "terrakube_organization" "org" {
+  name = "my-organization"
+}
+
+data "terrakube_workspace" "security" {
+  name         = "security"
+  organization = data.terrakube_organization.org.name
+}
+
+data "terrakube_organization_template" "security_scan" {
+  name            = "security-scan"
+  organization_id = data.terrakube_organization.org.id
+}
+
 resource "terrakube_workspace_notification_configuration" "security_team_slack" {
   organization_id  = data.terrakube_organization.org.id
   workspace_id     = data.terrakube_workspace.security.id
@@ -29,8 +43,10 @@ resource "terrakube_workspace_notification_configuration" "security_team_slack" 
 # Generic webhook signed with a write-only secret (Terraform 1.11+ / OpenTofu
 # 1.11+): sent to Terrakube but never stored in the plan or state. Bump
 # signing_secret_wo_version to push a new secret.
-ephemeral "random_password" "webhook_signing" {
-  length = 32
+variable "webhook_signing_secret" {
+  type      = string
+  sensitive = true
+  ephemeral = true
 }
 
 resource "terrakube_workspace_notification_configuration" "signed_webhook" {
@@ -39,7 +55,7 @@ resource "terrakube_workspace_notification_configuration" "signed_webhook" {
   name                      = "signed-webhook"
   channel_type              = "WEBHOOK"
   destination_url           = "https://example.com/terrakube-hook"
-  signing_secret_wo         = ephemeral.random_password.webhook_signing.result
+  signing_secret_wo         = var.webhook_signing_secret
   signing_secret_wo_version = 1
   trigger_statuses          = ["failed"]
 }

@@ -13,7 +13,22 @@ Resource for managing modules in Terrakube. This resource allows you to create, 
 ## Example Usage
 
 ```terraform
-resource "terrakube_module" "module" {
+data "terrakube_organization" "org" {
+  name = "my-organization"
+}
+
+data "terrakube_vcs" "vcs" {
+  organization_id = data.terrakube_organization.org.id
+  name            = "Github"
+}
+
+data "terrakube_ssh" "ssh" {
+  organization_id = data.terrakube_organization.org.id
+  name            = "github-key"
+}
+
+# Public repository.
+resource "terrakube_module" "vpc" {
   name            = "vpc"
   organization_id = data.terrakube_organization.org.id
   description     = "cloudposse module"
@@ -21,18 +36,20 @@ resource "terrakube_module" "module" {
   source          = "https://github.com/terraform-aws-modules/terraform-aws-vpc.git"
 }
 
-resource "terrakube_module" "module" {
+# Private repository through a VCS connection.
+resource "terrakube_module" "vpc_private" {
   name            = "vpc_private"
-  organization_id = data.terrakube_ssh.ssh.organization_id
+  organization_id = data.terrakube_organization.org.id
   description     = "cloudposse module"
   provider_name   = "aws"
   source          = "https://github.com/terraform-aws-modules/terraform-aws-vpc.git"
   vcs_id          = data.terrakube_vcs.vcs.id
 }
 
-resource "terrakube_module" "module" {
+# Private repository through an SSH key.
+resource "terrakube_module" "vpc_private_ssh" {
   name            = "vpc_private_ssh"
-  organization_id = data.terrakube_ssh.ssh.organization_id
+  organization_id = data.terrakube_organization.org.id
   description     = "cloudposse module"
   provider_name   = "aws"
   source          = "https://github.com/terraform-aws-modules/terraform-aws-vpc.git"
