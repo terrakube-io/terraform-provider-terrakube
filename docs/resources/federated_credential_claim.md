@@ -43,6 +43,8 @@ resource "terrakube_federated_credential_claim" "repository_owner" {
 
 Import is supported using the following syntax:
 
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
 ```shell
 # Federated credential claim can be imported with federated_credential_id,id
 terraform import terrakube_federated_credential_claim.example 00000000-0000-0000-0000-000000000000,00000000-0000-0000-0000-000000000000

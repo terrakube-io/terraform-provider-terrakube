@@ -68,9 +68,11 @@ resource "terrakube_collection_item" "sample3" {
 
 ### Optional
 
+> **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
+
 - `description` (String) Variable description
 - `value` (String, Sensitive) Variable value, stored in the Terraform state. Exactly one of `value` or `value_wo` is required.
-- `value_wo` (String, Sensitive) Variable value as a write-only argument: sent to Terrakube but never stored in the plan or state. Requires `sensitive = true` and Terraform 1.11+ or OpenTofu 1.11+. Terraform cannot detect changes to it: bump `value_wo_version` to send a new value.
+- `value_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Variable value as a write-only argument: sent to Terrakube but never stored in the plan or state. Requires `sensitive = true` and Terraform 1.11+ or OpenTofu 1.11+. Terraform cannot detect changes to it: bump `value_wo_version` to send a new value.
 - `value_wo_version` (Number) Version of `value_wo`. Change it to update the value in Terrakube.
 
 ### Read-Only
@@ -80,6 +82,8 @@ resource "terrakube_collection_item" "sample3" {
 ## Import
 
 Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
 
 ```shell
 # Organization Workspace Variable can be import with organization_id,collection_id,id
