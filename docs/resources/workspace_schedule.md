@@ -29,10 +29,9 @@ data "terrakube_organization_template" "plan" {
 
 # Run the template every day at 02:00. The schedule uses Quartz cron notation.
 resource "terrakube_workspace_schedule" "nightly" {
-  organization_id = data.terrakube_organization.org.id
-  workspace_id    = data.terrakube_workspace.ws.id
-  template_id     = data.terrakube_organization_template.plan.id
-  schedule        = "0 0 2 * * ?"
+  workspace_id = data.terrakube_workspace.ws.id
+  template_id  = data.terrakube_organization_template.plan.id
+  schedule     = "0 0 2 * * ?"
 }
 ```
 

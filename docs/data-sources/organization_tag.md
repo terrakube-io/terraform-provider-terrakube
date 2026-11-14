@@ -18,7 +18,7 @@ data "terrakube_organization" "org" {
 }
 
 data "terrakube_organization_tag" "tag" {
-  organization_id = data.terraform_organization.org.id
+  organization_id = data.terrakube_organization.org.id
   name            = "test"
 }
 ```

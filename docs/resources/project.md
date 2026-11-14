@@ -13,6 +13,10 @@ Create a project and bind it to an organization. Projects group workspaces toget
 ## Example Usage
 
 ```terraform
+data "terrakube_organization" "org" {
+  name = "my-organization"
+}
+
 resource "terrakube_project" "project" {
   name            = "sample-project"
   organization_id = data.terrakube_organization.org.id
