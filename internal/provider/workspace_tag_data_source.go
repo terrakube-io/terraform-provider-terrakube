@@ -201,8 +201,3 @@ func (d *WorkspaceTagDataSource) get(requestUrl string, kind string, resp *datas
 
 	return body, true
 }
-
-// rsqlQuote quotes a value for an RSQL filter so names with spaces or reserved characters are accepted.
-func rsqlQuote(value string) string {
-	return `"` + strings.NewReplacer(`\`, `\`, `"`, `\"`).Replace(value) + `"`
-}
