@@ -126,7 +126,7 @@ func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		OrganizationID = data.ID
 	}
 
-	//now try to find the Workspace
+	// now try to find the Workspace
 	workspaces := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/workspace?filter[workspace]=name==%s", d.endpoint, OrganizationID, state.Workspace.ValueString()), ctx, resp, new(client.WorkspaceEntity))
 
 	if len(workspaces) == 0 {
@@ -141,18 +141,18 @@ func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	}
 	tflog.Info(ctx, WorkspaceId)
 
-	//Now that we found the worspace id we can query for the history
+	// Now that we found the workspace id we can query for the history
 	Histories := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/history?sort=-createdDate", d.endpoint, OrganizationID, WorkspaceId), ctx, resp, new(client.HistoryEntity))
 
 	if len(Histories) == 0 {
-		//No history for this workspace. That is not an error
+		// No history for this workspace. That is not an error
 		tflog.Info(ctx, "No history information found")
 		return
 	}
 
 	data, _ := Histories[0].(*client.HistoryEntity)
 	tflog.Info(ctx, fmt.Sprintf("%#v", data))
-	//Output contains a link to the Output.json file, which contains the real data we need.
+	// Output contains a link to the Output.json file, which contains the real data we need.
 	OutputUrl := data.Output
 	reqFile, err := http.NewRequest(http.MethodGet, OutputUrl, nil)
 	if err != nil {
@@ -200,7 +200,7 @@ func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	nonSensitiveTypes := map[string]attr.Type{}
 	nonSensitiveValues := map[string]attr.Value{}
 
-	//walk trhough json outputs
+	// walk through json outputs
 	for x := range outputs {
 		myOutput, test := outputs[x].(map[string]interface{})
 		if !test {

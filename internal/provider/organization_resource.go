@@ -169,7 +169,7 @@ func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRe
 		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
 		return
 	}
-	//result is back
+	// result is back
 
 	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 

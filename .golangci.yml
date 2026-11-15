@@ -6,6 +6,8 @@ linters:
     - durationcheck
     - errcheck
     - forcetypeassert
+    - gocritic
+    - gocyclo
     - godot
     - govet
     - ineffassign
@@ -18,8 +20,15 @@ linters:
     - unparam
     - unused
     - usetesting
+  settings:
+    gocyclo:
+      min-complexity: 40
   exclusions:
     generated: lax
+    rules:
+      - path: _test\.go
+        linters:
+          - gocyclo
     presets:
       - comments
       - common-false-positives

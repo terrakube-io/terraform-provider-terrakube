@@ -147,15 +147,16 @@ func TestLaunch234ResourcePermissions(t *testing.T) {
 					}
 					for _, api := range tc.flags {
 						got, exists := sent[api]
-						if mode == "omitted" && tc.entity == "workspace" {
+						switch {
+						case mode == "omitted" && tc.entity == "workspace":
 							if exists {
 								t.Fatalf("unconfigured guard %s sent during update", api)
 							}
-						} else if (mode == "omitted" || mode == "unknown") && tc.entity != "workspace" {
+						case (mode == "omitted" || mode == "unknown") && tc.entity != "workspace":
 							if exists {
 								t.Fatalf("unconfigured permission %s sent during update", api)
 							}
-						} else if !exists || got != (mode == "false") {
+						case !exists || got != (mode == "false"):
 							t.Fatalf("update %s = %v, present %v", api, got, exists)
 						}
 					}
