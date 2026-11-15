@@ -469,11 +469,12 @@ func (r *OrganizationNotificationConfigurationResource) Delete(ctx context.Conte
 	}
 	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
-	_, err = r.client.Do(request)
+	response, err := r.client.Do(request)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing organization notification configuration resource request", fmt.Sprintf("Error executing organization notification configuration resource request: %s", err))
 		return
 	}
+	reportDeleteFailure(&resp.Diagnostics, "deleting organization notification configuration", response)
 }
 
 func (r *OrganizationNotificationConfigurationResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {

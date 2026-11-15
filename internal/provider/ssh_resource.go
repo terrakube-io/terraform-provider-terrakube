@@ -386,11 +386,12 @@ func (r *SshResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 	}
 	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
-	_, err = r.client.Do(reqOrg)
+	response, err := r.client.Do(reqOrg)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing ssh key resource request", fmt.Sprintf("Error executing ssh key resource request: %s", err))
 		return
 	}
+	reportDeleteFailure(&resp.Diagnostics, "deleting ssh key", response)
 }
 
 func (r *SshResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {

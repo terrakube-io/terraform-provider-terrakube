@@ -452,11 +452,12 @@ func (r *ModuleResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	}
 	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
-	_, err = r.client.Do(reqOrg)
+	response, err := r.client.Do(reqOrg)
 	if err != nil {
-		resp.Diagnostics.AddError("Error executing module resource request", fmt.Sprintf("Error executing team resource request: %s", err))
+		resp.Diagnostics.AddError("Error executing module resource request", fmt.Sprintf("Error executing module resource request: %s", err))
 		return
 	}
+	reportDeleteFailure(&resp.Diagnostics, "deleting module", response)
 }
 
 // ImportState accepts "organization_id,id": Read needs the organization ID to

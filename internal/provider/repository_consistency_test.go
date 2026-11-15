@@ -18,17 +18,10 @@ import (
 // shrink.
 
 // Resources without a unit test file. See #209.
-var resourcesWithoutTests = map[string]bool{
-	"federated_credential":       true,
-	"federated_credential_claim": true,
-	"organization":               true,
-	"team_token":                 true,
-}
+var resourcesWithoutTests = map[string]bool{}
 
 // Data sources without a unit test file. See #209.
-var dataSourcesWithoutTests = map[string]bool{
-	"output": true,
-}
+var dataSourcesWithoutTests = map[string]bool{}
 
 // Resources whose ImportState returns an error, so there is nothing to document.
 var resourcesWithoutImport = map[string]bool{

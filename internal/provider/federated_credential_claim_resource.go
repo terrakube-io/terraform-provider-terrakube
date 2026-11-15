@@ -324,11 +324,12 @@ func (r *FederatedCredentialClaimResource) Delete(ctx context.Context, req resou
 	}
 	claimRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
-	_, err = r.client.Do(claimRequest)
+	response, err := r.client.Do(claimRequest)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing federated credential claim resource request", fmt.Sprintf("Error executing federated credential claim resource request: %s", err))
 		return
 	}
+	reportDeleteFailure(&resp.Diagnostics, "deleting federated credential claim", response)
 }
 
 func (r *FederatedCredentialClaimResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
