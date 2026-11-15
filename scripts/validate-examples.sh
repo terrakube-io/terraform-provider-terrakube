@@ -12,7 +12,7 @@ set -uo pipefail
 cli=${1:?usage: scripts/validate-examples.sh <terraform|tofu> [example directory ...]}
 shift
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -33,7 +33,7 @@ EOF
 if [ "$#" -gt 0 ]; then
   dirs=("$@")
 else
-  dirs=(examples/resources/*/ examples/data-sources/*/)
+  dirs=(examples/resources/*/ examples/data-sources/*/ examples/ephemeral-resources/*/)
 fi
 
 failed=0
