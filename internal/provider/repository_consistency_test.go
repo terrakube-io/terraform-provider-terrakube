@@ -19,16 +19,10 @@ import (
 
 // Resources without a unit test file. See #209.
 var resourcesWithoutTests = map[string]bool{
-	"collection":                 true,
 	"federated_credential":       true,
 	"federated_credential_claim": true,
 	"organization":               true,
-	"organization_variable":      true,
-	"project_access":             true,
-	"self_hosted_agent":          true,
 	"team_token":                 true,
-	"workspace_access":           true,
-	"workspace_variable":         true,
 }
 
 // Data sources without a unit test file. See #209.
