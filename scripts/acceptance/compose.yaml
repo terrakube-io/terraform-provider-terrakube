@@ -20,7 +20,7 @@ services:
     image: valkey/valkey:8-alpine
 
   api:
-    image: azbuilder/api-server:${TERRAKUBE_VERSION:-2.34.2}
+    image: azbuilder/api-server:${TERRAKUBE_VERSION:?set by scripts/acceptance.sh}
     depends_on:
       postgres:
         condition: service_healthy

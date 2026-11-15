@@ -2,7 +2,7 @@
 # Starts a throwaway Terrakube for the acceptance tests and prints the provider settings.
 #
 # Usage:
-#   scripts/acceptance.sh up     start Terrakube and print TERRAKUBE_ENDPOINT and TERRAKUBE_TOKEN
+#   scripts/acceptance.sh up     start Terrakube and print TERRAKUBE_VERSION, _ENDPOINT and _TOKEN
 #   scripts/acceptance.sh logs   print the API logs
 #   scripts/acceptance.sh down   stop Terrakube and delete its data
 #
@@ -11,7 +11,7 @@
 #   make testacc TESTARGS='-run TestAcc'
 #   scripts/acceptance.sh down
 #
-# TERRAKUBE_VERSION picks the image tag (default in compose.yaml), TERRAKUBE_ACC_PORT the host port
+# TERRAKUBE_VERSION picks the image tag (default 2.34.2), TERRAKUBE_ACC_PORT the host port
 # (default 18080). Needs docker with compose (plugin or standalone), curl, openssl and uuidgen.
 set -euo pipefail
 
@@ -19,6 +19,8 @@ cd "$(dirname "$0")/.." || exit 1
 
 compose_file=scripts/acceptance/compose.yaml
 port=${TERRAKUBE_ACC_PORT:-18080}
+# The Terrakube image tag. Tests that need a newer server read it to skip themselves.
+export TERRAKUBE_VERSION=${TERRAKUBE_VERSION:-2.34.2}
 
 # The compose plugin (docker compose) or the standalone binary (docker-compose, e.g. with Colima).
 if docker compose version >/dev/null 2>&1; then
@@ -56,7 +58,7 @@ up() {
   TERRAKUBE_PAT_SECRET=$(base64url <"$key_file")
   TERRAKUBE_INTERNAL_SECRET=$(openssl rand 32 | base64url)
 
-  log "starting Terrakube ${TERRAKUBE_VERSION:-(default version)} on port $port"
+  log "starting Terrakube $TERRAKUBE_VERSION on port $port"
   compose up -d --quiet-pull >&2
 
   local endpoint="http://localhost:$port"
@@ -95,6 +97,7 @@ up() {
   fi
 
   log "Terrakube is ready"
+  echo "TERRAKUBE_VERSION=$TERRAKUBE_VERSION"
   echo "TERRAKUBE_ENDPOINT=$endpoint"
   echo "TERRAKUBE_TOKEN=$token"
 }

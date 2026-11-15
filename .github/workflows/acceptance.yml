@@ -11,6 +11,7 @@ on:
       - 'scripts/acceptance.sh'
       - 'scripts/acceptance/**'
       - 'internal/provider/acc_*_test.go'
+      - 'internal/provider/testdata/TestAcc*/**'
   schedule:
     - cron: '23 5 * * 1'
   workflow_dispatch:

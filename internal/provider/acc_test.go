@@ -1,7 +1,10 @@
 package provider
 
 import (
+	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -22,4 +25,59 @@ func testAccPreCheck(t *testing.T) {
 			t.Fatalf("%s must be set for acceptance tests", name)
 		}
 	}
+}
+
+// testAccRequireTerrakube skips the test when TERRAKUBE_VERSION names a Terrakube release older
+// than minimum. Use it for a resource or attribute that needs a newer server than the rest. The
+// Terrakube API does not report its version, so the test run sets TERRAKUBE_VERSION
+// (scripts/acceptance.sh and the Acceptance workflow do). When it is unset, the test runs.
+func testAccRequireTerrakube(t *testing.T, minimum string) {
+	t.Helper()
+	current := os.Getenv("TERRAKUBE_VERSION")
+	if current == "" {
+		return
+	}
+	older, err := terrakubeVersionOlder(current, minimum)
+	if err != nil {
+		t.Fatalf("TERRAKUBE_VERSION: %s", err)
+	}
+	if older {
+		t.Skipf("needs Terrakube %s or later, running against %s", minimum, current)
+	}
+}
+
+// terrakubeVersionOlder reports whether version a is older than b. Both are MAJOR.MINOR.PATCH,
+// optionally with a leading "v"; a suffix such as "-arm" or "-beta.1" on a is ignored.
+func terrakubeVersionOlder(a, b string) (bool, error) {
+	pa, err := parseTerrakubeVersion(a)
+	if err != nil {
+		return false, err
+	}
+	pb, err := parseTerrakubeVersion(b)
+	if err != nil {
+		return false, err
+	}
+	for i := range pa {
+		if pa[i] != pb[i] {
+			return pa[i] < pb[i], nil
+		}
+	}
+	return false, nil
+}
+
+func parseTerrakubeVersion(version string) ([3]int, error) {
+	var parts [3]int
+	core, _, _ := strings.Cut(strings.TrimPrefix(version, "v"), "-")
+	fields := strings.Split(core, ".")
+	if len(fields) != 3 {
+		return parts, fmt.Errorf("%q is not MAJOR.MINOR.PATCH", version)
+	}
+	for i, field := range fields {
+		n, err := strconv.Atoi(field)
+		if err != nil || n < 0 {
+			return parts, fmt.Errorf("%q is not MAJOR.MINOR.PATCH", version)
+		}
+		parts[i] = n
+	}
+	return parts, nil
 }

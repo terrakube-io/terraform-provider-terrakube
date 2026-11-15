@@ -22,7 +22,8 @@ block to the Terraform CLI configuration.
 
 - `internal/provider/<name>_resource.go`, `<name>_data_source.go`: schema and CRUD.
 - `internal/provider/<name>_resource_test.go`, `<name>_data_source_test.go`: unit tests.
-- `internal/provider/acc_<name>_resource_test.go`: acceptance tests against a real Terrakube.
+- `internal/provider/acc_<name>_resource_test.go`: acceptance tests against a real Terrakube. Their
+  Terraform configuration is in `internal/provider/testdata/<TestName>/`.
 - `internal/provider/provider.go`: every resource and data source is registered here.
 - `internal/client/`: API models. The Terrakube API is JSON:API, so models use `jsonapi` tags.
 - `examples/`: one example per resource and data source.
@@ -66,6 +67,18 @@ scripts/acceptance.sh down                             # deletes the containers 
 `TERRAKUBE_VERSION=2.33.3` picks another Terrakube release, and `TERRAKUBE_ACC_PORT` the host
 port (default 18080). The `Acceptance` workflow runs the tests every week against the latest
 Terrakube release and the latest release of the previous minor, and opens an issue when they fail.
+
+Writing an acceptance test:
+
+- Put the configuration in `internal/provider/testdata/<TestName>/main.tf` and load it with
+  `ConfigDirectory: config.TestNameDirectory()`. Pass what changes between steps as Terraform
+  variables with `ConfigVariables`, not by building HCL strings in Go.
+- A test for a resource or attribute that needs a newer Terrakube than the rest starts with
+  `testAccRequireTerrakube(t, "2.34.0")`. It is skipped on older servers, so the same tests run
+  against every version in the matrix.
+- The test token is in the `TERRAKUBE_ADMIN` group. It can create organizations, but managing
+  workspaces in an organization also needs a team with that name and `manage_workspace`, as in
+  `testdata/TestAccWorkspaceRunTriggerResource/main.tf`.
 
 ## Pull requests
 
