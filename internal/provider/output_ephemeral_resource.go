@@ -67,7 +67,7 @@ func (e *OutputEphemeralResource) Metadata(_ context.Context, req ephemeral.Meta
 
 func (e *OutputEphemeralResource) Schema(_ context.Context, _ ephemeral.SchemaRequest, resp *ephemeral.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Reads the outputs of the latest run of a workspace without storing them in plan or state. " +
+		MarkdownDescription: "Reads the outputs of the latest run of a workspace without storing them in plan or state. " +
 			"Use it instead of the `terrakube_output` data source when the outputs include secrets. Requires Terraform 1.10 or later, or OpenTofu 1.11 or later.",
 		Attributes: map[string]schema.Attribute{
 			"organization": schema.StringAttribute{

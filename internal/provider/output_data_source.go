@@ -81,6 +81,8 @@ func (d *OutputDataSource) Metadata(_ context.Context, req datasource.MetadataRe
 
 func (d *OutputDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Reads the outputs of the latest run of a workspace. The values, sensitive ones included, are stored in state. " +
+			"To read outputs that include secrets without storing them, use the `terrakube_output` ephemeral resource instead.",
 		Attributes: map[string]schema.Attribute{
 			"workspace": schema.StringAttribute{
 				Required:    true,
