@@ -226,7 +226,7 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 		state.Description = types.StringPointerValue(data.Description)
 	}
 
-	//now try to find the workspace
+	// now try to find the workspace
 	reqWS, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace?filter[workspace]=name==%s", d.endpoint, state.OrganizationID.ValueString(), state.Name.ValueString()), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Workspace datasource request part 2", fmt.Sprintf("Error creating Workspace datasource request part 2: %s", err))

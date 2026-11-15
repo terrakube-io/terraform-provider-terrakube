@@ -176,7 +176,8 @@ func (d *PolicyExemptionDataSource) Read(ctx context.Context, req datasource.Rea
 
 	var targetExemption *client.PolicyExemptionEntity
 
-	if !state.ID.IsNull() && state.ID.ValueString() != "" {
+	switch {
+	case !state.ID.IsNull() && state.ID.ValueString() != "":
 		// Lookup by ID
 		exReq, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/policy_exemption/%s", d.endpoint, state.ID.ValueString()), nil)
 		if err != nil {
@@ -210,7 +211,7 @@ func (d *PolicyExemptionDataSource) Read(ctx context.Context, req datasource.Rea
 			return
 		}
 		targetExemption = single
-	} else if !state.RuleId.IsNull() && state.RuleId.ValueString() != "" {
+	case !state.RuleId.IsNull() && state.RuleId.ValueString() != "":
 		// Lookup by Rule ID in Org
 		queryUrl := fmt.Sprintf("%s/api/v1/organization/%s/policyExemption?filter[policy_exemption]=ruleId==%s", d.endpoint, orgData.ID, state.RuleId.ValueString())
 		if !state.PolicySetId.IsNull() && state.PolicySetId.ValueString() != "" {
@@ -249,7 +250,7 @@ func (d *PolicyExemptionDataSource) Read(ctx context.Context, req datasource.Rea
 		}
 		data, _ := exemptions[0].(*client.PolicyExemptionEntity)
 		targetExemption = data
-	} else {
+	default:
 		resp.Diagnostics.AddError("Missing Filter Parameter", "Either 'id' or 'rule_id' must be specified to query a policy exemption.")
 		return
 	}

@@ -64,7 +64,20 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
       - run: go mod download
-      - run: go test -race -cover ./...
+      - run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Coverage summary
+        if: always()
+        run: |
+          [ -f coverage.out ] || exit 0
+          {
+            echo '### Test coverage'
+            echo
+            echo "Total: **$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}')** of statements"
+            echo
+            echo '| Package | Coverage |'
+            echo '|---|---|'
+            awk 'NR > 1 { split($1, a, ":"); dir = a[1]; sub(/\/[^\/]+$/, "", dir); stmts[dir] += $2; if ($3 > 0) covered[dir] += $2 } END { for (d in stmts) printf "| %s | %.1f%% |\n", d, 100 * covered[d] / stmts[d] }' coverage.out | sort
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # Every example must validate on its own. The examples use ephemeral variables and write-only
   # arguments, so 1.11 is the oldest Terraform and OpenTofu they can run on.

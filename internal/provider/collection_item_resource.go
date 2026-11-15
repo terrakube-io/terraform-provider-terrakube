@@ -273,18 +273,19 @@ func (r *CollectionItemResource) Read(ctx context.Context, req resource.ReadRequ
 	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), collectionItem)
 
 	if err != nil {
-		//Response is not what we expected, perhaps it is a detailed error message, so more detail wanted
+		// Response is not what we expected, perhaps it is a detailed error message, so more detail wanted
 		ErrorsItem := &client.ErrorsEntity{}
 		err2 := json.Unmarshal([]byte(string(bodyResponse)), ErrorsItem)
-		if err2 != nil {
-			//No, not a detailed error either
+		switch {
+		case err2 != nil:
+			// No, not a detailed error either
 			resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s %s", err, err2))
 			tflog.Debug(ctx, fmt.Sprintf("Data returned not as expected: %s", string(bodyResponse)))
 			return
-		} else if len(ErrorsItem.Errors) > 0 && regexp.MustCompile(`Unknown identifier .* for item`).MatchString(ErrorsItem.Errors[0].DetailedError) {
-			//this might be a known issue where the variable is removed in the gui and added back manually with the same key but a different id
+		case len(ErrorsItem.Errors) > 0 && regexp.MustCompile(`Unknown identifier .* for item`).MatchString(ErrorsItem.Errors[0].DetailedError):
+			// this might be a known issue where the variable is removed in the gui and added back manually with the same key but a different id
 			tflog.Debug(ctx, "this might be a known issue where the variable is removed in the gui and added back manually with the same key but a different id")
-			//lets query on key to see if we can find it
+			// lets query on key to see if we can find it
 			collectionItemRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item?filter[item]=key==%s", r.endpoint, state.OrganizationId.ValueString(), state.CollectionId.ValueString(), state.Key.ValueString()), nil)
 			if err != nil {
 				resp.Diagnostics.AddError("Error creating collection resource request", fmt.Sprintf("Error creating collection item resource request: %s", err))
@@ -310,7 +311,7 @@ func (r *CollectionItemResource) Read(ctx context.Context, req resource.ReadRequ
 
 			collectionItem = &client.CollectionItemEntity{}
 
-			//try to unmarshal but removing the [ ] from around the response, because we want only one match
+			// try to unmarshal but removing the [ ] from around the response, because we want only one match
 			err = jsonapi.UnmarshalPayload(strings.NewReader(strings.Replace(strings.Replace(string(bodyResponse), "]", "", 1), "[", "", 1)), collectionItem)
 
 			if err != nil {
@@ -318,7 +319,7 @@ func (r *CollectionItemResource) Read(ctx context.Context, req resource.ReadRequ
 			} else {
 				tflog.Info(ctx, fmt.Sprintf("Successfully found the new id for this variable %s => %s", state.ID.ValueString(), collectionItem.ID))
 			}
-		} else {
+		default:
 			tflog.Debug(ctx, "Detailed response contains an error")
 			for _, e := range ErrorsItem.Errors {
 				resp.Diagnostics.AddError("Error reading values from variable : ", fmt.Sprint(e.DetailedError))

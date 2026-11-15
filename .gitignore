@@ -37,3 +37,4 @@ website/vendor
 /examples/full/
 
 .vscode/
+coverage.out
