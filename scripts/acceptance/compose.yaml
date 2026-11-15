@@ -1,0 +1,67 @@
+# A minimal Terrakube for acceptance tests: the API with PostgreSQL and Valkey, nothing else.
+# The provider only talks to the API, so the UI, executor, registry, Dex and object storage are
+# left out. Start it with scripts/acceptance.sh, which also creates the API token.
+name: terrakube-acc
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: terrakube
+      POSTGRES_USER: terrakube
+      POSTGRES_PASSWORD: terrakube
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U terrakube -d terrakube"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  redis:
+    image: valkey/valkey:8-alpine
+
+  api:
+    image: azbuilder/api-server:${TERRAKUBE_VERSION:-2.34.2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "${TERRAKUBE_ACC_PORT:-18080}:8080"
+    environment:
+      ApiDataSourceType: POSTGRESQL
+      DatasourceHostname: postgres
+      DatasourceDatabase: terrakube
+      DatasourceUser: terrakube
+      DatasourcePassword: terrakube
+      TerrakubeRedisHostname: redis
+      TerrakubeRedisPort: "6379"
+      TerrakubeRedisTruststorePath: ""
+      TerrakubeRedisTruststorePassword: ""
+      # Tokens are signed with these secrets. scripts/acceptance.sh generates them for each run.
+      PatSecret: ${TERRAKUBE_PAT_SECRET:?set by scripts/acceptance.sh}
+      InternalSecret: ${TERRAKUBE_INTERNAL_SECRET:?set by scripts/acceptance.sh}
+      # The tests use Terrakube-issued tokens only, so Dex is configured but never contacted.
+      GroupValidationType: DEX
+      UserValidationType: DEX
+      AuthenticationValidationType: DEX
+      DexIssuerUri: http://dex.invalid/dex
+      DexJwtSetUri: http://dex.invalid/dex/keys
+      DexClientId: terrakube-app
+      StorageType: LOCAL
+      TerrakubeHostname: localhost:${TERRAKUBE_ACC_PORT:-18080}
+      TerrakubeUiURL: http://localhost:3000
+      AzBuilderExecutorUrl: http://executor.invalid:8090/api/v1/terraform-rs
+      TerrakubeToolsRepository: https://github.com/terrakube-io/terrakube-extensions.git
+      TerrakubeToolsBranch: main
+      CustomTerraformReleasesUrl: https://releases.hashicorp.com/terraform/index.json
+      # Placeholders without a default in application.properties; unused with StorageType LOCAL.
+      AwsEndpoint: ""
+      AwsStorageAccessKey: ""
+      AwsStorageSecretKey: ""
+      AwsStorageBucketName: ""
+      AwsStorageRegion: ""
+      AzureAccountName: ""
+      AzureAccountKey: ""
+      GcpStorageBucketName: ""
+      GcpStorageProjectId: ""

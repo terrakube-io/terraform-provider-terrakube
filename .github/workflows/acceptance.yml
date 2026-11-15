@@ -1,0 +1,105 @@
+name: Acceptance
+
+# Runs the acceptance tests (TestAcc*) against a real Terrakube, on a schedule, so a Terrakube API
+# change is caught before users report it. Tests the latest Terrakube release and the latest
+# release of the previous minor. A scheduled failure opens an issue, or comments on the open one.
+# It also runs on pull requests that change the acceptance setup or the acceptance tests.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/acceptance.yml'
+      - 'scripts/acceptance.sh'
+      - 'scripts/acceptance/**'
+      - 'internal/provider/acc_*_test.go'
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: 'Terrakube versions as a JSON list, e.g. ["2.34.2"]. Empty: latest and previous minor.'
+        required: false
+        default: ''
+
+permissions: {}
+
+jobs:
+  versions:
+    name: Pick Terrakube versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      versions: ${{ steps.pick.outputs.versions }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSIONS: ${{ inputs.versions }}
+        run: |
+          if [ -n "$INPUT_VERSIONS" ]; then
+            echo "versions=$INPUT_VERSIONS" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          releases=$(gh api 'repos/terrakube-io/terrakube/releases?per_page=50' \
+            --jq '.[] | select(.draft | not) | select(.prerelease | not) | .tag_name' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V -r)
+          latest=$(echo "$releases" | head -n 1)
+          previous=$(echo "$releases" | grep -v "^${latest%.*}\." | head -n 1)
+          echo "Latest: $latest, previous minor: $previous"
+          echo "versions=[\"$latest\",\"$previous\"]" >> "$GITHUB_OUTPUT"
+
+  acceptance:
+    name: Terrakube ${{ matrix.terrakube }}
+    needs: versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        terrakube: ${{ fromJSON(needs.versions.outputs.versions) }}
+    env:
+      TERRAKUBE_VERSION: ${{ matrix.terrakube }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+      - name: Start Terrakube
+        run: scripts/acceptance.sh up >> "$GITHUB_ENV"
+      - name: Acceptance tests
+        run: make testacc TESTARGS='-run TestAcc'
+      - name: Terrakube logs
+        if: failure()
+        run: scripts/acceptance.sh logs
+      - name: Stop Terrakube
+        if: always()
+        run: scripts/acceptance.sh down
+
+  report:
+    name: Report failure
+    needs: acceptance
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Scheduled acceptance tests failed"
+          body="The scheduled acceptance tests against a real Terrakube failed: $RUN_URL"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "Failed again: $RUN_URL"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body" --label area/testing
+          fi

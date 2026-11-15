@@ -22,6 +22,7 @@ block to the Terraform CLI configuration.
 
 - `internal/provider/<name>_resource.go`, `<name>_data_source.go`: schema and CRUD.
 - `internal/provider/<name>_resource_test.go`, `<name>_data_source_test.go`: unit tests.
+- `internal/provider/acc_<name>_resource_test.go`: acceptance tests against a real Terrakube.
 - `internal/provider/provider.go`: every resource and data source is registered here.
 - `internal/client/`: API models. The Terrakube API is JSON:API, so models use `jsonapi` tags.
 - `examples/`: one example per resource and data source.
@@ -46,8 +47,25 @@ golangci-lint run    # rules in .golangci.yml
 go test ./...
 go generate ./...    # regenerates docs/; CI fails if it changes any file
 scripts/validate-examples.sh terraform   # every example must validate on its own (or: tofu)
-make testacc         # acceptance tests (TF_ACC=1), need a Terrakube instance
+make testacc         # acceptance tests (TF_ACC=1), need a Terrakube instance (see below)
 ```
+
+## Acceptance tests
+
+Acceptance tests (`TestAcc*`) run Terraform against a real Terrakube. They are skipped unless
+`TF_ACC=1` is set. `scripts/acceptance.sh` starts a throwaway Terrakube in Docker (the API with
+PostgreSQL and Valkey, from `scripts/acceptance/compose.yaml`) and creates an admin API token,
+so no login or identity provider is needed.
+
+```sh
+set -a; eval "$(scripts/acceptance.sh up)"; set +a   # sets TERRAKUBE_ENDPOINT and TERRAKUBE_TOKEN
+make testacc TESTARGS='-run TestAcc'
+scripts/acceptance.sh down                             # deletes the containers and their data
+```
+
+`TERRAKUBE_VERSION=2.33.3` picks another Terrakube release, and `TERRAKUBE_ACC_PORT` the host
+port (default 18080). The `Acceptance` workflow runs the tests every week against the latest
+Terrakube release and the latest release of the previous minor, and opens an issue when they fail.
 
 ## Pull requests
 
