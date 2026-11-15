@@ -198,6 +198,7 @@ func (p *TerrakubeProvider) Configure(ctx context.Context, req provider.Configur
 func (p *TerrakubeProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewModuleResource,
+		NewRegistryProviderResource,
 		NewOrganizationResource,
 		NewOrganizationTemplateResource,
 		NewOrganizationTagResource,
@@ -256,6 +257,7 @@ func (p *TerrakubeProvider) DataSources(ctx context.Context) []func() datasource
 		NewOrganizationVariableDataSource,
 		NewWorkspaceVariableDataSource,
 		NewModuleDataSource,
+		NewRegistryProviderDataSource,
 		NewPolicySetDataSource,
 		NewPolicySetParameterDataSource,
 		NewPolicyAttachmentDataSource,

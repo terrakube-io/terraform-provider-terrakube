@@ -349,3 +349,14 @@ type PolicyExemptionEntity struct {
 	ExpiresAt       *string             `jsonapi:"attr,expiresAt,omitempty"`
 	Organization    *OrganizationEntity `jsonapi:"relation,organization,omitempty"`
 }
+
+// ProviderEntity is a provider in the private registry of an organization. Imported and
+// RegistryNamespace were added in Terrakube 2.30.0, so they are pointers that are left out
+// of the request when unset.
+type ProviderEntity struct {
+	ID                string  `jsonapi:"primary,provider"`
+	Name              string  `jsonapi:"attr,name"`
+	Description       *string `jsonapi:"attr,description"`
+	Imported          *bool   `jsonapi:"attr,imported,omitempty"`
+	RegistryNamespace *string `jsonapi:"attr,registryNamespace,omitempty"`
+}
