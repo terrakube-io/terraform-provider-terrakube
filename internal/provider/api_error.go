@@ -2,12 +2,14 @@ package provider
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Terraform prints diagnostic details in full, so an HTML error page or stack
@@ -28,6 +30,22 @@ func reportAPIErrorStatus(diags *diag.Diagnostics, action string, response *http
 		apiErrorDetail(body),
 	)
 	return true
+}
+
+// reportClientError adds a diagnostic for an error returned by the terrakube-go client.
+// An API error is reported like reportAPIErrorStatus does, naming the HTTP status and the
+// API's own message; any other error (transport, validation) is reported as it is.
+func reportClientError(diags *diag.Diagnostics, action string, err error) {
+	var apiErr *terrakube.APIError
+	if errors.As(err, &apiErr) {
+		diags.AddError(
+			fmt.Sprintf("Error %s: %d %s", action, apiErr.StatusCode, http.StatusText(apiErr.StatusCode)),
+			apiErrorDetail(apiErr.Body),
+		)
+		return
+	}
+
+	diags.AddError(fmt.Sprintf("Error %s", action), err.Error())
 }
 
 func apiErrorDetail(body []byte) string {

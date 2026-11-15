@@ -1,6 +1,6 @@
 module terraform-provider-terrakube
 
-go 1.26.11
+go 1.27
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -11,6 +11,7 @@ require (
 	github.com/hashicorp/terraform-plugin-framework-validators v0.19.0
 	github.com/hashicorp/terraform-plugin-go v0.31.0
 	github.com/hashicorp/terraform-plugin-log v0.11.0
+	github.com/terrakube-io/terrakube-go v1.4.0
 )
 
 require (
