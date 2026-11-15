@@ -66,7 +66,9 @@ scripts/acceptance.sh down                             # deletes the containers 
 
 `TERRAKUBE_VERSION=2.33.3` picks another Terrakube release, and `TERRAKUBE_ACC_PORT` the host
 port (default 18080). The `Acceptance` workflow runs the tests every week against the latest
-Terrakube release and the latest release of the previous minor, and opens an issue when they fail.
+Terrakube release, the only one the provider supports, and opens an issue when they fail. Set
+`INCLUDE_PREVIOUS_MINOR` in the workflow, or tick the option on a manual run, to also test the
+latest release of the previous minor.
 
 Writing an acceptance test:
 
