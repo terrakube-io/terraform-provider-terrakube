@@ -345,6 +345,19 @@ func (h *crudHarness) attr(state tfsdk.State, name string) string {
 	if err := value.As(&number); err == nil {
 		return number.Text('f', -1)
 	}
+	// A list or a set is shown as its elements separated by commas.
+	var elements []tftypes.Value
+	if err := value.As(&elements); err == nil {
+		parts := make([]string, len(elements))
+		for i, element := range elements {
+			var text string
+			if err := element.As(&text); err != nil {
+				h.t.Fatalf("attribute %s has an element that is not a string", name)
+			}
+			parts[i] = text
+		}
+		return strings.Join(parts, ",")
+	}
 	h.t.Fatalf("attribute %s has an unsupported type %s", name, value.Type())
 	return ""
 }

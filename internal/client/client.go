@@ -360,3 +360,32 @@ type ProviderEntity struct {
 	Imported          *bool   `jsonapi:"attr,imported,omitempty"`
 	RegistryNamespace *string `jsonapi:"attr,registryNamespace,omitempty"`
 }
+
+// ProviderVersionEntity is a version of a provider in the private registry. Protocols is a comma
+// separated list such as "5.0,6.0", which the registry splits when it serves the version. Status
+// and DeprecationMessage were added in Terrakube 2.34.0, so they are left out of a request when unset.
+type ProviderVersionEntity struct {
+	ID                 string  `jsonapi:"primary,version"`
+	VersionNumber      string  `jsonapi:"attr,versionNumber"`
+	Protocols          string  `jsonapi:"attr,protocols"`
+	Status             *string `jsonapi:"attr,status,omitempty"`
+	DeprecationMessage *string `jsonapi:"attr,deprecationMessage,omitempty"`
+}
+
+// ProviderImplementationEntity is the download of a provider version for one operating system
+// and architecture.
+type ProviderImplementationEntity struct {
+	ID                  string  `jsonapi:"primary,implementation"`
+	Os                  string  `jsonapi:"attr,os"`
+	Arch                string  `jsonapi:"attr,arch"`
+	Filename            string  `jsonapi:"attr,filename"`
+	DownloadUrl         *string `jsonapi:"attr,downloadUrl"`
+	ShasumsUrl          *string `jsonapi:"attr,shasumsUrl"`
+	ShasumsSignatureUrl *string `jsonapi:"attr,shasumsSignatureUrl"`
+	Shasum              *string `jsonapi:"attr,shasum"`
+	KeyId               *string `jsonapi:"attr,keyId"`
+	AsciiArmor          *string `jsonapi:"attr,asciiArmor"`
+	TrustSignature      *string `jsonapi:"attr,trustSignature"`
+	Source              *string `jsonapi:"attr,source"`
+	SourceUrl           *string `jsonapi:"attr,sourceUrl"`
+}
