@@ -13,6 +13,7 @@ import (
 	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -60,7 +61,8 @@ func (r *WorkspaceScheduleResource) Schema(ctx context.Context, req resource.Sch
 			},
 			"schedule": schema.StringAttribute{
 				Required:    true,
-				Description: "Schedule expression using java quartz notation",
+				Description: "Schedule as a Quartz cron expression: seconds minutes hours day-of-month month day-of-week [year], for example `0 0 2 * * ?`. It is not a Unix cron expression, and exactly one of day-of-month and day-of-week must be `?`.",
+				Validators:  []validator.String{quartzCronValidator{}},
 			},
 			"template_id": schema.StringAttribute{
 				Required:    true,

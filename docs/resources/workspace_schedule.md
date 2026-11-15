@@ -40,7 +40,7 @@ resource "terrakube_workspace_schedule" "nightly" {
 
 ### Required
 
-- `schedule` (String) Schedule expression using java quartz notation
+- `schedule` (String) Schedule as a Quartz cron expression: seconds minutes hours day-of-month month day-of-week [year], for example `0 0 2 * * ?`. It is not a Unix cron expression, and exactly one of day-of-month and day-of-week must be `?`.
 - `template_id` (String) Template Id to be used when triggering a job
 - `workspace_id` (String) Workspace Id
 
