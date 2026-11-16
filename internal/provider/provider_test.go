@@ -12,26 +12,40 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
-func TestNewTerrakubeClientSendsUserAgentAndToken(t *testing.T) {
-	var gotAgent, gotAuth string
+// TestProviderClientSendsUserAgentAndToken configures the provider against a test server
+// and sends a request through the client it hands to resources, so the headers are checked
+// on the wire, end to end.
+func TestProviderClientSendsUserAgentAndToken(t *testing.T) {
+	var gotAgent, gotAuth, gotPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAgent = r.Header.Get("User-Agent")
 		gotAuth = r.Header.Get("Authorization")
+		gotPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/vnd.api+json")
 		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
 	defer server.Close()
 
-	client, err := newTerrakubeClient(server.URL, "test-token", false, "1.2.3")
-	if err != nil {
-		t.Fatalf("newTerrakubeClient: %v", err)
+	resp := configureProvider(t,
+		tftypes.NewValue(tftypes.String, server.URL),
+		tftypes.NewValue(tftypes.String, "test-token"))
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
 	}
-	if _, err := client.Organizations.List(context.Background(), nil); err != nil {
+	connection, ok := resp.ResourceData.(*TerrakubeConnectionData)
+	if !ok || connection.Client == nil {
+		t.Fatalf("ResourceData = %#v, want *TerrakubeConnectionData with a client", resp.ResourceData)
+	}
+
+	if _, err := connection.Client.Organizations.List(context.Background(), nil); err != nil {
 		t.Fatalf("list organizations: %v", err)
 	}
 
-	if gotAgent != "terraform-provider-terrakube/1.2.3" {
-		t.Errorf("User-Agent = %q, want %q", gotAgent, "terraform-provider-terrakube/1.2.3")
+	if gotPath != "/api/v1/organization" {
+		t.Errorf("path = %q, want %q", gotPath, "/api/v1/organization")
+	}
+	if gotAgent != "terraform-provider-terrakube/test" {
+		t.Errorf("User-Agent = %q, want %q", gotAgent, "terraform-provider-terrakube/test")
 	}
 	if gotAuth != "Bearer test-token" {
 		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer test-token")
