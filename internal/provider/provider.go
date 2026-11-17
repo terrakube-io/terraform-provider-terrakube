@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure TerrakubeProvider satisfies various provider interfaces.
@@ -35,10 +36,27 @@ type TerrakubeProviderModel struct {
 	InsecureHttpClient types.Bool   `tfsdk:"insecure_http_client"`
 }
 
+// TerrakubeConnectionData is the provider data handed to every resource and data source.
+// Client is the shared terrakube-go client. The other fields serve resources that still
+// build their own HTTP requests, and go away once every resource uses Client.
 type TerrakubeConnectionData struct {
 	Endpoint           string
 	Token              string
 	InsecureHttpClient bool
+	Client             *terrakube.Client
+}
+
+// newTerrakubeClient builds the API client shared by all resources and data sources.
+func newTerrakubeClient(endpoint, token string, insecure bool, version string) (*terrakube.Client, error) {
+	opts := []terrakube.Option{
+		terrakube.WithEndpoint(endpoint),
+		terrakube.WithToken(token),
+		terrakube.WithUserAgent("terraform-provider-terrakube/" + version),
+	}
+	if insecure {
+		opts = append(opts, terrakube.WithInsecureTLS())
+	}
+	return terrakube.NewClient(opts...)
 }
 
 func New(version string) func() provider.Provider {
@@ -151,8 +169,18 @@ func (p *TerrakubeProvider) Configure(ctx context.Context, req provider.Configur
 		return
 	}
 
+	client, err := newTerrakubeClient(endpoint, token, insecureHttpClient, p.version)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to create Terrakube API client",
+			"The provider cannot create the Terrakube API client: "+err.Error(),
+		)
+		return
+	}
+
 	connection := new(TerrakubeConnectionData)
 
+	connection.Client = client
 	connection.Endpoint = endpoint
 	connection.Token = token
 	connection.InsecureHttpClient = insecureHttpClient
