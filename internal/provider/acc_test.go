@@ -17,12 +17,14 @@ import (
 // testAccDataSource runs a single-step test for a data source. The configuration in
 // testdata/<TestName>/main.tf creates the object with its resource and reads it back with the
 // data source; it gets a random var.name to keep tests apart. check usually compares the two
-// with testAccCheckSameAttrs.
+// with testAccCheckSameAttrs. Every configuration creates its own organization, so CheckDestroy
+// checks that the organization is gone.
 func testAccDataSource(t *testing.T, check resource.TestCheckFunc) {
 	t.Helper()
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckDestroyed("terrakube_organization", testAccOrganizationGone),
 		Steps: []resource.TestStep{
 			{
 				ConfigDirectory: config.TestNameDirectory(),
