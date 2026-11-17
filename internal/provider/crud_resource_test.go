@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -75,6 +76,10 @@ type crudServer struct {
 	requests []crudRequest
 	// fail makes the next request with that method fail with the given status.
 	fail map[string]int
+	// versions and implementations are children of the item, for resources that have to delete
+	// them first. Both are empty unless a test fills them in.
+	versions        []string
+	implementations map[string][]string
 }
 
 type crudRequest struct {
@@ -151,10 +156,52 @@ func (s *crudServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == item && r.Method == http.MethodDelete:
 		s.deleted = true
 		w.WriteHeader(http.StatusNoContent)
+	case strings.HasPrefix(r.URL.Path, item+"/version") && s.serveChildren(w, r):
 	default:
 		s.t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		w.WriteHeader(http.StatusTeapot)
 	}
+}
+
+// serveChildren answers the version and implementation endpoints under the item.
+func (s *crudServer) serveChildren(w http.ResponseWriter, r *http.Request) bool {
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, s.collection+"/"+crudItemID+"/version"), "/")
+	list := func(ids []string) {
+		data := make([]map[string]any, len(ids))
+		for i, id := range ids {
+			data[i] = map[string]any{"type": "x", "id": id}
+		}
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}
+	remove := func(ids []string, id string) []string {
+		out := []string{}
+		for _, existing := range ids {
+			if existing != id {
+				out = append(out, existing)
+			}
+		}
+		return out
+	}
+	switch {
+	case len(parts) == 1 && r.Method == http.MethodGet:
+		list(s.versions)
+	case len(parts) == 2 && r.Method == http.MethodDelete:
+		if len(s.implementations[parts[1]]) > 0 {
+			w.WriteHeader(http.StatusConflict)
+			return true
+		}
+		s.versions = remove(s.versions, parts[1])
+		w.WriteHeader(http.StatusNoContent)
+	case len(parts) == 3 && parts[2] == "implementation" && r.Method == http.MethodGet:
+		list(s.implementations[parts[1]])
+	case len(parts) == 4 && parts[2] == "implementation" && r.Method == http.MethodDelete:
+		s.implementations[parts[1]] = remove(s.implementations[parts[1]], parts[3])
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		return false
+	}
+	return true
 }
 
 type crudHarness struct {

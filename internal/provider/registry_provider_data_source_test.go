@@ -39,6 +39,7 @@ func TestRegistryProviderDataSource_ImportedAndOptionalAttributes(t *testing.T) 
 	}{
 		{"imported", `,"imported":true,"registryNamespace":"hashicorp"`, true},
 		{"not imported", `,"imported":false`, false},
+		{"no longer imported", `,"imported":false,"registryNamespace":""`, false},
 		{"an older Terrakube", ``, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {

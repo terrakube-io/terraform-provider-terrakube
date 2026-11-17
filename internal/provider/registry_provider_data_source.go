@@ -157,6 +157,7 @@ func (d *RegistryProviderDataSource) Read(ctx context.Context, req datasource.Re
 	state.ID = types.StringValue(found.ID)
 	state.Description = types.StringPointerValue(found.Description)
 	state.Imported = types.BoolValue(found.Imported != nil && *found.Imported)
-	state.RegistryNamespace = types.StringPointerValue(found.RegistryNamespace)
+	// Un-mirroring a provider leaves an empty namespace behind. It reads as null, as in the resource.
+	state.RegistryNamespace = stringFromAPI(types.StringNull(), found.RegistryNamespace)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

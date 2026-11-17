@@ -3,12 +3,12 @@
 page_title: "terrakube_registry_provider Resource - terrakube"
 subcategory: ""
 description: |-
-  A provider in the private registry of an organization. Set imported and registry_namespace to mirror a provider from the public registry, and Terrakube keeps its versions up to date.
+  A provider in the private registry of an organization. Set imported and registry_namespace to mirror a provider from the public registry, and Terrakube keeps its versions up to date. Destroying the provider also deletes its versions and their implementations, since Terrakube does not delete them for you.
 ---
 
 # terrakube_registry_provider (Resource)
 
-A provider in the private registry of an organization. Set `imported` and `registry_namespace` to mirror a provider from the public registry, and Terrakube keeps its versions up to date.
+A provider in the private registry of an organization. Set `imported` and `registry_namespace` to mirror a provider from the public registry, and Terrakube keeps its versions up to date. Destroying the provider also deletes its versions and their implementations, since Terrakube does not delete them for you.
 
 ## Example Usage
 
