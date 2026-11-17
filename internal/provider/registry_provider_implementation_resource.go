@@ -140,21 +140,32 @@ func optionalString(value types.String) *string {
 	return value.ValueStringPointer()
 }
 
+// notNullString sends an unset attribute as an empty string. These columns are NOT NULL in
+// Terrakube's database, so a null fails the insert. stringFromAPI maps the echoed "" back to
+// null when the configuration leaves the attribute out.
+func notNullString(value types.String) *string {
+	if value.IsNull() || value.IsUnknown() {
+		empty := ""
+		return &empty
+	}
+	return value.ValueStringPointer()
+}
+
 func (m *RegistryProviderImplementationResourceModel) entity(id string) *client.ProviderImplementationEntity {
 	return &client.ProviderImplementationEntity{
 		ID:                  id,
 		Os:                  m.Os.ValueString(),
 		Arch:                m.Arch.ValueString(),
 		Filename:            m.Filename.ValueString(),
-		DownloadUrl:         optionalString(m.DownloadUrl),
-		ShasumsUrl:          optionalString(m.ShasumsUrl),
-		ShasumsSignatureUrl: optionalString(m.ShasumsSignatureUrl),
-		Shasum:              optionalString(m.Shasum),
-		KeyId:               optionalString(m.KeyId),
+		DownloadUrl:         notNullString(m.DownloadUrl),
+		ShasumsUrl:          notNullString(m.ShasumsUrl),
+		ShasumsSignatureUrl: notNullString(m.ShasumsSignatureUrl),
+		Shasum:              notNullString(m.Shasum),
+		KeyId:               notNullString(m.KeyId),
 		AsciiArmor:          optionalString(m.AsciiArmor),
-		TrustSignature:      optionalString(m.TrustSignature),
-		Source:              optionalString(m.Source),
-		SourceUrl:           optionalString(m.SourceUrl),
+		TrustSignature:      notNullString(m.TrustSignature),
+		Source:              notNullString(m.Source),
+		SourceUrl:           notNullString(m.SourceUrl),
 	}
 }
 

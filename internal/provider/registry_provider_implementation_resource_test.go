@@ -56,8 +56,8 @@ func TestRegistryProviderImplementationResource(t *testing.T) {
 	runCrudResourceTests(t, registryProviderImplementationCase(implementationCreate()))
 }
 
-// An attribute removed from the configuration is sent as null, which clears it. Leaving it out of
-// a PATCH would keep the old value.
+// An attribute removed from the configuration is sent as an empty string, which clears it. Leaving
+// it out of a PATCH would keep the old value. It is not sent as null, because the column is NOT NULL.
 func TestRegistryProviderImplementationResource_RemovingAnOptionalAttributeClearsIt(t *testing.T) {
 	str := func(v string) tftypes.Value { return tftypes.NewValue(tftypes.String, v) }
 	const armor = "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nmQINBF\n-----END PGP PUBLIC KEY BLOCK-----"
@@ -66,7 +66,7 @@ func TestRegistryProviderImplementationResource_RemovingAnOptionalAttributeClear
 	create["ascii_armor"] = str(armor)
 	tc := registryProviderImplementationCase(create)
 	tc.update = map[string]tftypes.Value{"key_id": tftypes.NewValue(tftypes.String, nil)}
-	tc.wantSentPatch = map[string]any{"keyId": nil}
+	tc.wantSentPatch = map[string]any{"keyId": ""}
 	tc.wantUpdated = map[string]string{"key_id": "<null>", "ascii_armor": armor}
 	tc.wantCreated = map[string]string{"key_id": "34365D9472D7468F"}
 	tc.drift = map[string]any{}
@@ -80,19 +80,31 @@ func TestRegistryProviderImplementationResource_RemovingAnOptionalAttributeClear
 	}
 	request, _ := h.server.lastRequest(http.MethodPatch)
 	attrs := bodyAttributes(t, request)
-	if value, sent := attrs["keyId"]; !sent || value != nil {
-		t.Errorf("keyId must be sent as null to clear it, got %v (sent: %v)", value, sent)
+	if value, sent := attrs["keyId"]; !sent || value != "" {
+		t.Errorf("keyId must be sent as an empty string to clear it, got %v (sent: %v)", value, sent)
 	}
 	h.checkState(resp.State, map[string]string{"key_id": "<null>", "shasum": "abc123"})
 }
 
-// Only os, arch, filename and download_url are required. The others read back as null.
+// Only os, arch, filename and download_url are required. The others read back as null. Terrakube's
+// columns for them are NOT NULL, so the create body sends an empty string for each, except
+// ascii_armor, which is nullable.
 func TestRegistryProviderImplementationResource_MinimalImplementation(t *testing.T) {
 	str := func(v string) tftypes.Value { return tftypes.NewValue(tftypes.String, v) }
 	h := newCrudHarness(t, registryProviderImplementationCase(map[string]tftypes.Value{
 		"os": str("darwin"), "arch": str("arm64"), "filename": str("provider.zip"), "download_url": str("https://example.com/provider.zip"),
 	}))
 	state := h.createdState()
+	request, _ := h.server.lastRequest(http.MethodPost)
+	attrs := bodyAttributes(t, request)
+	for _, key := range []string{"shasumsUrl", "shasumsSignatureUrl", "shasum", "keyId", "trustSignature", "source", "sourceUrl"} {
+		if value, sent := attrs[key]; !sent || value != "" {
+			t.Errorf("%s must be sent as an empty string when unset, got %v (sent: %v)", key, value, sent)
+		}
+	}
+	if value, sent := attrs["asciiArmor"]; sent && value != nil {
+		t.Errorf("asciiArmor is nullable and must not be sent when unset, got %v", value)
+	}
 	h.checkState(state, map[string]string{
 		"os": "darwin", "arch": "arm64", "shasum": "<null>", "shasums_url": "<null>", "shasums_signature_url": "<null>",
 		"key_id": "<null>", "ascii_armor": "<null>", "trust_signature": "<null>", "source": "<null>", "source_url": "<null>",
