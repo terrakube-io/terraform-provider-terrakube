@@ -75,7 +75,8 @@ func TestValidateQuartzCron_Messages(t *testing.T) {
 		{"0 0 12 * 13 ?", "month"},
 		{"0 0 12 ? * 8", "day of week"},
 		{"0 0 12 ? * MO", "day of week"},
-		{"0 0 12 * * ?  ", "year"},
+		// A non-breaking space pasted from a web page is part of the last field, not a separator.
+		{"0 0 12 * * ? \u00a0", "year"},
 	}
 	for _, test := range tests {
 		err := validateQuartzCron(test.expression)
@@ -86,6 +87,36 @@ func TestValidateQuartzCron_Messages(t *testing.T) {
 		if !strings.Contains(err.Error(), test.want) {
 			t.Errorf("%q: error %q does not mention %q", test.expression, err, test.want)
 		}
+	}
+}
+
+// Quartz splits fields on space and tab only, then trims each field of characters up to U+0020.
+// A line break inside an expression therefore joins two fields, and one at the end of the
+// expression, such as the newline a heredoc adds, is dropped. The corpus holds one expression per
+// line, so these cases are here.
+func TestValidateQuartzCron_LineBreaks(t *testing.T) {
+	tests := []struct {
+		name       string
+		expression string
+		valid      bool
+	}{
+		{"trailing newline", "0 0 2 * * ?\n", true},
+		{"trailing CRLF", "0 0 2 * * ?\r\n", true},
+		{"newline before the year", "0 0 2 * * ?\t\n2026", true},
+		{"newline joins two fields", "0 0 2 * *\n?", false},
+		{"newline after the ?", "0 0 2 * * ?\n2026", false},
+		{"newline inside a field", "0 0\n2 * * ?", false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateQuartzCron(test.expression)
+			if test.valid && err != nil {
+				t.Errorf("%q should be valid: %v", test.expression, err)
+			}
+			if !test.valid && err == nil {
+				t.Errorf("%q should be rejected", test.expression)
+			}
+		})
 	}
 }
 

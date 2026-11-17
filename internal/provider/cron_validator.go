@@ -53,11 +53,16 @@ const (
 )
 
 func validateQuartzCron(expression string) error {
-	// Quartz splits on space, tab, CR and LF only. A non-breaking space pasted from a web page
-	// is part of a field, and makes it invalid.
+	// Quartz splits on space and tab only (`new StringTokenizer(expression, " \t")`) and then calls
+	// trim() on each token, which removes every character up to U+0020. So a line break between
+	// fields joins them, while one at the end of a field, such as the newline a heredoc adds, is
+	// dropped. A non-breaking space pasted from a web page is part of a field, and makes it invalid.
 	fields := strings.FieldsFunc(strings.ToUpper(expression), func(r rune) bool {
-		return r == ' ' || r == '\t' || r == '\r' || r == '\n'
+		return r == ' ' || r == '\t'
 	})
+	for i, field := range fields {
+		fields[i] = strings.TrimFunc(field, func(r rune) bool { return r <= ' ' })
+	}
 	if len(fields) < 6 || len(fields) > 7 {
 		return fmt.Errorf("expected 6 or 7 fields (seconds minutes hours day-of-month month day-of-week [year]), got %d", len(fields))
 	}
@@ -89,9 +94,15 @@ func validateCronField(position int, field cronField, value string) error {
 		return nil
 	}
 
-	// Quartz does not support L or # in a list of days of the week.
-	if position == cronDayOfWeek && strings.Contains(value, ",") && strings.ContainsAny(value, "L#") {
-		return fmt.Errorf("the L and # forms cannot be combined with other days in a list")
+	// Quartz does not support L in a list of days of the week, or more than one # (a second "nth"
+	// day). A single n#m can share a list with other days, such as 2#1,3.
+	if position == cronDayOfWeek {
+		if strings.Contains(value, ",") && strings.Contains(value, "L") {
+			return fmt.Errorf("the L form cannot be combined with other days in a list")
+		}
+		if strings.Count(value, "#") > 1 {
+			return fmt.Errorf("only one # form is allowed in the day of week")
+		}
 	}
 
 	// Quartz skips empty list entries, so a trailing comma is accepted.
@@ -169,6 +180,10 @@ func validateCronElement(position int, field cronField, element string) error {
 		return nil
 	}
 	endValue, err := parseCronValue(field, rest)
+	if err == nil && endValue == cronWildcard && !isInCronRange(field, endValue) {
+		// 99 stands for `*` as a single value or the start of a range, but not as the end.
+		err = fmt.Errorf("%d is outside %d-%d", endValue, field.min, field.max)
+	}
 	if err != nil {
 		return fmt.Errorf("%q: %w", element, err)
 	}
@@ -202,10 +217,12 @@ func validateDayOfMonthSpecial(element string) (bool, error) {
 	return false, nil
 }
 
-// validateDayOfWeekSpecial handles L, nL and n#m.
+// validateDayOfWeekSpecial handles L, nL and n#m, and rejects nW, which only day of month has.
 func validateDayOfWeekSpecial(element string) (bool, error) {
 	field := cronFields[cronDayOfWeek]
 	switch {
+	case strings.HasSuffix(element, "W") && element[0] >= '0' && element[0] <= '9':
+		return true, fmt.Errorf("%q: W is only allowed in day of month", element)
 	case element == "L":
 		return true, nil
 	case strings.Contains(element, "#"):
@@ -257,6 +274,10 @@ func leadingNumber(s string) (int, bool) {
 	}
 	n, err := strconv.Atoi(s[:end])
 	return n, err == nil
+}
+
+func isInCronRange(field cronField, n int) bool {
+	return n >= field.min && (field.name == "year" || n <= field.max)
 }
 
 // parseCronValue reads a number or, for month and day of week, a name from the start of s.
