@@ -16,6 +16,10 @@ Terrakube can change its API in any release, and the provider is released separa
 
 Earlier releases did not record a server version.
 
+The provider's acceptance tests run against the Terrakube version in the first row on every pull
+request, and every week against the latest Terrakube release and the latest release of the
+previous minor.
+
 Releases after 0.33.1 are built with
 [terrakube-go](https://github.com/terrakube-io/terrakube-go) v1.4.0, which targets Terrakube 2.34.1.
 Resources move to it over time. Building the provider from source needs Go 1.27 or later.

@@ -1,38 +1,42 @@
 name: Acceptance
 
-# Runs the acceptance tests (TestAcc*) against a real Terrakube, on a schedule, so a Terrakube API
-# change is caught before users report it. Tests the latest Terrakube release; set
-# INCLUDE_PREVIOUS_MINOR below to also test the latest release of the previous minor. A scheduled
-# failure opens an issue, or comments on the open one.
-# It also runs on pull requests that change the acceptance setup or the acceptance tests.
+# Runs the acceptance tests (TestAcc*) against a real Terrakube.
+#
+# - Pull requests that change the provider run against the version pinned in
+#   scripts/acceptance/versions.json, so a result only changes with the code. Renovate updates the
+#   pin when Terrakube releases; the pin is the version the compatibility guide lists.
+# - The weekly schedule runs against the latest Terrakube release and, while INCLUDE_PREVIOUS_MINOR
+#   is 'true', the latest release of the previous minor, to catch an API change before users report
+#   it. A scheduled failure opens an issue, or comments on the open one.
+# - A manual run takes explicit versions, or picks them like the schedule.
 on:
   pull_request:
     paths:
       - '.github/workflows/acceptance.yml'
       - 'scripts/acceptance.sh'
       - 'scripts/acceptance/**'
-      - 'internal/provider/acc_*_test.go'
-      - 'internal/provider/testdata/TestAcc*/**'
+      - 'internal/provider/**'
+      - 'go.mod'
+      - 'go.sum'
   schedule:
     - cron: '23 5 * * 1'
   workflow_dispatch:
     inputs:
       versions:
-        description: 'Terrakube versions as a JSON list, e.g. ["2.34.2"]. Empty: the latest release.'
+        description: 'Terrakube versions as a JSON list, e.g. ["2.34.2"]. Empty: pick them like the schedule.'
         required: false
         default: ''
       include_previous_minor:
-        description: 'Also test the latest release of the previous minor (when versions is empty).'
+        description: 'With versions empty: also test the latest release of the previous minor.'
         required: false
         type: boolean
-        default: false
+        default: true
 
 permissions: {}
 
 env:
-  # Only the latest Terrakube release is supported. Set to 'true' to also test the latest release
-  # of the previous minor on the schedule and on pull requests.
-  INCLUDE_PREVIOUS_MINOR: 'false'
+  # Whether the weekly schedule also tests the latest release of the previous minor.
+  INCLUDE_PREVIOUS_MINOR: 'true'
 
 jobs:
   versions:
@@ -44,30 +48,24 @@ jobs:
     outputs:
       versions: ${{ steps.pick.outputs.versions }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: pick
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
           INPUT_VERSIONS: ${{ inputs.versions }}
-          INPUT_INCLUDE_PREVIOUS_MINOR: ${{ inputs.include_previous_minor }}
+          # A manual run passes the option; the schedule uses INCLUDE_PREVIOUS_MINOR.
+          PREVIOUS: ${{ (inputs.include_previous_minor || (github.event_name == 'schedule' && env.INCLUDE_PREVIOUS_MINOR == 'true')) && 'previous' || '' }}
         run: |
           if [ -n "$INPUT_VERSIONS" ]; then
-            echo "versions=$INPUT_VERSIONS" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          releases=$(gh api 'repos/terrakube-io/terrakube/releases?per_page=50' \
-            --jq '.[] | select(.draft | not) | select(.prerelease | not) | .tag_name' \
-            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V -r)
-          latest=$(echo "$releases" | head -n 1)
-          # A manual run passes the input; the schedule and pull requests use the workflow default.
-          include_previous=${INPUT_INCLUDE_PREVIOUS_MINOR:-$INCLUDE_PREVIOUS_MINOR}
-          if [ "$include_previous" = "true" ]; then
-            previous=$(echo "$releases" | grep -v "^${latest%.*}\." | head -n 1)
-            echo "Latest: $latest, previous minor: $previous"
-            echo "versions=[\"$latest\",\"$previous\"]" >> "$GITHUB_OUTPUT"
+            versions=$INPUT_VERSIONS
+          elif [ "$EVENT" = pull_request ]; then
+            versions=$(scripts/acceptance.sh versions pinned)
           else
-            echo "Latest: $latest"
-            echo "versions=[\"$latest\"]" >> "$GITHUB_OUTPUT"
+            versions=$(scripts/acceptance.sh versions latest ${PREVIOUS:+"$PREVIOUS"})
           fi
+          echo "Versions: $versions"
+          echo "versions=$versions" >> "$GITHUB_OUTPUT"
 
   acceptance:
     name: Terrakube ${{ matrix.terrakube }}
@@ -92,7 +90,13 @@ jobs:
         with:
           terraform_wrapper: false
       - name: Start Terrakube
-        run: scripts/acceptance.sh up >> "$GITHUB_ENV"
+        run: |
+          settings="$RUNNER_TEMP/terrakube.env"
+          scripts/acceptance.sh up > "$settings"
+          # Mask the token before it reaches GITHUB_ENV, so it never shows in a log.
+          echo "::add-mask::$(sed -n 's/^TERRAKUBE_TOKEN=//p' "$settings")"
+          cat "$settings" >> "$GITHUB_ENV"
+          rm "$settings"
       - name: Acceptance tests
         run: make testacc TESTARGS='-run TestAcc'
       - name: Terrakube logs

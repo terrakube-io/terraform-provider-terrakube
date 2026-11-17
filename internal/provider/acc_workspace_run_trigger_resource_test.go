@@ -6,6 +6,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/config"
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
 // Configuration: testdata/TestAccWorkspaceRunTriggerResource/main.tf.
@@ -23,6 +24,15 @@ func TestAccWorkspaceRunTriggerResource(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy: resource.ComposeAggregateTestCheckFunc(
+			testAccCheckDestroyed("terrakube_workspace_run_trigger", testAccGoneWhenNotFound(func(rs *terraform.ResourceState) string {
+				return "/api/v1/runTrigger/" + rs.Primary.ID
+			})),
+			testAccCheckDestroyed("terrakube_workspace_cli", testAccGoneWhenNotFound(func(rs *terraform.ResourceState) string {
+				return "/api/v1/organization/" + rs.Primary.Attributes["organization_id"] + "/workspace/" + rs.Primary.ID
+			})),
+			testAccCheckDestroyed("terrakube_organization", testAccOrganizationGone),
+		),
 		Steps: []resource.TestStep{
 			{
 				ConfigDirectory: config.TestNameDirectory(),

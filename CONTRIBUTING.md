@@ -64,11 +64,22 @@ make testacc TESTARGS='-run TestAcc'
 scripts/acceptance.sh down                             # deletes the containers and their data
 ```
 
-`TERRAKUBE_VERSION=2.33.3` picks another Terrakube release, and `TERRAKUBE_ACC_PORT` the host
-port (default 18080). The `Acceptance` workflow runs the tests every week against the latest
-Terrakube release, the only one the provider supports, and opens an issue when they fail. Set
-`INCLUDE_PREVIOUS_MINOR` in the workflow, or tick the option on a manual run, to also test the
-latest release of the previous minor.
+By default the script starts the Terrakube version in `scripts/acceptance/versions.json`.
+`TERRAKUBE_VERSION=2.33.3` picks another release, and `TERRAKUBE_ACC_PORT` the host port
+(default 18080, bound to 127.0.0.1).
+
+The `Acceptance` workflow runs:
+
+- on pull requests that change `internal/provider/**`, the acceptance setup, `go.mod` or `go.sum`,
+  against the version pinned in `scripts/acceptance/versions.json`, so a result only changes with
+  the code. Renovate updates the pin when Terrakube releases. The pin is the version listed in
+  `templates/guides/compatibility.md`: when it moves to a new minor, update the guide in the same
+  pull request. The check is not required yet.
+- every week, against the latest Terrakube release and, while `INCLUDE_PREVIOUS_MINOR` is
+  `'true'`, the latest release of the previous minor. A failure opens an issue.
+
+`scripts/acceptance.sh versions pinned` and `scripts/acceptance.sh versions latest [previous]`
+print the versions the workflow picks, so you can check them locally (needs `jq` and `gh`).
 
 Writing an acceptance test:
 
@@ -80,7 +91,12 @@ Writing an acceptance test:
   against every version in the matrix.
 - The test token is in the `TERRAKUBE_ADMIN` group. It can create organizations, but managing
   workspaces in an organization also needs a team with that name and `manage_workspace`, as in
-  `testdata/TestAccWorkspaceRunTriggerResource/main.tf`.
+  `testdata/TestAccWorkspaceRunTriggerResource/main.tf`. Permissions are team-based per
+  organization, so this is expected.
+- Set `CheckDestroy` with `testAccCheckDestroyed` (`acc_destroy_test.go`). Terrakube soft-deletes
+  some objects, so check what the API returns, not the database: an organization is disabled and
+  renamed, and disappears from the organization list (`testAccOrganizationGone`); a workspace or
+  run trigger returns 404 (`testAccGoneWhenNotFound`).
 
 ## Pull requests
 

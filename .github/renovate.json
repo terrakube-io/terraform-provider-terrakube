@@ -8,6 +8,16 @@
   "labels": ["dependencies"],
   "schedule": ["before 6am on monday"],
   "postUpdateOptions": ["gomodTidy"],
+  "customManagers": [
+    {
+      "description": "The Terrakube version pull requests run the acceptance tests against.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^scripts/acceptance/versions\\.json$/"],
+      "matchStrings": ["\"terrakube\":\\s*\"(?<currentValue>[^\"]+)\""],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "azbuilder/api-server"
+    }
+  ],
   "packageRules": [
     {
       "description": "chore(deps) stays out of the changelog and does not cut a release. Retitle a security update to fix(deps) before merging it.",
@@ -33,6 +43,14 @@
       "matchPackageNames": ["github.com/hashicorp/terraform-plugin-docs"],
       "dependencyDashboardApproval": true,
       "addLabels": ["area/docs"]
+    },
+    {
+      "description": "Images of the acceptance test Terrakube (scripts/acceptance), pinned to exact tags. The Terrakube version is the one the compatibility guide lists.",
+      "matchFileNames": ["scripts/acceptance/**"],
+      "matchPackageNames": ["postgres", "valkey/valkey", "azbuilder/api-server"],
+      "semanticCommitType": "test",
+      "addLabels": ["area/testing"],
+      "prBodyNotes": ["If this moves Terrakube to a new minor, update `templates/guides/compatibility.md` in this pull request."]
     }
   ]
 }
