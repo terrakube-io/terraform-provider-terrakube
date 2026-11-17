@@ -118,6 +118,13 @@ func (c workspaceOutputsClient) download(ctx context.Context, outputURL string, 
 		return outputs, false
 	}
 
+	// The state endpoint answers a missing output file with 200 and an empty body. That means
+	// "no outputs yet", like a workspace without runs, not a corrupt file.
+	if len(strings.TrimSpace(string(body))) == 0 {
+		tflog.Info(ctx, "The workspace output is empty")
+		return outputs, false
+	}
+
 	var result map[string]any
 	if err := json.Unmarshal(body, &result); err != nil {
 		diags.AddError("Unable to read workspace output", fmt.Sprintf("The workspace output is not valid JSON: %s", err))
@@ -206,7 +213,8 @@ func (c workspaceOutputsClient) list(ctx context.Context, url string, structType
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading Output response, response status: %s, error: %s", response.Status, err))
+		diags.AddError("Error reading Output response", fmt.Sprintf("Error reading the response, response status: %s, error: %s", response.Status, err))
+		return nil
 	}
 	if reportAPIErrorStatus(diags, "reading workspace output", response, body) {
 		return nil

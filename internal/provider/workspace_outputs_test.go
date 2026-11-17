@@ -1,6 +1,9 @@
 package provider
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -58,5 +61,23 @@ func TestJSONAPIEntityAt(t *testing.T) {
 				t.Errorf("expected an error, got %v", diags)
 			}
 		})
+	}
+}
+
+// A response cut short is reported, not parsed as a partial body.
+func TestWorkspaceOutputsList_TruncatedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		_, _ = w.Write([]byte(`{"data":[`))
+	}))
+	t.Cleanup(server.Close)
+
+	var diags diag.Diagnostics
+	c := workspaceOutputsClient{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	if got := c.list(context.Background(), server.URL+"/api/v1/organization", new(client.OrganizationEntity), &diags); got != nil {
+		t.Errorf("expected no entities, got %v", got)
+	}
+	if !diags.HasError() || diags.Errors()[0].Summary() != "Error reading Output response" {
+		t.Fatalf("expected a read error, got %v", diags)
 	}
 }

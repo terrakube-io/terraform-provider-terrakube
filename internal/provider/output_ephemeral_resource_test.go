@@ -24,7 +24,9 @@ type outputsServerOptions struct {
 	workspace string
 	history   string
 	output    string
-	status    int
+	// emptyOutput serves an empty output file, which output == "" can't express.
+	emptyOutput bool
+	status      int
 }
 
 // newOutputsServer serves the four calls a workspace output lookup makes.
@@ -36,7 +38,7 @@ func newOutputsServer(t *testing.T, opts outputsServerOptions) *httptest.Server 
 	if opts.workspace == "" {
 		opts.workspace = `{"data":[{"type":"workspace","id":"ws-1","attributes":{"name":"network"}}]}`
 	}
-	if opts.output == "" {
+	if opts.output == "" && !opts.emptyOutput {
 		opts.output = testWorkspaceOutputJSON
 	}
 
@@ -230,10 +232,12 @@ func TestOutputDataSource_Read(t *testing.T) {
 	}
 }
 
-// A state without outputs is not an error: the values are null, as without a run.
+// A state without outputs is not an error: the values are null, as without a run. The state
+// endpoint answers a missing output file with 200 and an empty body, which counts as no outputs too.
 func TestOutputEphemeralResource_OpenWithoutOutputs(t *testing.T) {
-	for _, output := range []string{`{}`, `{"values":{}}`} {
-		resp := openOutputEphemeralResource(t, newOutputsServer(t, outputsServerOptions{output: output}))
+	for _, opts := range []outputsServerOptions{{output: `{}`}, {output: `{"values":{}}`}, {emptyOutput: true}, {output: "\n"}} {
+		output := opts.output
+		resp := openOutputEphemeralResource(t, newOutputsServer(t, opts))
 		if resp.Diagnostics.HasError() {
 			t.Fatalf("%s: unexpected diagnostics: %v", output, resp.Diagnostics)
 		}
