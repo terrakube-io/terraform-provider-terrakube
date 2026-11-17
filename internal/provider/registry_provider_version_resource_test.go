@@ -8,6 +8,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -122,6 +123,65 @@ func TestRegistryProviderVersionResource_UpdateClearsRemovedMessage(t *testing.T
 	h.checkState(resp.State, map[string]string{"status": "active", "deprecation_message": "<null>"})
 }
 
+// A PATCH of a version that never set a status must not send one, or Terrakube older than 2.34.0
+// rejects the unknown attribute.
+func TestRegistryProviderVersionResource_UpdateLeavesStatusOutWhenUnchanged(t *testing.T) {
+	str := func(v string) tftypes.Value { return tftypes.NewValue(tftypes.String, v) }
+	h := newCrudHarness(t, registryProviderVersionCase(versionCreate()))
+	prior := h.createdState()
+
+	merged := versionCreate()
+	merged["protocols"] = protocolList("6.0")
+	merged["status"] = str("active")
+	plan := h.value(h.known(), merged)
+	resp := &resource.UpdateResponse{State: prior}
+	h.res.Update(h.ctx, resource.UpdateRequest{
+		State:  prior,
+		Plan:   tfsdk.Plan{Schema: h.schema.Schema, Raw: plan},
+		Config: tfsdk.Config{Schema: h.schema.Schema, Raw: plan},
+	}, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Update returned diagnostics: %v", resp.Diagnostics)
+	}
+
+	request, _ := h.server.lastRequest(http.MethodPatch)
+	attrs := bodyAttributes(t, request)
+	if _, sent := attrs["status"]; sent {
+		t.Errorf("status must not be sent when it is unchanged, got %v", attrs["status"])
+	}
+	if attrs["protocols"] != "6.0" {
+		t.Errorf("protocols sent = %v, want 6.0", attrs["protocols"])
+	}
+}
+
+// Removing status from the configuration plans active, so deleting `status = "deprecated"` undoes it.
+func TestRegistryProviderVersionResource_RemovingStatusPlansActive(t *testing.T) {
+	ctx := context.Background()
+	modifier := statusDefaultsToActive{}
+	stateWith := func(v string) tfsdk.State {
+		return tfsdk.State{Raw: tftypes.NewValue(tftypes.String, v)}
+	}
+	cases := map[string]struct {
+		state  tfsdk.State
+		config types.String
+		want   types.String
+	}{
+		"removed from a deprecated version": {stateWith("x"), types.StringNull(), types.StringValue("active")},
+		"set in the configuration":          {stateWith("x"), types.StringValue("deprecated"), types.StringUnknown()},
+		"create":                            {tfsdk.State{Raw: tftypes.NewValue(tftypes.String, nil)}, types.StringNull(), types.StringUnknown()},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			req := planmodifier.StringRequest{State: tc.state, ConfigValue: tc.config, PlanValue: types.StringUnknown()}
+			resp := &planmodifier.StringResponse{PlanValue: types.StringUnknown()}
+			modifier.PlanModifyString(ctx, req, resp)
+			if !resp.PlanValue.Equal(tc.want) {
+				t.Errorf("plan = %v, want %v", resp.PlanValue, tc.want)
+			}
+		})
+	}
+}
+
 func TestRegistryProviderVersionResource_Validators(t *testing.T) {
 	ctx := context.Background()
 	res := &RegistryProviderVersionResource{}
@@ -170,6 +230,7 @@ func TestRegistryProviderVersionResource_Validators(t *testing.T) {
 		invalid := map[string]string{
 			"empty":                  "",
 			"too long":               strings.Repeat("a", 1025),
+			"too long in UTF-16":     strings.Repeat("😀", 600),
 			"leading space":          " Use 1.3.0",
 			"trailing space":         "Use 1.3.0 ",
 			"a line break":           "Use 1.3.0\nnow",

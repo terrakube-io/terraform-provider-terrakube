@@ -7,7 +7,7 @@ import (
 	"strings"
 	"terraform-provider-terrakube/internal/client"
 	"unicode"
-	"unicode/utf8"
+	"unicode/utf16"
 
 	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
@@ -91,19 +91,39 @@ func (r *RegistryProviderVersionResource) Schema(_ context.Context, _ resource.S
 			"status": schema.StringAttribute{
 				Optional:    true,
 				Computed:    true,
-				Description: "`active`, `deprecated` (still served, with a warning) or `removed` (no longer served). Terrakube 2.34.0+.",
+				Description: "`active`, `deprecated` (still served, with a warning) or `removed` (no longer served). Removing it from the configuration sets it back to `active`. Terrakube 2.34.0+.",
 				Validators:  []validator.String{stringvalidator.OneOf("active", "deprecated", "removed")},
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
+					statusDefaultsToActive{},
 				},
 			},
 			"deprecation_message": schema.StringAttribute{
 				Optional:    true,
-				Description: "Shown with a deprecated or removed version, for example when it will go or what to upgrade to. One line of up to 1024 characters. Terrakube 2.34.0+.",
+				Description: "Shown with a deprecated or removed version, for example when it will go or what to upgrade to. One line of up to 1024 UTF-16 code units (an emoji counts as two). Terrakube 2.34.0+.",
 				Validators:  []validator.String{deprecationMessageValidator{}},
 			},
 		},
 	}
+}
+
+// statusDefaultsToActive plans "active" when status is not in the configuration, so removing
+// `status = "deprecated"` undoes the deprecation instead of keeping the old value. On create it
+// leaves the value unknown, so a server that has no status is not sent one.
+type statusDefaultsToActive struct{}
+
+func (statusDefaultsToActive) Description(context.Context) string {
+	return "Plans active when status is removed from the configuration."
+}
+
+func (m statusDefaultsToActive) MarkdownDescription(ctx context.Context) string {
+	return m.Description(ctx)
+}
+
+func (statusDefaultsToActive) PlanModifyString(_ context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
+	if req.State.Raw.IsNull() || !req.ConfigValue.IsNull() {
+		return
+	}
+	resp.PlanValue = types.StringValue("active")
 }
 
 // deprecationMessageValidator accepts only what Terrakube stores unchanged. It replaces control
@@ -129,8 +149,10 @@ func (deprecationMessageValidator) ValidateString(_ context.Context, req validat
 	switch {
 	case value == "":
 		problem = "must not be empty. Leave it out instead"
-	case utf8.RuneCountInString(value) > 1024:
-		problem = "must be at most 1024 characters"
+	case len(utf16.Encode([]rune(value))) > 1024:
+		// The API limit is Java's String.length(), which counts UTF-16 code units, so a character
+		// outside the Basic Multilingual Plane (an emoji, for example) counts as two.
+		problem = "must be at most 1024 characters (UTF-16 code units, so an emoji counts as two)"
 	case strings.TrimSpace(value) != value:
 		problem = "must not start or end with whitespace"
 	case strings.IndexFunc(value, func(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) }) >= 0:
@@ -176,7 +198,7 @@ func (m *RegistryProviderVersionResourceModel) protocolList(ctx context.Context)
 }
 
 // registryProviderVersionRequestBody builds the JSON:API body for a create or an update. Status and
-// the deprecation message are only sent when they are set, because a Terrakube older than 2.34.0
+// the deprecation message are only sent when they are set (and, for status, changed), because a Terrakube older than 2.34.0
 // does not know them. A message removed from the configuration is sent empty, since a PATCH that
 // leaves it out keeps the old one.
 func registryProviderVersionRequestBody(ctx context.Context, plan, prior *RegistryProviderVersionResourceModel, id string) ([]byte, error) {
@@ -189,7 +211,9 @@ func registryProviderVersionRequestBody(ctx context.Context, plan, prior *Regist
 		VersionNumber: plan.VersionNumber.ValueString(),
 		Protocols:     strings.Join(protocols, ","),
 	}
-	if !plan.Status.IsNull() && !plan.Status.IsUnknown() {
+	// An update only sends status when it changes. A version that never set one reads back as
+	// active, and a Terrakube older than 2.34.0 rejects the attribute.
+	if !plan.Status.IsNull() && !plan.Status.IsUnknown() && (prior == nil || prior.Status.ValueString() != plan.Status.ValueString()) {
 		entity.Status = plan.Status.ValueStringPointer()
 	}
 	switch {

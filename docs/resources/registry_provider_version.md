@@ -52,8 +52,8 @@ resource "terrakube_registry_provider_version" "old" {
 
 ### Optional
 
-- `deprecation_message` (String) Shown with a deprecated or removed version, for example when it will go or what to upgrade to. One line of up to 1024 characters. Terrakube 2.34.0+.
-- `status` (String) `active`, `deprecated` (still served, with a warning) or `removed` (no longer served). Terrakube 2.34.0+.
+- `deprecation_message` (String) Shown with a deprecated or removed version, for example when it will go or what to upgrade to. One line of up to 1024 UTF-16 code units (an emoji counts as two). Terrakube 2.34.0+.
+- `status` (String) `active`, `deprecated` (still served, with a warning) or `removed` (no longer served). Removing it from the configuration sets it back to `active`. Terrakube 2.34.0+.
 
 ### Read-Only
 
