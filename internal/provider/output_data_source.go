@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -174,6 +175,13 @@ func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	}
 
 	if reportAPIErrorStatus(&resp.Diagnostics, "downloading workspace output", resFile, bodyFile) {
+		return
+	}
+
+	// Terrakube answers a missing output file with 200 and an empty body, because the history entry
+	// is saved before the state is uploaded. That is no outputs yet, not a corrupt file.
+	if len(bytes.TrimSpace(bodyFile)) == 0 {
+		tflog.Info(ctx, "The output file is empty, so there are no outputs yet")
 		return
 	}
 

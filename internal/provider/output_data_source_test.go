@@ -228,6 +228,17 @@ func TestOutputDataSource_NoOutputsIsNotAnError(t *testing.T) {
 			t.Error("values should be null")
 		}
 	})
+	t.Run("an output file that is empty because it was not uploaded yet", func(t *testing.T) {
+		h := newOutputHarness(t)
+		h.outputBody = ""
+		resp := h.read()
+		if resp.Diagnostics.HasError() {
+			t.Fatalf("an empty output file is not an error: %v", resp.Diagnostics)
+		}
+		if dynamicAttributes(t, resp, "values") != nil {
+			t.Error("values should be null")
+		}
+	})
 	t.Run("a state with no values", func(t *testing.T) {
 		h := newOutputHarness(t)
 		h.outputBody = `{"format_version":"1.0"}`
