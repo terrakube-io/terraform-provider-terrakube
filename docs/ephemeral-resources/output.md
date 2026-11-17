@@ -4,11 +4,14 @@ page_title: "terrakube_output Ephemeral Resource - terrakube"
 subcategory: ""
 description: |-
   Reads the outputs of the latest run of a workspace without storing them in plan or state. Use it instead of the terrakube_output data source when the outputs include secrets. Requires Terraform 1.10 or later, or OpenTofu 1.11 or later.
+  Its values are ephemeral, so they can only be used where ephemeral values are allowed: provider blocks, write-only arguments (such as value_wo on terrakube_workspace_variable), locals, other ephemeral resources, and outputs and variables marked ephemeral in a child module. Using them in a regular resource argument or a root module output is an error.
 ---
 
 # terrakube_output (Ephemeral Resource)
 
 Reads the outputs of the latest run of a workspace without storing them in plan or state. Use it instead of the `terrakube_output` data source when the outputs include secrets. Requires Terraform 1.10 or later, or OpenTofu 1.11 or later.
+
+Its values are ephemeral, so they can only be used where ephemeral values are allowed: provider blocks, write-only arguments (such as `value_wo` on `terrakube_workspace_variable`), `locals`, other ephemeral resources, and outputs and variables marked `ephemeral` in a child module. Using them in a regular resource argument or a root module output is an error.
 
 ## Example Usage
 

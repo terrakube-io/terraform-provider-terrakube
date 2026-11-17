@@ -43,11 +43,11 @@ func (c workspaceOutputsClient) read(ctx context.Context, organization, workspac
 		diags.AddError(fmt.Sprintf("Organization %q not found!", organization), fmt.Sprintf("%q", organization))
 		return outputs, false
 	}
-	var organizationID string
-	for _, organization := range orgs {
-		data, _ := organization.(*client.OrganizationEntity)
-		organizationID = data.ID
+	org := jsonapiEntityAt[client.OrganizationEntity](orgs, 0, "organization", diags)
+	if org == nil {
+		return outputs, false
 	}
+	organizationID := org.ID
 
 	workspaces := c.list(ctx, fmt.Sprintf("%s/api/v1/organization/%s/workspace?filter[workspace]=name==%s", c.endpoint, organizationID, workspace), new(client.WorkspaceEntity), diags)
 	if diags.HasError() {
@@ -57,11 +57,11 @@ func (c workspaceOutputsClient) read(ctx context.Context, organization, workspac
 		diags.AddError(fmt.Sprintf("Workspace %q not found!", workspace), fmt.Sprintf("%q", workspace))
 		return outputs, false
 	}
-	var workspaceID string
-	for _, ws := range workspaces {
-		data, _ := ws.(*client.WorkspaceEntity)
-		workspaceID = data.ID
+	ws := jsonapiEntityAt[client.WorkspaceEntity](workspaces, 0, "workspace", diags)
+	if ws == nil {
+		return outputs, false
 	}
+	workspaceID := ws.ID
 
 	histories := c.list(ctx, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/history?sort=-createdDate", c.endpoint, organizationID, workspaceID), new(client.HistoryEntity), diags)
 	if diags.HasError() {
@@ -72,8 +72,23 @@ func (c workspaceOutputsClient) read(ctx context.Context, organization, workspac
 		return outputs, false
 	}
 
-	history, _ := histories[0].(*client.HistoryEntity)
+	history := jsonapiEntityAt[client.HistoryEntity](histories, 0, "history", diags)
+	if history == nil {
+		return outputs, false
+	}
 	return c.download(ctx, history.Output, diags)
+}
+
+// jsonapiEntityAt returns items[i] as *T, or adds an error and returns nil when the API returned
+// something else, so an unexpected response is reported instead of causing a nil dereference.
+func jsonapiEntityAt[T any](items []any, i int, what string, diags *diag.Diagnostics) *T {
+	entity, ok := items[i].(*T)
+	if !ok || entity == nil {
+		diags.AddError("Unexpected "+what+" response",
+			fmt.Sprintf("Expected a %s from the Terrakube API, got %T.", what, items[i]))
+		return nil
+	}
+	return entity
 }
 
 // download fetches the output.json file a history entry links to and converts
@@ -96,7 +111,8 @@ func (c workspaceOutputsClient) download(ctx context.Context, outputURL string, 
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading workspace output, response status: %s, error: %s", response.Status, err))
+		diags.AddError("Error reading workspace output", fmt.Sprintf("Error reading the workspace output, response status: %s, error: %s", response.Status, err))
+		return outputs, false
 	}
 	if reportAPIErrorStatus(diags, "downloading workspace output", response, body) {
 		return outputs, false
@@ -104,24 +120,25 @@ func (c workspaceOutputsClient) download(ctx context.Context, outputURL string, 
 
 	var result map[string]any
 	if err := json.Unmarshal(body, &result); err != nil {
-		tflog.Error(ctx, "Error converting json result")
+		diags.AddError("Unable to read workspace output", fmt.Sprintf("The workspace output is not valid JSON: %s", err))
 		return outputs, false
 	}
+	// A state without outputs has no values.outputs. That is not an error: there is nothing to read.
 	values, ok := result["values"].(map[string]any)
 	if !ok {
-		tflog.Error(ctx, "Error converting values from json result")
+		tflog.Info(ctx, "The workspace output has no values")
 		return outputs, false
 	}
 	rawOutputs, ok := values["outputs"].(map[string]any)
 	if !ok {
-		tflog.Error(ctx, "Error converting values.outputs from json result")
+		tflog.Info(ctx, "The workspace output has no outputs")
 		return outputs, false
 	}
 
-	return convertWorkspaceOutputs(ctx, rawOutputs, diags)
+	return convertWorkspaceOutputs(rawOutputs, diags)
 }
 
-func convertWorkspaceOutputs(ctx context.Context, rawOutputs map[string]any, diags *diag.Diagnostics) (outputs workspaceOutputs, found bool) {
+func convertWorkspaceOutputs(rawOutputs map[string]any, diags *diag.Diagnostics) (outputs workspaceOutputs, found bool) {
 	allTypes := map[string]attr.Type{}
 	allValues := map[string]attr.Value{}
 	nonSensitiveTypes := map[string]attr.Type{}
@@ -130,11 +147,20 @@ func convertWorkspaceOutputs(ctx context.Context, rawOutputs map[string]any, dia
 	for name := range rawOutputs {
 		output, ok := rawOutputs[name].(map[string]any)
 		if !ok {
-			tflog.Error(ctx, "Error converting values.outputs.xx from json result")
+			diags.AddError("Unable to read workspace output", fmt.Sprintf("Output %q is not an object with a value.", name))
 			return outputs, false
 		}
-		attrType, _ := inferAttrType(output["value"])
-		attrValue, _ := convertToAttrValue(output["value"], attrType)
+		attrType, err := inferAttrType(output["value"])
+		if err != nil {
+			diags.AddError("Unable to read workspace output", fmt.Sprintf("Output %q has a value of an unsupported type: %s", name, err))
+			return outputs, false
+		}
+		attrValue, d := convertToAttrValue(output["value"], attrType)
+		if d.HasError() {
+			diags.AddError("Unable to read workspace output", fmt.Sprintf("Output %q could not be converted.", name))
+			diags.Append(d...)
+			return outputs, false
+		}
 
 		allTypes[name] = attrType
 		allValues[name] = attrValue

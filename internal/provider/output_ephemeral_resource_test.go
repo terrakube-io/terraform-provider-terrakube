@@ -179,6 +179,8 @@ func TestOutputEphemeralResource_OpenErrors(t *testing.T) {
 		{"organization not found", outputsServerOptions{orgs: `{"data":[]}`}, `Organization "acme" not found!`},
 		{"workspace not found", outputsServerOptions{workspace: `{"data":[]}`}, `Workspace "network" not found!`},
 		{"api error", outputsServerOptions{status: http.StatusForbidden, orgs: `{"errors":[{"detail":"forbidden"}]}`}, "Error reading workspace output: 403 Forbidden"},
+		{"output not json", outputsServerOptions{output: `not json`}, "Unable to read workspace output"},
+		{"output entry not an object", outputsServerOptions{output: `{"values":{"outputs":{"region":"eu-west-1"}}}`}, "Unable to read workspace output"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -225,5 +227,45 @@ func TestOutputDataSource_Read(t *testing.T) {
 	}
 	if nonSensitive := outputAttributes(t, state.NonSensitiveValues); len(nonSensitive) != 1 || nonSensitive["vpc_id"] != "vpc-1" {
 		t.Errorf("nonsensitive_values = %v", nonSensitive)
+	}
+}
+
+// A state without outputs is not an error: the values are null, as without a run.
+func TestOutputEphemeralResource_OpenWithoutOutputs(t *testing.T) {
+	for _, output := range []string{`{}`, `{"values":{}}`} {
+		resp := openOutputEphemeralResource(t, newOutputsServer(t, outputsServerOptions{output: output}))
+		if resp.Diagnostics.HasError() {
+			t.Fatalf("%s: unexpected diagnostics: %v", output, resp.Diagnostics)
+		}
+		var result OutputEphemeralResourceModel
+		if diags := resp.Result.Get(context.Background(), &result); diags.HasError() {
+			t.Fatalf("%s: reading result: %v", output, diags)
+		}
+		if !result.Values.IsNull() || !result.NonSensitiveValues.IsNull() {
+			t.Errorf("%s: expected null values, got %v and %v", output, result.Values, result.NonSensitiveValues)
+		}
+	}
+}
+
+// The data source shares the lookup, so it reports the same errors.
+func TestOutputDataSource_ReadError(t *testing.T) {
+	ctx := context.Background()
+	server := newOutputsServer(t, outputsServerOptions{output: `not json`})
+	d := &OutputDataSource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+
+	var schemaResp datasource.SchemaResponse
+	d.Schema(ctx, datasource.SchemaRequest{}, &schemaResp)
+	objType, ok := schemaResp.Schema.Type().TerraformType(ctx).(tftypes.Object)
+	if !ok {
+		t.Fatal("expected schema type to be a tftypes.Object")
+	}
+	config := buildObjectValue(objType, map[string]tftypes.Value{
+		"organization": tftypes.NewValue(tftypes.String, "acme"),
+		"workspace":    tftypes.NewValue(tftypes.String, "network"),
+	})
+	resp := &datasource.ReadResponse{State: tfsdk.State{Schema: schemaResp.Schema}}
+	d.Read(ctx, datasource.ReadRequest{Config: tfsdk.Config{Schema: schemaResp.Schema, Raw: config}}, resp)
+	if !resp.Diagnostics.HasError() || resp.Diagnostics.Errors()[0].Summary() != "Unable to read workspace output" {
+		t.Fatalf("expected an output error, got %v", resp.Diagnostics)
 	}
 }

@@ -68,7 +68,10 @@ func (e *OutputEphemeralResource) Metadata(_ context.Context, req ephemeral.Meta
 func (e *OutputEphemeralResource) Schema(_ context.Context, _ ephemeral.SchemaRequest, resp *ephemeral.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Reads the outputs of the latest run of a workspace without storing them in plan or state. " +
-			"Use it instead of the `terrakube_output` data source when the outputs include secrets. Requires Terraform 1.10 or later, or OpenTofu 1.11 or later.",
+			"Use it instead of the `terrakube_output` data source when the outputs include secrets. Requires Terraform 1.10 or later, or OpenTofu 1.11 or later.\n\n" +
+			"Its values are ephemeral, so they can only be used where ephemeral values are allowed: provider blocks, write-only arguments " +
+			"(such as `value_wo` on `terrakube_workspace_variable`), `locals`, other ephemeral resources, and outputs and variables marked `ephemeral` in a child module. " +
+			"Using them in a regular resource argument or a root module output is an error.",
 		Attributes: map[string]schema.Attribute{
 			"organization": schema.StringAttribute{
 				Required:    true,
