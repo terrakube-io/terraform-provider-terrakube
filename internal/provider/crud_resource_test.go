@@ -382,6 +382,33 @@ func runCrudResourceTests(t *testing.T, tc crudResourceCase) {
 		}
 		checkSent(t, request, tc.wantSentPatch)
 		h.checkState(resp.State, tc.wantUpdated)
+
+		// Update reads the item again after the PATCH, so the state holds what Terrakube stored and
+		// not only what was planned. The mock returns what it was sent, so the request is the proof.
+		h.server.mu.Lock()
+		defer h.server.mu.Unlock()
+		patched := false
+		reread := false
+		for _, r := range h.server.requests {
+			switch {
+			case r.method == http.MethodPatch:
+				patched = true
+			case patched && r.method == http.MethodGet && r.path == tc.collection+"/"+crudItemID:
+				reread = true
+			}
+		}
+		if !reread {
+			t.Error("expected a GET of the item after the PATCH")
+		}
+	})
+
+	t.Run("update reports an error when the item cannot be read afterwards", func(t *testing.T) {
+		h := newCrudHarness(t, tc)
+		prior := h.createdState()
+		h.server.fail[http.MethodGet] = http.StatusInternalServerError
+		if resp := h.update(prior); !resp.Diagnostics.HasError() {
+			t.Error("expected an error diagnostic")
+		}
 	})
 
 	t.Run("update reports an API error", func(t *testing.T) {
