@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.34.0](https://github.com/terrakube-io/terraform-provider-terrakube/compare/v0.33.1...v0.34.0) (2026-11-18)
+
+
+### Features
+
+* **workspace_run_trigger:** add terrakube_workspace_run_trigger data source ([#263](https://github.com/terrakube-io/terraform-provider-terrakube/issues/263)) ([1623f33](https://github.com/terrakube-io/terraform-provider-terrakube/commit/1623f33a4265139010c011a89cb9d8c137da4462))
+* **workspace_schedule:** add terrakube_workspace_schedule data source ([#264](https://github.com/terrakube-io/terraform-provider-terrakube/issues/264)) ([492b997](https://github.com/terrakube-io/terraform-provider-terrakube/commit/492b99727ffa8cf2a3662c366e82414b0adf17b0))
+* **workspace_schedule:** validate the cron expression at plan time ([#253](https://github.com/terrakube-io/terraform-provider-terrakube/issues/253)) ([225fb69](https://github.com/terrakube-io/terraform-provider-terrakube/commit/225fb69bffbe5c38b5b0a9c093b130fd41e352cf))
+
+
+### Bug Fixes
+
+* report failed deletes in every resource, and finish the resource tests ([#257](https://github.com/terrakube-io/terraform-provider-terrakube/issues/257)) ([b038b70](https://github.com/terrakube-io/terraform-provider-terrakube/commit/b038b70398bc7faa8c604e058af7b36a0d770f2b))
+* report failed deletes, and test six more resources ([#255](https://github.com/terrakube-io/terraform-provider-terrakube/issues/255)) ([9ae7f12](https://github.com/terrakube-io/terraform-provider-terrakube/commit/9ae7f1296e101cff297666a7bbcd0b37a408997f))
+
+
+### Code Refactoring
+
+* **provider:** add a shared terrakube-go client ([#269](https://github.com/terrakube-io/terraform-provider-terrakube/issues/269)) ([2969aa9](https://github.com/terrakube-io/terraform-provider-terrakube/commit/2969aa9d5864865207a606cd99c6302a0cb21cd4))
+
 ## [0.33.1](https://github.com/terrakube-io/terraform-provider-terrakube/compare/v0.33.0...v0.33.1) (2026-11-14)
 
 
