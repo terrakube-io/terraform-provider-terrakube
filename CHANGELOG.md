@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.35.0](https://github.com/terrakube-io/terraform-provider-terrakube/compare/v0.34.0...v0.35.0) (2026-11-18)
+
+
+### Features
+
+* **registry:** add provider version and implementation resources ([#259](https://github.com/terrakube-io/terraform-provider-terrakube/issues/259)) ([64eaa90](https://github.com/terrakube-io/terraform-provider-terrakube/commit/64eaa901f84a60586b07afad04432174026fd89e))
+* **registry:** add terrakube_registry_provider resource and data source ([#258](https://github.com/terrakube-io/terraform-provider-terrakube/issues/258)) ([b32aeb5](https://github.com/terrakube-io/terraform-provider-terrakube/commit/b32aeb5b4367024d905fb59a34002288d2724386))
+
+
+### Bug Fixes
+
+* **provider:** mark the token attribute as sensitive ([#260](https://github.com/terrakube-io/terraform-provider-terrakube/issues/260)) ([d4f9882](https://github.com/terrakube-io/terraform-provider-terrakube/commit/d4f9882e382d2f461f60d0c20640d915a95bb346))
+
 ## [0.34.0](https://github.com/terrakube-io/terraform-provider-terrakube/compare/v0.33.1...v0.34.0) (2026-11-18)
 
 
