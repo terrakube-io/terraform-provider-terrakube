@@ -28,9 +28,7 @@ func TestAccWorkspaceRunTriggerResource(t *testing.T) {
 			testAccCheckDestroyed("terrakube_workspace_run_trigger", testAccGoneWhenNotFound(func(rs *terraform.ResourceState) string {
 				return "/api/v1/runTrigger/" + rs.Primary.ID
 			})),
-			testAccCheckDestroyed("terrakube_workspace_cli", testAccGoneWhenNotFound(func(rs *terraform.ResourceState) string {
-				return "/api/v1/organization/" + rs.Primary.Attributes["organization_id"] + "/workspace/" + rs.Primary.ID
-			})),
+			testAccCheckDestroyed("terrakube_workspace_cli", testAccWorkspaceGone),
 			testAccCheckDestroyed("terrakube_organization", testAccOrganizationGone),
 		),
 		Steps: []resource.TestStep{
