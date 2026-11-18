@@ -8,6 +8,7 @@ name: Acceptance
 # - The weekly schedule runs against the latest Terrakube release and, while INCLUDE_PREVIOUS_MINOR
 #   is 'true', the latest release of the previous minor, to catch an API change before users report
 #   it. A scheduled failure opens an issue, or comments on the open one.
+# - Every version runs with both Terraform and OpenTofu, the latest release of each.
 # - A manual run takes explicit versions, or picks them like the schedule.
 on:
   pull_request:
@@ -68,7 +69,7 @@ jobs:
           echo "versions=$versions" >> "$GITHUB_OUTPUT"
 
   acceptance:
-    name: Terrakube ${{ matrix.terrakube }}
+    name: Terrakube ${{ matrix.terrakube }}, ${{ matrix.cli }}
     needs: versions
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -78,6 +79,7 @@ jobs:
       fail-fast: false
       matrix:
         terrakube: ${{ fromJSON(needs.versions.outputs.versions) }}
+        cli: [terraform, opentofu]
     env:
       TERRAKUBE_VERSION: ${{ matrix.terrakube }}
     steps:
@@ -86,9 +88,23 @@ jobs:
         with:
           go-version-file: 'go.mod'
           cache: true
-      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+      - if: matrix.cli == 'terraform'
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
+      - if: matrix.cli == 'opentofu'
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_wrapper: false
+      # terraform-plugin-testing runs the binary in TF_ACC_TERRAFORM_PATH, and the provider address
+      # has to use the OpenTofu registry.
+      - if: matrix.cli == 'opentofu'
+        run: |
+          {
+            echo "TF_ACC_TERRAFORM_PATH=$(command -v tofu)"
+            echo "TF_ACC_PROVIDER_HOST=registry.opentofu.org"
+            echo "TF_ACC_PROVIDER_NAMESPACE=hashicorp"
+          } >> "$GITHUB_ENV"
       - name: Start Terrakube
         run: |
           settings="$RUNNER_TEMP/terrakube.env"

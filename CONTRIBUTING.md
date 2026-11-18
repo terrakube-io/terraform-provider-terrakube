@@ -68,7 +68,15 @@ By default the script starts the Terrakube version in `scripts/acceptance/versio
 `TERRAKUBE_VERSION=2.33.3` picks another release, and `TERRAKUBE_ACC_PORT` the host port
 (default 18080, bound to 127.0.0.1).
 
-The `Acceptance` workflow runs:
+The tests use the `terraform` on your `PATH`. To run them with OpenTofu instead:
+
+```sh
+TF_ACC_TERRAFORM_PATH=$(command -v tofu) TF_ACC_PROVIDER_HOST=registry.opentofu.org \
+  TF_ACC_PROVIDER_NAMESPACE=hashicorp make testacc TESTARGS='-run TestAcc'
+```
+
+The `Acceptance` workflow runs every Terrakube version with both Terraform and OpenTofu (the latest
+release of each):
 
 - on pull requests that change `internal/provider/**`, the acceptance setup, `go.mod` or `go.sum`,
   against the version pinned in `scripts/acceptance/versions.json`, so a result only changes with
@@ -96,7 +104,13 @@ Writing an acceptance test:
 - Set `CheckDestroy` with `testAccCheckDestroyed` (`acc_destroy_test.go`). Terrakube soft-deletes
   some objects, so check what the API returns, not the database: an organization is disabled and
   renamed, and disappears from the organization list (`testAccOrganizationGone`); a workspace or
-  run trigger returns 404 (`testAccGoneWhenNotFound`).
+  run trigger returns 404 (`testAccGoneWhenNotFound`, or `testAccWorkspaceGone` for any
+  `terrakube_workspace_*`).
+- Import with `ImportStateIdFunc: testAccImportID(name, "organization_id")` for the
+  `organization_id,id` IDs most resources use.
+- A test that needs a newer Terraform or OpenTofu, such as one for a write-only argument, sets
+  `TerraformVersionChecks` with `tfversion.SkipBelow(...)` and has its own configuration, so older
+  CLIs skip only that test.
 
 ## Pull requests
 
