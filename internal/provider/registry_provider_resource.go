@@ -3,10 +3,8 @@ package provider
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"terraform-provider-terrakube/internal/client"
@@ -173,14 +171,7 @@ func (r *RegistryProviderResource) Configure(_ context.Context, req resource.Con
 		return
 	}
 
-	r.client = &http.Client{}
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		}
-	}
+	r.client = newTerrakubeHTTPClient(providerData)
 	r.endpoint = providerData.Endpoint
 	r.token = providerData.Token
 }
@@ -195,31 +186,11 @@ func (r *RegistryProviderResource) providerURL(organizationID string, id string)
 
 // do sends a request and returns the response with its body read and closed.
 func (r *RegistryProviderResource) do(ctx context.Context, method, url string, body []byte) (*http.Response, []byte, error) {
-	var reader io.Reader
-	if body != nil {
-		reader = bytes.NewReader(body)
-	}
-	request, err := http.NewRequestWithContext(ctx, method, url, reader)
-	if err != nil {
-		return nil, nil, fmt.Errorf("creating request: %w", err)
-	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
-
-	response, err := r.client.Do(request)
-	if err != nil {
-		return nil, nil, fmt.Errorf("executing request: %w", err)
-	}
-	defer response.Body.Close()
-	responseBody, err := io.ReadAll(response.Body)
-	if err != nil {
-		return response, nil, fmt.Errorf("reading response: %w", err)
-	}
-	return response, responseBody, nil
+	return doJSONAPIRequest(ctx, r.client, r.token, method, url, body)
 }
 
-// requestBody builds the JSON:API body for a create or an update. Imported and the namespace are
-// only sent when they are used, because a Terrakube older than 2.30.0 does not know them.
+// registryProviderRequestBody builds the JSON:API body for a create or an update. Imported and the
+// namespace are only sent when they are used, because a Terrakube older than 2.30.0 does not know them.
 func registryProviderRequestBody(plan, prior *RegistryProviderResourceModel, id string) ([]byte, error) {
 	entity := &client.ProviderEntity{
 		ID:          id,

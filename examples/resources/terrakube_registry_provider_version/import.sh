@@ -1,0 +1,2 @@
+# Registry provider version can be imported with organization_id,provider_id,id
+terraform import terrakube_registry_provider_version.example 00000000-0000-0000-0000-000000000000,00000000-0000-0000-0000-000000000000,00000000-0000-0000-0000-000000000000

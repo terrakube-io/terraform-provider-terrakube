@@ -1,0 +1,2 @@
+# Registry provider implementation can be imported with organization_id,provider_id,version_id,id
+terraform import terrakube_registry_provider_implementation.example 00000000-0000-0000-0000-000000000000,00000000-0000-0000-0000-000000000000,00000000-0000-0000-0000-000000000000,00000000-0000-0000-0000-000000000000
