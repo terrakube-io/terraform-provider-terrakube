@@ -96,8 +96,8 @@ func (r *WorkspaceRunTriggerResource) Schema(_ context.Context, _ resource.Schem
 		MarkdownDescription: "Creates a directed run trigger: a successful apply in the source workspace queues a run in the destination workspace. Requires Terrakube 2.34.0 or later.",
 		Attributes: map[string]schema.Attribute{
 			"id":                       schema.StringAttribute{Computed: true, Description: "Run trigger ID (UUID)", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"source_workspace_id":      schema.StringAttribute{Required: true, Description: "ID of the upstream workspace whose successful apply fires the trigger.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
-			"destination_workspace_id": schema.StringAttribute{Required: true, Description: "ID of the downstream workspace that receives the triggered run.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"source_workspace_id":      schema.StringAttribute{Required: true, Description: "ID of the upstream workspace whose successful apply fires the trigger. Changing this forces a new resource.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
+			"destination_workspace_id": schema.StringAttribute{Required: true, Description: "ID of the downstream workspace that receives the triggered run. Changing this forces a new resource.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"template_id":              schema.StringAttribute{Optional: true, Description: "Optional template ID for the triggered run. When unset, the destination workspace default template is used."},
 			"enabled":                  schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(true), Description: "Whether this trigger is active."},
 		},

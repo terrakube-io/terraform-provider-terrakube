@@ -27,11 +27,11 @@ resource "terrakube_team_token" "token1" {
 
 ### Required
 
-- `days` (Number) The number of days this token is valid for.
-- `description` (String) A description of this token.
-- `hours` (Number) The number of hours this token is valid for.
-- `minutes` (Number) The number of minutes this token is valid for.
-- `team_name` (String) The name of the team who owns the token.
+- `days` (Number) The number of days this token is valid for. Changing this forces a new resource.
+- `description` (String) A description of this token. Changing this forces a new resource.
+- `hours` (Number) The number of hours this token is valid for. Changing this forces a new resource.
+- `minutes` (Number) The number of minutes this token is valid for. Changing this forces a new resource.
+- `team_name` (String) The name of the team who owns the token. Changing this forces a new resource.
 
 ### Read-Only
 

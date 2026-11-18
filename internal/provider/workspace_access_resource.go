@@ -84,7 +84,7 @@ func (r *WorkspaceAccessResource) Schema(ctx context.Context, req resource.Schem
 			},
 			"name": schema.StringAttribute{
 				Required:    true,
-				Description: "Team name",
+				Description: "Team name. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},

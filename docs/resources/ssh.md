@@ -63,7 +63,7 @@ resource "terrakube_ssh" "ssh_wo" {
 > **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
 
 - `description` (String) SSH key description
-- `name` (String) Ssh key name
+- `name` (String) Ssh key name. Changing this forces a new resource.
 - `private_key` (String, Sensitive) SSH Key content, stored in the Terraform state. Exactly one of `private_key` or `private_key_wo` is required.
 - `private_key_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) SSH Key content as a write-only argument: sent to Terrakube but never stored in the plan or state. Requires Terraform 1.11+ or OpenTofu 1.11+. Terraform cannot detect changes to it: bump `private_key_wo_version` to send a new value.
 - `private_key_wo_version` (Number) Version of `private_key_wo`. Change it to update the value in Terrakube.

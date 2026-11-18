@@ -63,7 +63,7 @@ func (r *PolicyExemptionResource) Schema(ctx context.Context, req resource.Schem
 			},
 			"organization_id": schema.StringAttribute{
 				Required:    true,
-				Description: "Terrakube organization ID",
+				Description: "Terrakube organization ID. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},

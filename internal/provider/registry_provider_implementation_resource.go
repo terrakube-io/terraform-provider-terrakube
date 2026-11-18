@@ -77,17 +77,17 @@ func (r *RegistryProviderImplementationResource) Schema(_ context.Context, _ res
 			},
 			"organization_id": schema.StringAttribute{
 				Required:      true,
-				Description:   "Terrakube organization ID",
+				Description:   "Terrakube organization ID. Changing this forces a new resource.",
 				PlanModifiers: replaceOnChange,
 			},
 			"provider_id": schema.StringAttribute{
 				Required:      true,
-				Description:   "ID of the `terrakube_registry_provider`",
+				Description:   "ID of the `terrakube_registry_provider`. Changing this forces a new resource.",
 				PlanModifiers: replaceOnChange,
 			},
 			"version_id": schema.StringAttribute{
 				Required:      true,
-				Description:   "ID of the `terrakube_registry_provider_version` this is a download of",
+				Description:   "ID of the `terrakube_registry_provider_version` this is a download of. Changing this forces a new resource.",
 				PlanModifiers: replaceOnChange,
 			},
 			"os":                    required("Operating system, for example `linux`, `darwin` or `windows`"),

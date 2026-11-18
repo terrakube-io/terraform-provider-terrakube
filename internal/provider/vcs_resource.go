@@ -118,7 +118,7 @@ func (r *VcsResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 			"client_secret": schema.StringAttribute{
 				Optional:    true,
 				Sensitive:   true,
-				Description: "The secret of the VCS connection, stored in the Terraform state. At least one of `client_secret`, `client_secret_wo`, `private_key` or `private_key_wo` is required.",
+				Description: "The secret of the VCS connection, stored in the Terraform state. At least one of `client_secret`, `client_secret_wo`, `private_key` or `private_key_wo` is required. Changing this forces a new resource, unless it moves to `client_secret_wo`.",
 				PlanModifiers: []planmodifier.String{
 					requiresReplaceUnlessMovedToWriteOnly("client_secret"),
 				},
@@ -128,7 +128,7 @@ func (r *VcsResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 			"private_key": schema.StringAttribute{
 				Optional:    true,
 				Sensitive:   true,
-				Description: "The private key in PKCS8 format of the VCS connection. Please use command `openssl pkcs8 -topk8 -inform PEM -inform pem -outform pem -in github_rsa_private_key.pem -out private_key.pem -nocrypt` to convert the private key to PKCS8 format form Github default RSA.",
+				Description: "The private key in PKCS8 format of the VCS connection. Please use command `openssl pkcs8 -topk8 -inform PEM -inform pem -outform pem -in github_rsa_private_key.pem -out private_key.pem -nocrypt` to convert the private key to PKCS8 format form Github default RSA. Changing this forces a new resource, unless it moves to `private_key_wo`.",
 				PlanModifiers: []planmodifier.String{
 					requiresReplaceUnlessMovedToWriteOnly("private_key"),
 				},

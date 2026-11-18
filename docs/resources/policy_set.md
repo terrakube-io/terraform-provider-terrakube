@@ -34,7 +34,7 @@ resource "terrakube_policy_set" "blast_radius" {
 ### Required
 
 - `name` (String) Policy set name, unique within the organization
-- `organization_id` (String) Terrakube organization ID
+- `organization_id` (String) Terrakube organization ID. Changing this forces a new resource.
 
 ### Optional
 

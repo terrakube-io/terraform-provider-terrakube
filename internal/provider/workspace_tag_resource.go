@@ -62,7 +62,7 @@ func (r *WorkspaceTagResource) Schema(ctx context.Context, req resource.SchemaRe
 			},
 			"tag_id": schema.StringAttribute{
 				Required:    true,
-				Description: "Tag Id",
+				Description: "Tag Id. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -76,14 +76,14 @@ func (r *WorkspaceTagResource) Schema(ctx context.Context, req resource.SchemaRe
 			},
 			"organization_id": schema.StringAttribute{
 				Required:    true,
-				Description: "Terrakube organization id",
+				Description: "Terrakube organization id. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"workspace_id": schema.StringAttribute{
 				Required:    true,
-				Description: "Terrakube workspace id",
+				Description: "Terrakube workspace id. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},

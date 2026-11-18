@@ -32,7 +32,7 @@ resource "terrakube_collection" "collection" {
 
 - `name` (String) Collection name
 - `organization_id` (String) Terrakube organization id
-- `priority` (Number) Collection priority
+- `priority` (Number) Collection priority. Changing this forces a new resource.
 
 ### Optional
 

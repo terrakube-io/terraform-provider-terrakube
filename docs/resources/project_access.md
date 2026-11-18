@@ -33,7 +33,7 @@ resource "terrakube_project_access" "project_access" {
 
 ### Required
 
-- `name` (String) Team name
+- `name` (String) Team name. Changing this forces a new resource.
 - `organization_id` (String) Terrakube organization id
 - `project_id` (String) Terrakube project id
 

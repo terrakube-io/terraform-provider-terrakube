@@ -66,17 +66,17 @@ func (r *RegistryProviderVersionResource) Schema(_ context.Context, _ resource.S
 			},
 			"organization_id": schema.StringAttribute{
 				Required:      true,
-				Description:   "Terrakube organization ID",
+				Description:   "Terrakube organization ID. Changing this forces a new resource.",
 				PlanModifiers: replaceOnChange,
 			},
 			"provider_id": schema.StringAttribute{
 				Required:      true,
-				Description:   "ID of the `terrakube_registry_provider` this is a version of",
+				Description:   "ID of the `terrakube_registry_provider` this is a version of. Changing this forces a new resource.",
 				PlanModifiers: replaceOnChange,
 			},
 			"version_number": schema.StringAttribute{
 				Required:      true,
-				Description:   "Version, for example `1.2.3`. Changing it creates a new version.",
+				Description:   "Version, for example `1.2.3`. Changing this forces a new resource, so a new version is created.",
 				PlanModifiers: replaceOnChange,
 			},
 			"protocols": schema.ListAttribute{
