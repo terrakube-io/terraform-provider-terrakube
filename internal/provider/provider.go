@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -19,7 +20,10 @@ import (
 )
 
 // Ensure TerrakubeProvider satisfies various provider interfaces.
-var _ provider.Provider = &TerrakubeProvider{}
+var (
+	_ provider.Provider                       = &TerrakubeProvider{}
+	_ provider.ProviderWithEphemeralResources = &TerrakubeProvider{}
+)
 
 // TerrakubeProvider defines the provider implementation.
 type TerrakubeProvider struct {
@@ -188,6 +192,7 @@ func (p *TerrakubeProvider) Configure(ctx context.Context, req provider.Configur
 
 	resp.DataSourceData = connection
 	resp.ResourceData = connection
+	resp.EphemeralResourceData = connection
 
 	ctx = tflog.SetField(ctx, "terrakube_endpoint", endpoint)
 	ctx = tflog.SetField(ctx, "terrakube_token", token)
@@ -233,6 +238,12 @@ func (p *TerrakubeProvider) Resources(ctx context.Context) []func() resource.Res
 		NewPolicySetParameterResource,
 		NewPolicyAttachmentResource,
 		NewPolicyExemptionResource,
+	}
+}
+
+func (p *TerrakubeProvider) EphemeralResources(_ context.Context) []func() ephemeral.EphemeralResource {
+	return []func() ephemeral.EphemeralResource{
+		NewOutputEphemeralResource,
 	}
 }
 

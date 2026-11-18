@@ -3,12 +3,12 @@
 page_title: "terrakube_output Data Source - terrakube"
 subcategory: "Workspaces"
 description: |-
-  
+  Reads the outputs of the latest run of a workspace. The values, sensitive ones included, are stored in state. To read outputs that include secrets without storing them, use the terrakube_output ephemeral resource instead.
 ---
 
 # terrakube_output (Data Source)
 
-
+Reads the outputs of the latest run of a workspace. The values, sensitive ones included, are stored in state. To read outputs that include secrets without storing them, use the `terrakube_output` ephemeral resource instead.
 
 ## Example Usage
 

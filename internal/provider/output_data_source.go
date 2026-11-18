@@ -1,20 +1,12 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
-	"encoding/json"
 	"fmt"
-	"io"
 	"math/big"
 	"net/http"
-	"net/url"
 	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -60,17 +52,7 @@ func (d *OutputDataSource) Configure(ctx context.Context, req datasource.Configu
 		return
 	}
 
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
+	d.client = newTerrakubeHTTPClient(providerData)
 	d.endpoint = providerData.Endpoint
 	d.token = providerData.Token
 
@@ -86,6 +68,8 @@ func (d *OutputDataSource) Metadata(_ context.Context, req datasource.MetadataRe
 
 func (d *OutputDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Reads the outputs of the latest run of a workspace. The values, sensitive ones included, are stored in state. " +
+			"To read outputs that include secrets without storing them, use the `terrakube_output` ephemeral resource instead.",
 		Attributes: map[string]schema.Attribute{
 			"workspace": schema.StringAttribute{
 				Required:    true,
@@ -111,148 +95,23 @@ func (d *OutputDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var state OutputDataSourceModel
 
-	req.Config.Get(ctx, &state)
-	tflog.Info(ctx, state.Workspace.ValueString())
-	tflog.Info(ctx, state.Organization.ValueString())
-
-	orgs := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, url.QueryEscape(rsqlQuote(state.Organization.ValueString()))), ctx, resp, new(client.OrganizationEntity))
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	organization := findSingleByName(&resp.Diagnostics, "organization", state.Organization.ValueString(), "", orgs,
-		func(e *client.OrganizationEntity) string { return e.Name })
-	if organization == nil {
-		return
-	}
-	OrganizationID := organization.ID
-
-	// now try to find the Workspace
-	workspaces := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/workspace?filter[workspace]=name==%s", d.endpoint, url.PathEscape(OrganizationID), url.QueryEscape(rsqlQuote(state.Workspace.ValueString()))), ctx, resp, new(client.WorkspaceEntity))
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	workspace := findSingleByName(&resp.Diagnostics, "workspace", state.Workspace.ValueString(), " in organization "+state.Organization.ValueString(), workspaces,
-		func(e *client.WorkspaceEntity) string { return e.Name })
-	if workspace == nil {
-		return
-	}
-	WorkspaceId := workspace.ID
-	tflog.Info(ctx, WorkspaceId)
-
-	// Now that we found the workspace id we can query for the history
-	Histories := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/history?sort=-createdDate", d.endpoint, url.PathEscape(OrganizationID), url.PathEscape(WorkspaceId)), ctx, resp, new(client.HistoryEntity))
+	resp.Diagnostics.Append(req.Config.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	if len(Histories) == 0 {
-		// No history for this workspace. That is not an error
-		tflog.Info(ctx, "No history information found")
+	outputs, found := d.outputsClient().read(ctx, state.Organization.ValueString(), state.Workspace.ValueString(), &resp.Diagnostics)
+	if resp.Diagnostics.HasError() || !found {
 		return
 	}
 
-	data, _ := Histories[0].(*client.HistoryEntity)
-	tflog.Info(ctx, fmt.Sprintf("%#v", data))
-	// Output contains a link to the Output.json file, which contains the real data we need.
-	OutputUrl := data.Output
-	reqFile, err := http.NewRequest(http.MethodGet, OutputUrl, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating request", fmt.Sprintf("Error creating request: %s", err))
-		return
-	}
-	reqFile.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	reqFile.Header.Add("Content-Type", "application/vnd.api+json")
+	state.Values = outputs.values
+	state.NonSensitiveValues = outputs.nonSensitive
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
 
-	resFile, err := d.client.Do(reqFile)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Output datasource request part 4", fmt.Sprintf("Error executing Output datasource request part 4: %s", err))
-		return
-	}
-
-	bodyFile, err := io.ReadAll(resFile.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading Output response part 4, response status: %s, error: %s", resFile.Status, err))
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "downloading workspace output", resFile, bodyFile) {
-		return
-	}
-
-	// Terrakube answers a missing output file with 200 and an empty body, because the history entry
-	// is saved before the state is uploaded. That is no outputs yet, not a corrupt file.
-	if len(bytes.TrimSpace(bodyFile)) == 0 {
-		tflog.Info(ctx, "The output file is empty, so there are no outputs yet")
-		return
-	}
-
-	var result map[string]interface{}
-	err = json.Unmarshal(bodyFile, &result)
-	if err != nil {
-		tflog.Error(ctx, "Error converting json result")
-		resp.Diagnostics.AddError("Unable to read the workspace output file", fmt.Sprintf("The output file is not valid JSON: %s", err))
-		return
-	}
-
-	values, test := result["values"].(map[string]interface{})
-	if !test {
-		tflog.Error(ctx, "Error converting values from json result")
-		return
-	}
-	outputs, test := values["outputs"].(map[string]interface{})
-	if !test {
-		tflog.Error(ctx, "Error converting values.outputs from json result")
-		return
-	}
-
-	sensitiveTypes := map[string]attr.Type{}
-	sensitiveValues := map[string]attr.Value{}
-	nonSensitiveTypes := map[string]attr.Type{}
-	nonSensitiveValues := map[string]attr.Value{}
-
-	// walk through json outputs
-	for x := range outputs {
-		myOutput, test := outputs[x].(map[string]interface{})
-		if !test {
-			tflog.Error(ctx, "Error converting values.outputs.xx from json result")
-			return
-		} else {
-			attrType, _ := inferAttrType(myOutput["value"])
-			attrValue, _ := convertToAttrValue(myOutput["value"], attrType)
-
-			sensitiveTypes[x] = attrType
-			sensitiveValues[x] = attrValue
-
-			if myOutput["sensitive"] == false {
-				nonSensitiveTypes[x] = attrType
-				nonSensitiveValues[x] = attrValue
-			}
-		}
-	}
-
-	// Create dynamic attribute value for `sensitive_values`
-	obj, diags := types.ObjectValue(sensitiveTypes, sensitiveValues)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	sensitiveOutputs := types.DynamicValue(obj)
-
-	// Create dynamic attribute value for `nonsensitive_values`
-	obj, diags = types.ObjectValue(nonSensitiveTypes, nonSensitiveValues)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	nonSensitiveOutputs := types.DynamicValue(obj)
-
-	state.NonSensitiveValues = nonSensitiveOutputs
-	state.Values = sensitiveOutputs
-
-	diags2 := resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags2...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
+func (d *OutputDataSource) outputsClient() workspaceOutputsClient {
+	return workspaceOutputsClient{client: d.client, endpoint: d.endpoint, token: d.token}
 }
 
 func convertToAttrValue(raw interface{}, t attr.Type) (attr.Value, diag.Diagnostics) {
@@ -442,40 +301,4 @@ func inferAttrType(raw interface{}) (attr.Type, error) {
 	default:
 		return nil, fmt.Errorf("unsupported type %T", raw)
 	}
-}
-
-func (d *OutputDataSource) ReadDataFromApi(url string, ctx context.Context, resp *datasource.ReadResponse, structType any) (data []interface{}) {
-	regApi, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating Output datasource request", fmt.Sprintf("Error creating Output datasource request: %s", err))
-		return
-	}
-	regApi.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	regApi.Header.Add("Content-Type", "application/vnd.api+json")
-
-	resApi, err := d.client.Do(regApi)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Output datasource request", fmt.Sprintf("Error executing Output datasource request: %s", err))
-		return
-	}
-
-	body, err := io.ReadAll(resApi.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading Output response, response status: %s, error: %s", resApi.Status, err))
-	}
-
-	tflog.Info(ctx, string(body))
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace output", resApi, body) {
-		return
-	}
-
-	data, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(structType))
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to marshal payload, response status: %s, response body: %s, error: %s", resApi.Status, string(body), err))
-		return
-	}
-
-	return data
 }
