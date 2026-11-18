@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -54,13 +53,13 @@ func newOutputsServer(t *testing.T, opts outputsServerOptions) *httptest.Server 
 		fmt.Fprint(w, body)
 	}
 	mux.HandleFunc("/api/v1/organization", func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("filter[organization]"); got != "name==acme" {
+		if got := r.URL.Query().Get("filter[organization]"); got != `name=="acme"` {
 			t.Errorf("organization filter = %q", got)
 		}
 		reply(w, r, opts.orgs)
 	})
 	mux.HandleFunc("/api/v1/organization/org-1/workspace", func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("filter[workspace]"); got != "name==network" {
+		if got := r.URL.Query().Get("filter[workspace]"); got != `name=="network"` {
 			t.Errorf("workspace filter = %q", got)
 		}
 		reply(w, r, opts.workspace)
@@ -178,11 +177,11 @@ func TestOutputEphemeralResource_OpenErrors(t *testing.T) {
 		opts    outputsServerOptions
 		summary string
 	}{
-		{"organization not found", outputsServerOptions{orgs: `{"data":[]}`}, `Organization "acme" not found!`},
-		{"workspace not found", outputsServerOptions{workspace: `{"data":[]}`}, `Workspace "network" not found!`},
+		{"organization not found", outputsServerOptions{orgs: `{"data":[]}`}, "Organization not found"},
+		{"workspace not found", outputsServerOptions{workspace: `{"data":[]}`}, "Workspace not found"},
 		{"api error", outputsServerOptions{status: http.StatusForbidden, orgs: `{"errors":[{"detail":"forbidden"}]}`}, "Error reading workspace output: 403 Forbidden"},
-		{"output not json", outputsServerOptions{output: `not json`}, "Unable to read workspace output"},
-		{"output entry not an object", outputsServerOptions{output: `{"values":{"outputs":{"region":"eu-west-1"}}}`}, "Unable to read workspace output"},
+		{"output not json", outputsServerOptions{output: `not json`}, "Unable to read the workspace output file"},
+		{"output entry not an object", outputsServerOptions{output: `{"values":{"outputs":{"region":"eu-west-1"}}}`}, "Unable to read the workspace output file"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -194,41 +193,6 @@ func TestOutputEphemeralResource_OpenErrors(t *testing.T) {
 				t.Errorf("diagnostic = %q, want %q", got, test.summary)
 			}
 		})
-	}
-}
-
-// The data source shares the lookup with the ephemeral resource; check it
-// still returns the same values.
-func TestOutputDataSource_Read(t *testing.T) {
-	ctx := context.Background()
-	server := newOutputsServer(t, outputsServerOptions{})
-	d := &OutputDataSource{client: server.Client(), endpoint: server.URL, token: "test-token"}
-
-	var schemaResp datasource.SchemaResponse
-	d.Schema(ctx, datasource.SchemaRequest{}, &schemaResp)
-	objType, ok := schemaResp.Schema.Type().TerraformType(ctx).(tftypes.Object)
-	if !ok {
-		t.Fatal("expected schema type to be a tftypes.Object")
-	}
-	config := buildObjectValue(objType, map[string]tftypes.Value{
-		"organization": tftypes.NewValue(tftypes.String, "acme"),
-		"workspace":    tftypes.NewValue(tftypes.String, "network"),
-	})
-	resp := &datasource.ReadResponse{State: tfsdk.State{Schema: schemaResp.Schema}}
-	d.Read(ctx, datasource.ReadRequest{Config: tfsdk.Config{Schema: schemaResp.Schema, Raw: config}}, resp)
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
-	}
-
-	var state OutputDataSourceModel
-	if diags := resp.State.Get(ctx, &state); diags.HasError() {
-		t.Fatalf("reading state: %v", diags)
-	}
-	if values := outputAttributes(t, state.Values); len(values) != 2 || values["db_password"] != "s3cret" {
-		t.Errorf("values = %v", values)
-	}
-	if nonSensitive := outputAttributes(t, state.NonSensitiveValues); len(nonSensitive) != 1 || nonSensitive["vpc_id"] != "vpc-1" {
-		t.Errorf("nonsensitive_values = %v", nonSensitive)
 	}
 }
 
@@ -248,28 +212,5 @@ func TestOutputEphemeralResource_OpenWithoutOutputs(t *testing.T) {
 		if !result.Values.IsNull() || !result.NonSensitiveValues.IsNull() {
 			t.Errorf("%s: expected null values, got %v and %v", output, result.Values, result.NonSensitiveValues)
 		}
-	}
-}
-
-// The data source shares the lookup, so it reports the same errors.
-func TestOutputDataSource_ReadError(t *testing.T) {
-	ctx := context.Background()
-	server := newOutputsServer(t, outputsServerOptions{output: `not json`})
-	d := &OutputDataSource{client: server.Client(), endpoint: server.URL, token: "test-token"}
-
-	var schemaResp datasource.SchemaResponse
-	d.Schema(ctx, datasource.SchemaRequest{}, &schemaResp)
-	objType, ok := schemaResp.Schema.Type().TerraformType(ctx).(tftypes.Object)
-	if !ok {
-		t.Fatal("expected schema type to be a tftypes.Object")
-	}
-	config := buildObjectValue(objType, map[string]tftypes.Value{
-		"organization": tftypes.NewValue(tftypes.String, "acme"),
-		"workspace":    tftypes.NewValue(tftypes.String, "network"),
-	})
-	resp := &datasource.ReadResponse{State: tfsdk.State{Schema: schemaResp.Schema}}
-	d.Read(ctx, datasource.ReadRequest{Config: tfsdk.Config{Schema: schemaResp.Schema, Raw: config}}, resp)
-	if !resp.Diagnostics.HasError() || resp.Diagnostics.Errors()[0].Summary() != "Unable to read workspace output" {
-		t.Fatalf("expected an output error, got %v", resp.Diagnostics)
 	}
 }

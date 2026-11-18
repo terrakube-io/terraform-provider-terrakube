@@ -26,7 +26,7 @@ func TestConvertWorkspaceOutputs_Errors(t *testing.T) {
 			if found {
 				t.Error("found should be false on an error")
 			}
-			if !diags.HasError() || diags.Errors()[0].Summary() != "Unable to read workspace output" {
+			if !diags.HasError() || diags.Errors()[0].Summary() != "Unable to read the workspace output file" {
 				t.Fatalf("expected an output error, got %v", diags)
 			}
 		})

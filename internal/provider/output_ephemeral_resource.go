@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net/http"
 
@@ -49,14 +48,7 @@ func (e *OutputEphemeralResource) Configure(_ context.Context, req ephemeral.Con
 		return
 	}
 
-	e.client = &http.Client{}
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			e.client = &http.Client{Transport: customTransport}
-		}
-	}
+	e.client = newTerrakubeHTTPClient(providerData)
 	e.endpoint = providerData.Endpoint
 	e.token = providerData.Token
 }

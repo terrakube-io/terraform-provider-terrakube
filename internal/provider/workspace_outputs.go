@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"terraform-provider-terrakube/internal/client"
@@ -35,35 +36,31 @@ type workspaceOutputs struct {
 // read returns the outputs of the workspace's latest run. found is false when
 // the workspace has no run history yet, which is not an error.
 func (c workspaceOutputsClient) read(ctx context.Context, organization, workspace string, diags *diag.Diagnostics) (outputs workspaceOutputs, found bool) {
-	orgs := c.list(ctx, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", c.endpoint, organization), new(client.OrganizationEntity), diags)
+	// The names are quoted for RSQL, and the result must be exactly one entity with that name,
+	// since RSQL treats `*` in a value as a wildcard.
+	orgs := c.list(ctx, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", c.endpoint, url.QueryEscape(rsqlQuote(organization))), new(client.OrganizationEntity), diags)
 	if diags.HasError() {
 		return outputs, false
 	}
-	if len(orgs) == 0 {
-		diags.AddError(fmt.Sprintf("Organization %q not found!", organization), fmt.Sprintf("%q", organization))
-		return outputs, false
-	}
-	org := jsonapiEntityAt[client.OrganizationEntity](orgs, 0, "organization", diags)
+	org := findSingleByName(diags, "organization", organization, "", orgs,
+		func(e *client.OrganizationEntity) string { return e.Name })
 	if org == nil {
 		return outputs, false
 	}
 	organizationID := org.ID
 
-	workspaces := c.list(ctx, fmt.Sprintf("%s/api/v1/organization/%s/workspace?filter[workspace]=name==%s", c.endpoint, organizationID, workspace), new(client.WorkspaceEntity), diags)
+	workspaces := c.list(ctx, fmt.Sprintf("%s/api/v1/organization/%s/workspace?filter[workspace]=name==%s", c.endpoint, url.PathEscape(organizationID), url.QueryEscape(rsqlQuote(workspace))), new(client.WorkspaceEntity), diags)
 	if diags.HasError() {
 		return outputs, false
 	}
-	if len(workspaces) == 0 {
-		diags.AddError(fmt.Sprintf("Workspace %q not found!", workspace), fmt.Sprintf("%q", workspace))
-		return outputs, false
-	}
-	ws := jsonapiEntityAt[client.WorkspaceEntity](workspaces, 0, "workspace", diags)
+	ws := findSingleByName(diags, "workspace", workspace, " in organization "+organization, workspaces,
+		func(e *client.WorkspaceEntity) string { return e.Name })
 	if ws == nil {
 		return outputs, false
 	}
 	workspaceID := ws.ID
 
-	histories := c.list(ctx, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/history?sort=-createdDate", c.endpoint, organizationID, workspaceID), new(client.HistoryEntity), diags)
+	histories := c.list(ctx, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/history?sort=-createdDate", c.endpoint, url.PathEscape(organizationID), url.PathEscape(workspaceID)), new(client.HistoryEntity), diags)
 	if diags.HasError() {
 		return outputs, false
 	}
@@ -127,7 +124,7 @@ func (c workspaceOutputsClient) download(ctx context.Context, outputURL string, 
 
 	var result map[string]any
 	if err := json.Unmarshal(body, &result); err != nil {
-		diags.AddError("Unable to read workspace output", fmt.Sprintf("The workspace output is not valid JSON: %s", err))
+		diags.AddError("Unable to read the workspace output file", fmt.Sprintf("The output file is not valid JSON: %s", err))
 		return outputs, false
 	}
 	// A state without outputs has no values.outputs. That is not an error: there is nothing to read.
@@ -154,17 +151,17 @@ func convertWorkspaceOutputs(rawOutputs map[string]any, diags *diag.Diagnostics)
 	for name := range rawOutputs {
 		output, ok := rawOutputs[name].(map[string]any)
 		if !ok {
-			diags.AddError("Unable to read workspace output", fmt.Sprintf("Output %q is not an object with a value.", name))
+			diags.AddError("Unable to read the workspace output file", fmt.Sprintf("Output %q is not an object with a value.", name))
 			return outputs, false
 		}
 		attrType, err := inferAttrType(output["value"])
 		if err != nil {
-			diags.AddError("Unable to read workspace output", fmt.Sprintf("Output %q has a value of an unsupported type: %s", name, err))
+			diags.AddError("Unable to read the workspace output file", fmt.Sprintf("Output %q has a value of an unsupported type: %s", name, err))
 			return outputs, false
 		}
 		attrValue, d := convertToAttrValue(output["value"], attrType)
 		if d.HasError() {
-			diags.AddError("Unable to read workspace output", fmt.Sprintf("Output %q could not be converted.", name))
+			diags.AddError("Unable to read the workspace output file", fmt.Sprintf("Output %q could not be converted.", name))
 			diags.Append(d...)
 			return outputs, false
 		}
@@ -195,8 +192,8 @@ func convertWorkspaceOutputs(rawOutputs map[string]any, diags *diag.Diagnostics)
 }
 
 // list runs a JSON:API GET and unmarshals the collection into structType.
-func (c workspaceOutputsClient) list(ctx context.Context, url string, structType any, diags *diag.Diagnostics) []any {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func (c workspaceOutputsClient) list(ctx context.Context, requestURL string, structType any, diags *diag.Diagnostics) []any {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		diags.AddError("Error creating Output request", fmt.Sprintf("Error creating Output request: %s", err))
 		return nil

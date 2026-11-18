@@ -1,13 +1,10 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"math/big"
 	"net/http"
-	"net/url"
 	"reflect"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -55,17 +52,7 @@ func (d *OutputDataSource) Configure(ctx context.Context, req datasource.Configu
 		return
 	}
 
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
+	d.client = newTerrakubeHTTPClient(providerData)
 	d.endpoint = providerData.Endpoint
 	d.token = providerData.Token
 
