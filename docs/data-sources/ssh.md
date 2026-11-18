@@ -3,12 +3,12 @@
 page_title: "terrakube_ssh Data Source - terrakube"
 subcategory: "VCS and SSH"
 description: |-
-  
+  Looks up an SSH key by name. Use id as a workspace's ssh_id to clone its repository over SSH, or as module_ssh_key to download private modules from Git. The private key itself is never returned.
 ---
 
 # terrakube_ssh (Data Source)
 
-
+Looks up an SSH key by name. Use `id` as a workspace's `ssh_id` to clone its repository over SSH, or as `module_ssh_key` to download private modules from Git. The private key itself is never returned.
 
 ## Example Usage
 
@@ -28,10 +28,10 @@ data "terrakube_ssh" "ssh" {
 
 ### Required
 
-- `name` (String) Ssh Name
-- `organization_id` (String) Terrakube organization id
+- `name` (String) Name of the SSH key.
+- `organization_id` (String) ID of the organization the SSH key belongs to.
 
 ### Read-Only
 
-- `description` (String) Ssh description information
-- `id` (String) Ssh Id
+- `description` (String) Description of the SSH key.
+- `id` (String) ID of the SSH key.

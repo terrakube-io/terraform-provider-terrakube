@@ -3,12 +3,12 @@
 page_title: "terrakube_federated_credential Data Source - terrakube"
 subcategory: "Federated Credentials"
 description: |-
-  
+  Looks up a federated credential by name. A federated credential lets Terrakube accept tokens from an external identity provider, such as GitHub Actions, GitLab CI or Azure AD. Use id to add claim conditions with terrakube_federated_credential_claim.
 ---
 
 # terrakube_federated_credential (Data Source)
 
-
+Looks up a federated credential by name. A federated credential lets Terrakube accept tokens from an external identity provider, such as GitHub Actions, GitLab CI or Azure AD. Use `id` to add claim conditions with `terrakube_federated_credential_claim`.
 
 ## Example Usage
 
@@ -23,10 +23,10 @@ data "terrakube_federated_credential" "github_actions" {
 
 ### Required
 
-- `name` (String) Federated credential name
+- `name` (String) Name of the federated credential.
 
 ### Read-Only
 
-- `audience` (String) Audience expected in tokens issued by the identity provider
-- `id` (String) Federated credential ID
-- `issuer_url` (String) Issuer URL of the external identity provider
+- `audience` (String) Audience that tokens from the identity provider must have.
+- `id` (String) ID of the federated credential.
+- `issuer_url` (String) Issuer URL of the external identity provider.

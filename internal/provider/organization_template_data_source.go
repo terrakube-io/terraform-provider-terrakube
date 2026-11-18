@@ -80,18 +80,19 @@ func (d *OrganizationTemplateDataSource) Metadata(_ context.Context, req datasou
 
 func (d *OrganizationTemplateDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Looks up an organization template by name. Use `id` to set a workspace's default template, or to run the template on a schedule with `terrakube_workspace_schedule`.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
-				Description: "Id",
+				Description: "ID of the template.",
 			},
 			"name": schema.StringAttribute{
 				Required:    true,
-				Description: "Organization Template Name",
+				Description: "Name of the template.",
 			},
 			"organization_id": schema.StringAttribute{
 				Required:    true,
-				Description: "Organization ID",
+				Description: "ID of the organization the template belongs to.",
 			},
 		},
 	}

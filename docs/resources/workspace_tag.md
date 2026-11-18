@@ -59,7 +59,7 @@ resource "terrakube_workspace_tag" "env" {
 
 ### Optional
 
-- `value` (String) Value of the tag in this workspace. Omit it for a key-only tag.
+- `value` (String) Value of the tag in this workspace (Terrakube 2.34.0+). Omit it for a key-only tag, which works on older versions too.
 
 ### Read-Only
 

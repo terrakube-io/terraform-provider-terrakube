@@ -3,12 +3,12 @@
 page_title: "terrakube_project Data Source - terrakube"
 subcategory: "Projects"
 description: |-
-  
+  Looks up a project by name. Unlike most data sources, it takes the organization's name, not its ID.
 ---
 
 # terrakube_project (Data Source)
 
-
+Looks up a project by name. Unlike most data sources, it takes the organization's name, not its ID.
 
 ## Example Usage
 
@@ -24,10 +24,10 @@ data "terrakube_project" "example" {
 
 ### Required
 
-- `name` (String) Project Name
-- `organization` (String) Organization Name
+- `name` (String) Name of the project.
+- `organization` (String) Name of the organization the project belongs to.
 
 ### Read-Only
 
-- `description` (String) Project description
-- `id` (String) Project Id
+- `description` (String) Description of the project.
+- `id` (String) ID of the project.

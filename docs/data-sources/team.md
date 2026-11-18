@@ -3,12 +3,12 @@
 page_title: "terrakube_team Data Source - terrakube"
 subcategory: "Teams and Access"
 description: |-
-  
+  Looks up a team by name and reads its permissions in the organization. Unlike most data sources, it takes the organization's name, not its ID.
 ---
 
 # terrakube_team (Data Source)
 
-
+Looks up a team by name and reads its permissions in the organization. Unlike most data sources, it takes the organization's name, not its ID.
 
 ## Example Usage
 
@@ -24,21 +24,21 @@ data "terrakube_team" "example" {
 
 ### Required
 
-- `name` (String) Team Name
-- `organization` (String) Organization Name
+- `name` (String) Name of the team. For a team that maps to an identity provider group, this is the group name.
+- `organization` (String) Name of the organization the team belongs to.
 
 ### Read-Only
 
-- `approve_job` (Boolean) Allow approving/applying runs
-- `destroy_job` (Boolean) Allow destroy runs for custom roles (Terrakube 2.34.0+)
-- `manage_collection` (Boolean) Manages collection
-- `manage_job` (Boolean) Manage Jobs
-- `manage_module` (Boolean) Manage modules
-- `manage_policies` (Boolean) Allow managing OPA policy sets, attachments, and exemptions
-- `manage_provider` (Boolean) Manage providers
-- `manage_state` (Boolean) Manage states
-- `manage_template` (Boolean) Manage templatess
-- `manage_vcs` (Boolean) Manage vcs
-- `manage_workspace` (Boolean) Manage workspaces
-- `plan_job` (Boolean) Allow queuing plans
-- `role` (String) Predefined RBAC role
+- `approve_job` (Boolean) Whether the team can approve and apply runs.
+- `destroy_job` (Boolean) Whether the team can start destroy runs, when `role` is `custom` or not set (Terrakube 2.34.0+).
+- `manage_collection` (Boolean) Whether the team can manage variable collections.
+- `manage_job` (Boolean) Whether the team can manage and start jobs. In RBAC v2, `plan_job` and `approve_job` inherit this when they are not set.
+- `manage_module` (Boolean) Whether the team can manage private registry modules.
+- `manage_policies` (Boolean) Whether the team can manage OPA policy sets, attachments and exemptions.
+- `manage_provider` (Boolean) Whether the team can manage private registry providers.
+- `manage_state` (Boolean) Whether the team can manage Terraform/OpenTofu state.
+- `manage_template` (Boolean) Whether the team can manage templates.
+- `manage_vcs` (Boolean) Whether the team can manage VCS connections.
+- `manage_workspace` (Boolean) Whether the team can manage workspaces.
+- `plan_job` (Boolean) Whether the team can queue plans.
+- `role` (String) Predefined role of the team: `admin`, `write`, `plan`, `read` or `custom`. Null when the team uses only the permission flags.

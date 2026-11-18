@@ -82,26 +82,27 @@ func (d *OrganizationDataSource) Metadata(_ context.Context, req datasource.Meta
 
 func (d *OrganizationDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Looks up an organization by name. Most other resources and data sources take the organization's `id` as `organization_id`.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
-				Description: "Organization Id",
+				Description: "ID of the organization.",
 			},
 			"name": schema.StringAttribute{
 				Required:    true,
-				Description: "Organization Name",
+				Description: "Name of the organization.",
 			},
 			"description": schema.StringAttribute{
 				Computed:    true,
-				Description: "Organization description information",
+				Description: "Description of the organization.",
 			},
 			"execution_mode": schema.StringAttribute{
 				Computed:    true,
-				Description: "Select default execution mode for the organization (remote or local)",
+				Description: "Default execution mode for the organization's workspaces: `remote` or `local`.",
 			},
 			"icon": schema.StringAttribute{
 				Computed:    true,
-				Description: "Organization icon in format name:color",
+				Description: "Icon of the organization, in the format `name:color`.",
 			},
 		},
 	}

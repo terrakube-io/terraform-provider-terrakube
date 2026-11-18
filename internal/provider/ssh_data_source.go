@@ -77,22 +77,23 @@ func (d *SshDataSource) Metadata(_ context.Context, req datasource.MetadataReque
 
 func (d *SshDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Looks up an SSH key by name. Use `id` as a workspace's `ssh_id` to clone its repository over SSH, or as `module_ssh_key` to download private modules from Git. The private key itself is never returned.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
-				Description: "Ssh Id",
+				Description: "ID of the SSH key.",
 			},
 			"organization_id": schema.StringAttribute{
 				Required:    true,
-				Description: "Terrakube organization id",
+				Description: "ID of the organization the SSH key belongs to.",
 			},
 			"name": schema.StringAttribute{
 				Required:    true,
-				Description: "Ssh Name",
+				Description: "Name of the SSH key.",
 			},
 			"description": schema.StringAttribute{
 				Computed:    true,
-				Description: "Ssh description information",
+				Description: "Description of the SSH key.",
 			},
 		},
 	}

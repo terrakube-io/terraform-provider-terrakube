@@ -3,12 +3,12 @@
 page_title: "terrakube_organization_tag Data Source - terrakube"
 subcategory: "Organizations"
 description: |-
-  
+  Looks up an organization tag by name. Use id to attach the tag to a workspace with terrakube_workspace_tag, or to attach a policy set to every workspace with the tag.
 ---
 
 # terrakube_organization_tag (Data Source)
 
-
+Looks up an organization tag by name. Use `id` to attach the tag to a workspace with `terrakube_workspace_tag`, or to attach a policy set to every workspace with the tag.
 
 ## Example Usage
 
@@ -28,9 +28,9 @@ data "terrakube_organization_tag" "tag" {
 
 ### Required
 
-- `name` (String) The name of the tag
-- `organization_id` (String) The ID of the organization
+- `name` (String) Name of the tag.
+- `organization_id` (String) ID of the organization the tag belongs to.
 
 ### Read-Only
 
-- `id` (String) The ID of the tag
+- `id` (String) ID of the tag.

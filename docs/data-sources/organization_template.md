@@ -3,12 +3,12 @@
 page_title: "terrakube_organization_template Data Source - terrakube"
 subcategory: "Organizations"
 description: |-
-  
+  Looks up an organization template by name. Use id to set a workspace's default template, or to run the template on a schedule with terrakube_workspace_schedule.
 ---
 
 # terrakube_organization_template (Data Source)
 
-
+Looks up an organization template by name. Use `id` to set a workspace's default template, or to run the template on a schedule with `terrakube_workspace_schedule`.
 
 ## Example Usage
 
@@ -28,9 +28,9 @@ data "terrakube_organization_template" "template" {
 
 ### Required
 
-- `name` (String) Organization Template Name
-- `organization_id` (String) Organization ID
+- `name` (String) Name of the template.
+- `organization_id` (String) ID of the organization the template belongs to.
 
 ### Read-Only
 
-- `id` (String) Id
+- `id` (String) ID of the template.
