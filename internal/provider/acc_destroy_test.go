@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
@@ -52,6 +53,12 @@ func testAccGoneWhenNotFound(path func(rs *terraform.ResourceState) string) func
 	}
 }
 
+// testAccWorkspaceGone treats a workspace as gone when GET by id returns 404. Any terrakube_workspace_*
+// resource works, since they all keep organization_id in state.
+var testAccWorkspaceGone = testAccGoneWhenNotFound(func(rs *terraform.ResourceState) string {
+	return "/api/v1/organization/" + rs.Primary.Attributes["organization_id"] + "/workspace/" + rs.Primary.ID
+})
+
 // testAccOrganizationGone treats an organization as gone when the organization list no longer
 // returns it. Deleting an organization disables it; GET by id still returns the disabled one.
 func testAccOrganizationGone(rs *terraform.ResourceState) (bool, error) {
@@ -93,4 +100,20 @@ func testAccAPIGet(path string) (int, []byte, error) {
 	defer response.Body.Close()
 	body, err := io.ReadAll(response.Body)
 	return response.StatusCode, body, err
+}
+
+// testAccImportID returns an import ID made of the given attributes of the resource and then its
+// id, joined with commas, for example "organization_id,id".
+func testAccImportID(resourceName string, attrs ...string) resource.ImportStateIdFunc {
+	return func(s *terraform.State) (string, error) {
+		rs, ok := s.RootModule().Resources[resourceName]
+		if !ok {
+			return "", fmt.Errorf("%s not found in state", resourceName)
+		}
+		parts := make([]string, 0, len(attrs)+1)
+		for _, attr := range attrs {
+			parts = append(parts, rs.Primary.Attributes[attr])
+		}
+		return strings.Join(append(parts, rs.Primary.ID), ","), nil
+	}
 }
