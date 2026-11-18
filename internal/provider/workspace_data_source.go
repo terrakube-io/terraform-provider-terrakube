@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"terraform-provider-terrakube/internal/client"
@@ -181,7 +182,7 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 
 	req.Config.Get(ctx, &state)
 
-	reqOrg, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, state.Organization.ValueString()), nil)
+	reqOrg, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, url.QueryEscape(rsqlQuote(state.Organization.ValueString()))), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Workspace datasource request", fmt.Sprintf("Error creating Workspace datasource request: %s", err))
 		return
@@ -215,20 +216,15 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	if len(orgs) == 0 {
-		resp.Diagnostics.AddError(fmt.Sprintf("Organization %s not found!", state.Organization.String()), state.Organization.String())
+	organization := findSingleByName(&resp.Diagnostics, "organization", state.Organization.ValueString(), "", orgs,
+		func(e *client.OrganizationEntity) string { return e.Name })
+	if organization == nil {
 		return
 	}
-
-	for _, organization := range orgs {
-		data, _ := organization.(*client.OrganizationEntity)
-		state.OrganizationID = types.StringValue(data.ID)
-		state.ID = types.StringValue(data.ID)
-		state.Description = types.StringPointerValue(data.Description)
-	}
+	state.OrganizationID = types.StringValue(organization.ID)
 
 	// now try to find the workspace
-	reqWS, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace?filter[workspace]=name==%s", d.endpoint, state.OrganizationID.ValueString(), state.Name.ValueString()), nil)
+	reqWS, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace?filter[workspace]=name==%s", d.endpoint, url.PathEscape(state.OrganizationID.ValueString()), url.QueryEscape(rsqlQuote(state.Name.ValueString()))), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Workspace datasource request part 2", fmt.Sprintf("Error creating Workspace datasource request part 2: %s", err))
 		return
@@ -262,35 +258,32 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	if len(workspaces) == 0 {
-		resp.Diagnostics.AddError(fmt.Sprintf("Workspace %s not found!", state.Name.String()), state.Name.String())
+	data := findSingleByName(&resp.Diagnostics, "workspace", state.Name.ValueString(), " in organization "+state.Organization.ValueString(), workspaces,
+		func(e *client.WorkspaceEntity) string { return e.Name })
+	if data == nil {
 		return
 	}
-
-	for _, workspace := range workspaces {
-		data, _ := workspace.(*client.WorkspaceEntity)
-		state.ID = types.StringValue(data.ID)
-		state.Description = types.StringPointerValue(data.Description)
-		state.Source = types.StringValue(data.Source)
-		state.Branch = types.StringValue(data.Branch)
-		state.Folder = types.StringValue(data.Folder)
-		state.TemplateID = types.StringValue(data.TemplateId)
-		state.IaCType = types.StringValue(data.IaCType)
-		state.IaCVersion = types.StringValue(data.IaCVersion)
-		state.ExecutionMode = types.StringValue(data.ExecutionMode)
-		state.Deleted = types.BoolValue(data.Deleted)
-		state.RestrictApplyToConfiguredBranch = types.BoolPointerValue(data.RestrictApplyToConfiguredBranch)
-		state.RequireApproveToApply = types.BoolPointerValue(data.RequireApproveToApply)
-		state.AllowRemoteApply = types.BoolValue(data.AllowRemoteApply)
-		if data.Vcs != nil {
-			state.VCSID = types.StringValue(data.Vcs.ID)
-		}
-		if data.Ssh != nil {
-			state.SSHID = types.StringValue(data.Ssh.ID)
-		}
-		state.ModuleSshKey = types.StringPointerValue(data.ModuleSshKey)
-		state.PolicyComplianceStatus = types.StringValue(data.PolicyComplianceStatus)
+	state.ID = types.StringValue(data.ID)
+	state.Description = types.StringPointerValue(data.Description)
+	state.Source = types.StringValue(data.Source)
+	state.Branch = types.StringValue(data.Branch)
+	state.Folder = types.StringValue(data.Folder)
+	state.TemplateID = types.StringValue(data.TemplateId)
+	state.IaCType = types.StringValue(data.IaCType)
+	state.IaCVersion = types.StringValue(data.IaCVersion)
+	state.ExecutionMode = types.StringValue(data.ExecutionMode)
+	state.Deleted = types.BoolValue(data.Deleted)
+	state.RestrictApplyToConfiguredBranch = types.BoolPointerValue(data.RestrictApplyToConfiguredBranch)
+	state.RequireApproveToApply = types.BoolPointerValue(data.RequireApproveToApply)
+	state.AllowRemoteApply = types.BoolValue(data.AllowRemoteApply)
+	if data.Vcs != nil {
+		state.VCSID = types.StringValue(data.Vcs.ID)
 	}
+	if data.Ssh != nil {
+		state.SSHID = types.StringValue(data.Ssh.ID)
+	}
+	state.ModuleSshKey = types.StringPointerValue(data.ModuleSshKey)
+	state.PolicyComplianceStatus = types.StringValue(data.PolicyComplianceStatus)
 
 	diags := resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
