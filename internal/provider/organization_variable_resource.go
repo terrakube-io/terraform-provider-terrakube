@@ -432,9 +432,23 @@ func (r *OrganizationVariableResource) Delete(ctx context.Context, req resource.
 	}
 	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
-	_, err = r.client.Do(organizationVarRequest)
+	response, err := r.client.Do(organizationVarRequest)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing organization variable resource request", fmt.Sprintf("Error executing organization variable resource request: %s", err))
+		return
+	}
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		tflog.Error(ctx, "Error reading organization variable response body", map[string]any{"error": err.Error()})
+	}
+
+	// A resource that is already gone is what a delete wants.
+	if response.StatusCode == http.StatusNotFound {
+		return
+	}
+	if reportAPIErrorStatus(&resp.Diagnostics, "deleting organization variable", response, body) {
 		return
 	}
 }

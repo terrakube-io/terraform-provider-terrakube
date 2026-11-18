@@ -205,6 +205,12 @@ func (r *AgentResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		return
 	}
 
+	if agentResponse.StatusCode == http.StatusNotFound {
+		tflog.Warn(ctx, "Self hosted agent not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	bodyResponse, err := io.ReadAll(agentResponse.Body)
 	if err != nil {
 		tflog.Error(ctx, "Error reading self hosted agent resource response")
@@ -347,9 +353,23 @@ func (r *AgentResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 	}
 	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
-	_, err = r.client.Do(reqOrg)
+	response, err := r.client.Do(reqOrg)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing self hosted agent resource request", fmt.Sprintf("Error executing self hosted agent resource request: %s", err))
+		return
+	}
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		tflog.Error(ctx, "Error reading self hosted agent response body", map[string]any{"error": err.Error()})
+	}
+
+	// A resource that is already gone is what a delete wants.
+	if response.StatusCode == http.StatusNotFound {
+		return
+	}
+	if reportAPIErrorStatus(&resp.Diagnostics, "deleting self hosted agent", response, body) {
 		return
 	}
 }

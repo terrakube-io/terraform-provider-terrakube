@@ -12,7 +12,7 @@ func TestOrganizationTagResource(t *testing.T) {
 	str := func(v string) tftypes.Value { return tftypes.NewValue(tftypes.String, v) }
 	runCrudResourceTests(t, crudResourceCase{
 		itemType:   "tag",
-		collection: "/tag",
+		collection: "/api/v1/organization/org-1/tag",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
 			return &OrganizationTagResource{client: c, endpoint: endpoint, token: "test-token"}
 		},

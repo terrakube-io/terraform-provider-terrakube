@@ -20,7 +20,7 @@ func TestOrganizationTemplateResource(t *testing.T) {
 
 	runCrudResourceTests(t, crudResourceCase{
 		itemType:   "template",
-		collection: "/template",
+		collection: "/api/v1/organization/org-1/template",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
 			return &OrganizationTemplateResource{client: c, endpoint: endpoint, token: "test-token"}
 		},

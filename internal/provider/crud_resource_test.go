@@ -5,15 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
-	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
@@ -21,8 +21,20 @@ import (
 // read, updated, deleted and imported as `organization_id,id`.
 type crudResourceCase struct {
 	itemType   string // JSON:API type, for example "tag"
-	collection string // for example /api/v1/organization/org-1/tag
+	collection string // full path, for example /api/v1/organization/org-1/tag
 	newSource  func(client *http.Client, endpoint string) resource.Resource
+
+	// scope holds the parent IDs a nested resource has, for example project_id.
+	scope map[string]tftypes.Value
+
+	// importID, wantImported and badImportIDs default to "org-9,item-9" for organization_id
+	// and id. Nested resources have a longer ID.
+	importID     string
+	wantImported map[string]string
+	badImportIDs []string
+
+	// deleteMissingIsOK is set for resources whose Delete treats a 404 as success.
+	deleteMissingIsOK bool
 
 	// create is the planned configuration. wantSent are the attributes that must be in the
 	// request body, and wantCreated the state afterwards.
@@ -171,6 +183,9 @@ func (h *crudHarness) value(id tftypes.Value, attrs map[string]tftypes.Value) tf
 		"id":              id,
 		"organization_id": tftypes.NewValue(tftypes.String, crudOrgID),
 	}
+	for k, v := range h.tc.scope {
+		values[k] = v
+	}
 	for k, v := range attrs {
 		values[k] = v
 	}
@@ -247,13 +262,35 @@ func (h *crudHarness) importState(id string) *resource.ImportStateResponse {
 	return resp
 }
 
+// attr returns an attribute of the state as a string. Numbers and booleans are formatted, and a
+// null is "<null>".
 func (h *crudHarness) attr(state tfsdk.State, name string) string {
 	h.t.Helper()
-	var v types.String
-	if diags := state.GetAttribute(h.ctx, path.Root(name), &v); diags.HasError() {
-		h.t.Fatalf("reading %s from state: %v", name, diags)
+	var values map[string]tftypes.Value
+	if err := state.Raw.As(&values); err != nil {
+		h.t.Fatalf("reading the state: %v", err)
 	}
-	return v.ValueString()
+	value, ok := values[name]
+	if !ok {
+		h.t.Fatalf("the state has no attribute %s", name)
+	}
+	if value.IsNull() {
+		return "<null>"
+	}
+	var text string
+	if err := value.As(&text); err == nil {
+		return text
+	}
+	var flag bool
+	if err := value.As(&flag); err == nil {
+		return strconv.FormatBool(flag)
+	}
+	var number *big.Float
+	if err := value.As(&number); err == nil {
+		return number.Text('f', -1)
+	}
+	h.t.Fatalf("attribute %s has an unsupported type %s", name, value.Type())
+	return ""
 }
 
 func (h *crudHarness) checkState(state tfsdk.State, want map[string]string) {
@@ -287,7 +324,6 @@ func checkSent(t *testing.T, request crudRequest, want map[string]any) {
 
 func runCrudResourceTests(t *testing.T, tc crudResourceCase) {
 	t.Helper()
-	tc.collection = "/api/v1/organization/" + crudOrgID + tc.collection
 
 	t.Run("create", func(t *testing.T) {
 		h := newCrudHarness(t, tc)
@@ -442,15 +478,33 @@ func runCrudResourceTests(t *testing.T, tc crudResourceCase) {
 		}
 	})
 
+	if tc.deleteMissingIsOK {
+		t.Run("delete succeeds when the resource is already gone", func(t *testing.T) {
+			h := newCrudHarness(t, tc)
+			prior := h.createdState()
+			h.server.fail[http.MethodDelete] = http.StatusNotFound
+			if resp := h.delete(prior); resp.Diagnostics.HasError() {
+				t.Errorf("a 404 on delete must not be an error: %v", resp.Diagnostics)
+			}
+		})
+	}
+
 	t.Run("import", func(t *testing.T) {
 		h := newCrudHarness(t, tc)
-		resp := h.importState("org-9,item-9")
+		importID, want, bad := tc.importID, tc.wantImported, tc.badImportIDs
+		if importID == "" {
+			importID = "org-9,item-9"
+			want = map[string]string{"organization_id": "org-9", "id": "item-9"}
+			bad = []string{"item-9", "org-9,", ",item-9", "org-9,item-9,extra", ""}
+		}
+
+		resp := h.importState(importID)
 		if resp.Diagnostics.HasError() {
 			t.Fatalf("ImportState returned diagnostics: %v", resp.Diagnostics)
 		}
-		h.checkState(resp.State, map[string]string{"organization_id": "org-9", "id": "item-9"})
+		h.checkState(resp.State, want)
 
-		for _, id := range []string{"item-9", "org-9,", ",item-9", "org-9,item-9,extra", ""} {
+		for _, id := range bad {
 			if resp := h.importState(id); !resp.Diagnostics.HasError() {
 				t.Errorf("expected an error for import ID %q", id)
 			}
