@@ -1,0 +1,73 @@
+---
+page_title: "{{.ProviderShortName}} Provider"
+description: |-
+  Manage Terrakube organizations, workspaces, teams, policies and their settings as code.
+---
+
+# {{.ProviderShortName}} Provider
+
+Use the Terrakube provider to manage [Terrakube](https://docs.terrakube.io) as code: organizations, projects,
+workspaces and their variables, teams and access, VCS connections, modules, policies and notifications.
+
+The provider talks to the Terrakube API, so it needs the API endpoint and a token. Each Terrakube server
+version is supported by specific provider releases; see
+[Supported Terrakube versions](https://registry.terraform.io/providers/terrakube-io/terrakube/latest/docs/guides/compatibility).
+
+## Example Usage
+
+{{ tffile "examples/provider/provider.tf" }}
+
+```shell
+export TERRAKUBE_ENDPOINT="https://terrakube-api.example.com"
+export TERRAKUBE_TOKEN="..."
+terraform plan
+```
+
+## Authentication
+
+The provider needs two values. Set them with environment variables, or in the `provider` block.
+
+| Setting | Environment variable | Value |
+|---|---|---|
+| `endpoint` | `TERRAKUBE_ENDPOINT` | The URL of the Terrakube **API**, not the UI. For example `https://terrakube-api.example.com`. |
+| `token` | `TERRAKUBE_TOKEN` | A Terrakube API token. |
+
+The provider can use two kinds of token:
+
+- **Personal token.** Acts as the user who created it, with that user's permissions. Create one in the
+  Terrakube UI: open the profile menu (top right), choose **User Settings**, then **Tokens**. See
+  [API tokens](https://docs.terrakube.io/user-guide/organizations/api-tokens).
+- **Team token.** Acts as a team, with only the permissions that team has in the organization. Use one
+  for CI and other automation, so a pipeline doesn't run with a person's access. You can only create
+  one for a team you belong to, in the Terrakube UI or with the `terrakube_team_token` resource.
+
+Don't put the token in your configuration. If you need to set it in the `provider` block, pass it in
+through a variable. With Terraform 1.10 or later, or OpenTofu 1.11 or later, make the variable
+`ephemeral` so the token is never written to the plan or state:
+
+```terraform
+variable "terrakube_token" {
+  type      = string
+  sensitive = true
+  ephemeral = true
+}
+
+provider "terrakube" {
+  endpoint = "https://terrakube-api.example.com"
+  token    = var.terrakube_token
+}
+```
+
+`insecure_http_client` turns off TLS certificate checks. Use it only to test against a server with a
+self-signed certificate.
+
+## Secrets
+
+Arguments that hold secrets, such as variable values, VCS client secrets and SSH private keys, have a
+write-only version (`*_wo`) that is never stored in state. See
+[Write-only arguments](https://registry.terraform.io/providers/terrakube-io/terrakube/latest/docs/guides/write-only-arguments).
+
+To bring existing Terrakube objects under management, see
+[Importing resources](https://registry.terraform.io/providers/terrakube-io/terrakube/latest/docs/guides/importing-resources).
+
+{{ .SchemaMarkdown | trimspace }}

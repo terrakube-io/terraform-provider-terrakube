@@ -6,8 +6,6 @@ terraform {
   }
 }
 
-provider "terrakube" {
-  endpoint             = "http://terrakube-api.minikube.net"
-  token                = "12345"
-  insecure_http_client = true
-}
+# Reads the API endpoint and token from the TERRAKUBE_ENDPOINT and
+# TERRAKUBE_TOKEN environment variables.
+provider "terrakube" {}

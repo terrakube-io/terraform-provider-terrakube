@@ -1,6 +1,6 @@
 ---
 page_title: "terrakube_workspace_access Resource - terrakube"
-subcategory: ""
+subcategory: "Teams and Access"
 description: |-
   Manage workspace access.
 ---

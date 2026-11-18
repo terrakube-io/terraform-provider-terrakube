@@ -1,6 +1,6 @@
 ---
 page_title: "terrakube_team Resource - terrakube"
-subcategory: ""
+subcategory: "Teams and Access"
 description: |-
   Create a team and bind it to an organization. Allows for fine-grained access management.
 ---
