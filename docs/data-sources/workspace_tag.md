@@ -42,4 +42,4 @@ data "terrakube_workspace_tag" "example" {
 
 - `id` (String) Workspace Tag Id
 - `tag_id` (String) Organization Tag Id
-- `value` (String) Value of a key/value tag. Null for a key-only tag or when the Terrakube version does not support tag values.
+- `value` (String) Value of a key/value tag (Terrakube 2.34.0+). Null for a key-only tag, or on older Terrakube versions.

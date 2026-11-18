@@ -78,22 +78,23 @@ func (d *FederatedCredentialDataSource) Metadata(_ context.Context, req datasour
 
 func (d *FederatedCredentialDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Looks up a federated credential by name. A federated credential lets Terrakube accept tokens from an external identity provider, such as GitHub Actions, GitLab CI or Azure AD. Use `id` to add claim conditions with `terrakube_federated_credential_claim`.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
-				Description: "Federated credential ID",
+				Description: "ID of the federated credential.",
 			},
 			"name": schema.StringAttribute{
 				Required:    true,
-				Description: "Federated credential name",
+				Description: "Name of the federated credential.",
 			},
 			"issuer_url": schema.StringAttribute{
 				Computed:    true,
-				Description: "Issuer URL of the external identity provider",
+				Description: "Issuer URL of the external identity provider.",
 			},
 			"audience": schema.StringAttribute{
 				Computed:    true,
-				Description: "Audience expected in tokens issued by the identity provider",
+				Description: "Audience that tokens from the identity provider must have.",
 			},
 		},
 	}

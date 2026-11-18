@@ -69,7 +69,7 @@ func (r *WorkspaceTagResource) Schema(ctx context.Context, req resource.SchemaRe
 			},
 			"value": schema.StringAttribute{
 				Optional:    true,
-				Description: "Value of the tag in this workspace. Omit it for a key-only tag.",
+				Description: "Value of the tag in this workspace (Terrakube 2.34.0+). Omit it for a key-only tag, which works on older versions too.",
 				Validators: []validator.String{
 					stringvalidator.LengthBetween(1, 256),
 				},

@@ -3,12 +3,12 @@
 page_title: "terrakube_organization Data Source - terrakube"
 subcategory: "Organizations"
 description: |-
-  
+  Looks up an organization by name. Most other resources and data sources take the organization's id as organization_id.
 ---
 
 # terrakube_organization (Data Source)
 
-
+Looks up an organization by name. Most other resources and data sources take the organization's `id` as `organization_id`.
 
 ## Example Usage
 
@@ -23,11 +23,11 @@ data "terrakube_organization" "org" {
 
 ### Required
 
-- `name` (String) Organization Name
+- `name` (String) Name of the organization.
 
 ### Read-Only
 
-- `description` (String) Organization description information
-- `execution_mode` (String) Select default execution mode for the organization (remote or local)
-- `icon` (String) Organization icon in format name:color
-- `id` (String) Organization Id
+- `description` (String) Description of the organization.
+- `execution_mode` (String) Default execution mode for the organization's workspaces: `remote` or `local`.
+- `icon` (String) Icon of the organization, in the format `name:color`.
+- `id` (String) ID of the organization.

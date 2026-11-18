@@ -81,22 +81,23 @@ func (d *ProjectDataSource) Metadata(_ context.Context, req datasource.MetadataR
 
 func (d *ProjectDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Looks up a project by name. Unlike most data sources, it takes the organization's name, not its ID.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
-				Description: "Project Id",
+				Description: "ID of the project.",
 			},
 			"organization": schema.StringAttribute{
 				Required:    true,
-				Description: "Organization Name",
+				Description: "Name of the organization the project belongs to.",
 			},
 			"name": schema.StringAttribute{
 				Required:    true,
-				Description: "Project Name",
+				Description: "Name of the project.",
 			},
 			"description": schema.StringAttribute{
 				Computed:    true,
-				Description: "Project description",
+				Description: "Description of the project.",
 			},
 		},
 	}

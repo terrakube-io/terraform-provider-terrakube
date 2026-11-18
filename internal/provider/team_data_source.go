@@ -92,54 +92,55 @@ func (d *TeamDataSource) Metadata(_ context.Context, req datasource.MetadataRequ
 
 func (d *TeamDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Looks up a team by name and reads its permissions in the organization. Unlike most data sources, it takes the organization's name, not its ID.",
 		Attributes: map[string]schema.Attribute{
-			"role":        schema.StringAttribute{Computed: true, Description: "Predefined RBAC role"},
-			"plan_job":    schema.BoolAttribute{Computed: true, Description: "Allow queuing plans"},
-			"approve_job": schema.BoolAttribute{Computed: true, Description: "Allow approving/applying runs"},
-			"destroy_job": schema.BoolAttribute{Computed: true, Description: "Allow destroy runs for custom roles (Terrakube 2.34.0+)"},
+			"role":        schema.StringAttribute{Computed: true, Description: "Predefined role of the team: `admin`, `write`, `plan`, `read` or `custom`. Null when the team uses only the permission flags."},
+			"plan_job":    schema.BoolAttribute{Computed: true, Description: "Whether the team can queue plans."},
+			"approve_job": schema.BoolAttribute{Computed: true, Description: "Whether the team can approve and apply runs."},
+			"destroy_job": schema.BoolAttribute{Computed: true, Description: "Whether the team can start destroy runs, when `role` is `custom` or not set (Terrakube 2.34.0+)."},
 			"organization": schema.StringAttribute{
 				Required:    true,
-				Description: "Organization Name",
+				Description: "Name of the organization the team belongs to.",
 			},
 			"name": schema.StringAttribute{
 				Required:    true,
-				Description: "Team Name",
+				Description: "Name of the team. For a team that maps to an identity provider group, this is the group name.",
 			},
 			"manage_collection": schema.BoolAttribute{
 				Computed:    true,
-				Description: "Manages collection",
+				Description: "Whether the team can manage variable collections.",
 			},
 			"manage_job": schema.BoolAttribute{
 				Computed:    true,
-				Description: "Manage Jobs",
+				Description: "Whether the team can manage and start jobs. In RBAC v2, `plan_job` and `approve_job` inherit this when they are not set.",
 			},
 			"manage_module": schema.BoolAttribute{
 				Computed:    true,
-				Description: "Manage modules",
+				Description: "Whether the team can manage private registry modules.",
 			},
 			"manage_provider": schema.BoolAttribute{
 				Computed:    true,
-				Description: "Manage providers",
+				Description: "Whether the team can manage private registry providers.",
 			},
 			"manage_state": schema.BoolAttribute{
 				Computed:    true,
-				Description: "Manage states",
+				Description: "Whether the team can manage Terraform/OpenTofu state.",
 			},
 			"manage_template": schema.BoolAttribute{
 				Computed:    true,
-				Description: "Manage templatess",
+				Description: "Whether the team can manage templates.",
 			},
 			"manage_vcs": schema.BoolAttribute{
 				Computed:    true,
-				Description: "Manage vcs",
+				Description: "Whether the team can manage VCS connections.",
 			},
 			"manage_workspace": schema.BoolAttribute{
 				Computed:    true,
-				Description: "Manage workspaces",
+				Description: "Whether the team can manage workspaces.",
 			},
 			"manage_policies": schema.BoolAttribute{
 				Computed:    true,
-				Description: "Allow managing OPA policy sets, attachments, and exemptions",
+				Description: "Whether the team can manage OPA policy sets, attachments and exemptions.",
 			},
 		},
 	}

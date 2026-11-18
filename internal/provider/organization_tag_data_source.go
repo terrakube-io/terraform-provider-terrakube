@@ -80,18 +80,19 @@ func (d *OrganizationTagDataSource) Metadata(_ context.Context, req datasource.M
 
 func (d *OrganizationTagDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Looks up an organization tag by name. Use `id` to attach the tag to a workspace with `terrakube_workspace_tag`, or to attach a policy set to every workspace with the tag.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
-				Description: "The ID of the tag",
+				Description: "ID of the tag.",
 			},
 			"organization_id": schema.StringAttribute{
 				Required:    true,
-				Description: "The ID of the organization",
+				Description: "ID of the organization the tag belongs to.",
 			},
 			"name": schema.StringAttribute{
 				Required:    true,
-				Description: "The name of the tag",
+				Description: "Name of the tag.",
 			},
 		},
 	}

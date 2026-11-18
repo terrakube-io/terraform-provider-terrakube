@@ -72,7 +72,7 @@ func (d *WorkspaceTagDataSource) Schema(_ context.Context, _ datasource.SchemaRe
 			},
 			"value": schema.StringAttribute{
 				Computed:    true,
-				Description: "Value of a key/value tag. Null for a key-only tag or when the Terrakube version does not support tag values.",
+				Description: "Value of a key/value tag (Terrakube 2.34.0+). Null for a key-only tag, or on older Terrakube versions.",
 			},
 		},
 	}

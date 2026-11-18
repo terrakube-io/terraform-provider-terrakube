@@ -3,12 +3,12 @@
 page_title: "terrakube_workspace Data Source - terrakube"
 subcategory: "Workspaces"
 description: |-
-  
+  Looks up a workspace by name and reads its settings. Unlike most data sources, it takes the organization's name, not its ID, and returns organization_id as well.
 ---
 
 # terrakube_workspace (Data Source)
 
-
+Looks up a workspace by name and reads its settings. Unlike most data sources, it takes the organization's name, not its ID, and returns `organization_id` as well.
 
 ## Example Usage
 
@@ -24,26 +24,26 @@ data "terrakube_workspace" "ws" {
 
 ### Required
 
-- `name` (String) Workspace Name
-- `organization` (String) Organization Name
+- `name` (String) Name of the workspace.
+- `organization` (String) Name of the organization the workspace belongs to.
 
 ### Read-Only
 
-- `allowremoteapply` (Boolean) Allow remote apply
-- `branch` (String) Branch
-- `deleted` (Boolean) Deleted
-- `description` (String) Workspace description information
-- `executionmode` (String) Execution mode
-- `folder` (String) Folder
-- `iactype` (String) IaC type
-- `iacversion` (String) IaC version
-- `id` (String) Workspace Id
+- `allowremoteapply` (Boolean) Whether a VCS workspace allows an apply started from the CLI.
+- `branch` (String) Branch the workspace runs from. CLI workspaces have `remote-content`.
+- `deleted` (Boolean) Whether the workspace is marked as deleted.
+- `description` (String) Description of the workspace.
+- `executionmode` (String) Execution mode of the workspace: `remote` or `local`.
+- `folder` (String) Folder in the repository where the workspace runs.
+- `iactype` (String) IaC tool of the workspace: `terraform` or `tofu`.
+- `iacversion` (String) Version of the IaC tool.
+- `id` (String) ID of the workspace.
 - `module_ssh_key` (String) SSH key ID used to download private Terraform/OpenTofu modules referenced via git-based module sources within this workspace
-- `organization_id` (String) organization ID
+- `organization_id` (String) ID of the organization the workspace belongs to.
 - `policy_compliance_status` (String) OPA Policy compliance status: UNKNOWN, COMPLIANT, NON_COMPLIANT, or EXEMPTED
 - `require_approve_to_apply` (Boolean) Require approval permission to start an apply without a preceding approval step (Terrakube 2.34.0+)
 - `restrict_apply_to_configured_branch` (Boolean) Restrict infrastructure-changing runs to the configured workspace branch (Terrakube 2.34.0+)
-- `source` (String) Source
+- `source` (String) Repository URL of a VCS workspace. CLI workspaces have `empty`.
 - `sshid` (String) SSH key ID used to clone the workspace repository directly over SSH
-- `template_id` (String) template ID
-- `vcsid` (String) VCS ID
+- `template_id` (String) ID of the workspace's default template.
+- `vcsid` (String) ID of the VCS connection the workspace clones its repository with. Empty for a public repository or a CLI workspace.

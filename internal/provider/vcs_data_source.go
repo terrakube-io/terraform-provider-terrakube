@@ -83,38 +83,39 @@ func (d *VcsDataSource) Metadata(_ context.Context, req datasource.MetadataReque
 
 func (d *VcsDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Looks up a VCS connection by name. Use `id` as a workspace's `vcs_id` to run it from a private repository. Secrets and private keys are never returned.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:    true,
-				Description: "Vcs Id",
+				Description: "ID of the VCS connection.",
 			},
 			"organization_id": schema.StringAttribute{
 				Required:    true,
-				Description: "Terrakube organization id",
+				Description: "ID of the organization the VCS connection belongs to.",
 			},
 			"name": schema.StringAttribute{
 				Required:    true,
-				Description: "Vcs Name",
+				Description: "Name of the VCS connection.",
 			},
 			"description": schema.StringAttribute{
 				Computed:    true,
-				Description: "Vcs description information",
+				Description: "Description of the VCS connection.",
 			},
 			"client_id": schema.StringAttribute{
 				Computed:    true,
-				Description: "The client id of the Vcs provider",
+				Description: "Client ID, or GitHub App ID, of the VCS connection.",
 			},
 			"endpoint": schema.StringAttribute{
 				Computed:    true,
-				Description: "The endpoint of the Vcs provider",
+				Description: "Endpoint of the VCS provider, for example `https://github.com`.",
 			},
 			"api_url": schema.StringAttribute{
 				Computed:    true,
-				Description: "The api url of the Vcs provider",
+				Description: "API URL of the VCS provider, for example `https://api.github.com`.",
 			},
 			"status": schema.StringAttribute{
 				Computed:    true,
-				Description: "The status of the Vcs provider",
+				Description: "Status of the VCS connection. `PENDING` until the connection is authorized at its connect URL, then `COMPLETED`.",
 			},
 		},
 	}

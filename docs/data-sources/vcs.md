@@ -3,12 +3,12 @@
 page_title: "terrakube_vcs Data Source - terrakube"
 subcategory: "VCS and SSH"
 description: |-
-  
+  Looks up a VCS connection by name. Use id as a workspace's vcs_id to run it from a private repository. Secrets and private keys are never returned.
 ---
 
 # terrakube_vcs (Data Source)
 
-
+Looks up a VCS connection by name. Use `id` as a workspace's `vcs_id` to run it from a private repository. Secrets and private keys are never returned.
 
 ## Example Usage
 
@@ -28,14 +28,14 @@ data "terrakube_vcs" "vcs" {
 
 ### Required
 
-- `name` (String) Vcs Name
-- `organization_id` (String) Terrakube organization id
+- `name` (String) Name of the VCS connection.
+- `organization_id` (String) ID of the organization the VCS connection belongs to.
 
 ### Read-Only
 
-- `api_url` (String) The api url of the Vcs provider
-- `client_id` (String) The client id of the Vcs provider
-- `description` (String) Vcs description information
-- `endpoint` (String) The endpoint of the Vcs provider
-- `id` (String) Vcs Id
-- `status` (String) The status of the Vcs provider
+- `api_url` (String) API URL of the VCS provider, for example `https://api.github.com`.
+- `client_id` (String) Client ID, or GitHub App ID, of the VCS connection.
+- `description` (String) Description of the VCS connection.
+- `endpoint` (String) Endpoint of the VCS provider, for example `https://github.com`.
+- `id` (String) ID of the VCS connection.
+- `status` (String) Status of the VCS connection. `PENDING` until the connection is authorized at its connect URL, then `COMPLETED`.
