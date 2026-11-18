@@ -375,11 +375,12 @@ func (r *CollectionReferenceResource) Delete(ctx context.Context, req resource.D
 	}
 	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
-	_, err = r.client.Do(workspaceRequest)
+	response, err := r.client.Do(workspaceRequest)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing collection reference resource request", fmt.Sprintf("Error executing collection reference resource request: %s", err))
 		return
 	}
+	reportDeleteFailure(&resp.Diagnostics, "deleting collection reference", response)
 }
 
 func (r *CollectionReferenceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

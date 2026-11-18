@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"terraform-provider-terrakube/internal/client"
@@ -113,36 +115,35 @@ func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	tflog.Info(ctx, state.Workspace.ValueString())
 	tflog.Info(ctx, state.Organization.ValueString())
 
-	orgs := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, state.Organization.ValueString()), ctx, resp, new(client.OrganizationEntity))
-
-	if len(orgs) == 0 {
-		resp.Diagnostics.AddError(fmt.Sprintf("Organization %s not found!", state.Organization.String()), state.Organization.String())
+	orgs := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, url.QueryEscape(rsqlQuote(state.Organization.ValueString()))), ctx, resp, new(client.OrganizationEntity))
+	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	var OrganizationID string
-	for _, organization := range orgs {
-		data, _ := organization.(*client.OrganizationEntity)
-		OrganizationID = data.ID
+	organization := findSingleByName(&resp.Diagnostics, "organization", state.Organization.ValueString(), "", orgs,
+		func(e *client.OrganizationEntity) string { return e.Name })
+	if organization == nil {
+		return
 	}
+	OrganizationID := organization.ID
 
 	// now try to find the Workspace
-	workspaces := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/workspace?filter[workspace]=name==%s", d.endpoint, OrganizationID, state.Workspace.ValueString()), ctx, resp, new(client.WorkspaceEntity))
-
-	if len(workspaces) == 0 {
-		resp.Diagnostics.AddError(fmt.Sprintf("Workspace %s not found!", state.Workspace.String()), state.Workspace.String())
+	workspaces := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/workspace?filter[workspace]=name==%s", d.endpoint, url.PathEscape(OrganizationID), url.QueryEscape(rsqlQuote(state.Workspace.ValueString()))), ctx, resp, new(client.WorkspaceEntity))
+	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	var WorkspaceId string
-	for _, ws := range workspaces {
-		data, _ := ws.(*client.WorkspaceEntity)
-		WorkspaceId = data.ID
+	workspace := findSingleByName(&resp.Diagnostics, "workspace", state.Workspace.ValueString(), " in organization "+state.Organization.ValueString(), workspaces,
+		func(e *client.WorkspaceEntity) string { return e.Name })
+	if workspace == nil {
+		return
 	}
+	WorkspaceId := workspace.ID
 	tflog.Info(ctx, WorkspaceId)
 
 	// Now that we found the workspace id we can query for the history
-	Histories := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/history?sort=-createdDate", d.endpoint, OrganizationID, WorkspaceId), ctx, resp, new(client.HistoryEntity))
+	Histories := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/history?sort=-createdDate", d.endpoint, url.PathEscape(OrganizationID), url.PathEscape(WorkspaceId)), ctx, resp, new(client.HistoryEntity))
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	if len(Histories) == 0 {
 		// No history for this workspace. That is not an error
@@ -177,10 +178,18 @@ func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		return
 	}
 
+	// Terrakube answers a missing output file with 200 and an empty body, because the history entry
+	// is saved before the state is uploaded. That is no outputs yet, not a corrupt file.
+	if len(bytes.TrimSpace(bodyFile)) == 0 {
+		tflog.Info(ctx, "The output file is empty, so there are no outputs yet")
+		return
+	}
+
 	var result map[string]interface{}
 	err = json.Unmarshal(bodyFile, &result)
 	if err != nil {
 		tflog.Error(ctx, "Error converting json result")
+		resp.Diagnostics.AddError("Unable to read the workspace output file", fmt.Sprintf("The output file is not valid JSON: %s", err))
 		return
 	}
 

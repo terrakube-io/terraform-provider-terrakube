@@ -362,20 +362,7 @@ func (r *CollectionResource) Delete(ctx context.Context, req resource.DeleteRequ
 		resp.Diagnostics.AddError("Error executing collection resource request", fmt.Sprintf("Error executing collection resource request: %s", err))
 		return
 	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading collection response body", map[string]any{"error": err.Error()})
-	}
-
-	// A resource that is already gone is what a delete wants.
-	if response.StatusCode == http.StatusNotFound {
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "deleting collection", response, body) {
-		return
-	}
+	reportDeleteFailure(&resp.Diagnostics, "deleting collection", response)
 }
 
 func (r *CollectionResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

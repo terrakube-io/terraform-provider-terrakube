@@ -36,6 +36,15 @@ type crudResourceCase struct {
 	// deleteMissingIsOK is set for resources whose Delete treats a 404 as success.
 	deleteMissingIsOK bool
 
+	// noOrganization is set for resources with no organization_id, for example federated
+	// credentials.
+	noOrganization bool
+
+	// deleteMethod is DELETE unless the resource deletes with another request, for example a
+	// PATCH that disables it. wantSentDelete are the attributes that request must carry.
+	deleteMethod   string
+	wantSentDelete map[string]any
+
 	// create is the planned configuration. wantSent are the attributes that must be in the
 	// request body, and wantCreated the state afterwards.
 	create        map[string]tftypes.Value
@@ -179,9 +188,9 @@ func newCrudHarness(t *testing.T, tc crudResourceCase) *crudHarness {
 }
 
 func (h *crudHarness) value(id tftypes.Value, attrs map[string]tftypes.Value) tftypes.Value {
-	values := map[string]tftypes.Value{
-		"id":              id,
-		"organization_id": tftypes.NewValue(tftypes.String, crudOrgID),
+	values := map[string]tftypes.Value{"id": id}
+	if !h.tc.noOrganization {
+		values["organization_id"] = tftypes.NewValue(tftypes.String, crudOrgID)
 	}
 	for k, v := range h.tc.scope {
 		values[k] = v
@@ -324,6 +333,10 @@ func checkSent(t *testing.T, request crudRequest, want map[string]any) {
 
 func runCrudResourceTests(t *testing.T, tc crudResourceCase) {
 	t.Helper()
+	deleteMethod := tc.deleteMethod
+	if deleteMethod == "" {
+		deleteMethod = http.MethodDelete
+	}
 
 	t.Run("create", func(t *testing.T) {
 		h := newCrudHarness(t, tc)
@@ -342,7 +355,10 @@ func runCrudResourceTests(t *testing.T, tc crudResourceCase) {
 		}
 		checkSent(t, request, tc.wantSent)
 
-		want := map[string]string{"id": crudItemID, "organization_id": crudOrgID}
+		want := map[string]string{"id": crudItemID}
+		if !tc.noOrganization {
+			want["organization_id"] = crudOrgID
+		}
 		for k, v := range tc.wantCreated {
 			want[k] = v
 		}
@@ -463,16 +479,19 @@ func runCrudResourceTests(t *testing.T, tc crudResourceCase) {
 		if resp.Diagnostics.HasError() {
 			t.Fatalf("Delete returned diagnostics: %v", resp.Diagnostics)
 		}
-		request, ok := h.server.lastRequest(http.MethodDelete)
+		request, ok := h.server.lastRequest(deleteMethod)
 		if !ok || request.path != tc.collection+"/"+crudItemID {
-			t.Errorf("expected a DELETE of the item, got %+v", request)
+			t.Errorf("expected a %s of the item, got %+v", deleteMethod, request)
+		}
+		if tc.wantSentDelete != nil {
+			checkSent(t, request, tc.wantSentDelete)
 		}
 	})
 
 	t.Run("delete reports an API error", func(t *testing.T) {
 		h := newCrudHarness(t, tc)
 		prior := h.createdState()
-		h.server.fail[http.MethodDelete] = http.StatusInternalServerError
+		h.server.fail[deleteMethod] = http.StatusInternalServerError
 		if resp := h.delete(prior); !resp.Diagnostics.HasError() {
 			t.Error("expected an error diagnostic")
 		}
@@ -482,7 +501,7 @@ func runCrudResourceTests(t *testing.T, tc crudResourceCase) {
 		t.Run("delete succeeds when the resource is already gone", func(t *testing.T) {
 			h := newCrudHarness(t, tc)
 			prior := h.createdState()
-			h.server.fail[http.MethodDelete] = http.StatusNotFound
+			h.server.fail[deleteMethod] = http.StatusNotFound
 			if resp := h.delete(prior); resp.Diagnostics.HasError() {
 				t.Errorf("a 404 on delete must not be an error: %v", resp.Diagnostics)
 			}

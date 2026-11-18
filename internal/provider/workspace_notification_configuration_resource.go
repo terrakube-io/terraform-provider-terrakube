@@ -468,11 +468,12 @@ func (r *WorkspaceNotificationConfigurationResource) Delete(ctx context.Context,
 	}
 	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
-	_, err = r.client.Do(request)
+	response, err := r.client.Do(request)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing workspace notification configuration resource request", fmt.Sprintf("Error executing workspace notification configuration resource request: %s", err))
 		return
 	}
+	reportDeleteFailure(&resp.Diagnostics, "deleting workspace notification configuration", response)
 }
 
 func (r *WorkspaceNotificationConfigurationResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {

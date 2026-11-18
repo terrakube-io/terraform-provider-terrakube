@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"net/http"
 	"strings"
 
@@ -70,4 +71,18 @@ func apiErrorDetail(body []byte) string {
 	}
 
 	return "The API returned no readable response body."
+}
+
+// reportDeleteFailure reads and closes the response to a DELETE, and adds an error diagnostic
+// when it failed. A 404 is not a failure: the object is already gone, which is what the delete
+// wanted. Without this check, an error such as a 403 or a 500 would count as a successful
+// delete and the object would leave the state while it still exists.
+func reportDeleteFailure(diags *diag.Diagnostics, action string, response *http.Response) {
+	defer response.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if response.StatusCode == http.StatusNotFound {
+		return
+	}
+	reportAPIErrorStatus(diags, action, response, body)
 }

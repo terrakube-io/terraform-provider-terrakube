@@ -345,11 +345,12 @@ func (r *WorkspaceScheduleResource) Delete(ctx context.Context, req resource.Del
 	}
 	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
-	_, err = r.client.Do(workspaceRequest)
+	response, err := r.client.Do(workspaceRequest)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing Workspace schedule resource request", fmt.Sprintf("Error executing Workspace schedule resource request: %s", err))
 		return
 	}
+	reportDeleteFailure(&resp.Diagnostics, "deleting workspace schedule", response)
 }
 
 func (r *WorkspaceScheduleResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

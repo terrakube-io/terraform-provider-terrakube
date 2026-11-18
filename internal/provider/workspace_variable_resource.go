@@ -438,20 +438,7 @@ func (r *WorkspaceVariableResource) Delete(ctx context.Context, req resource.Del
 		resp.Diagnostics.AddError("Error executing Workspace variable resource request", fmt.Sprintf("Error executing Workspace variable resource request: %s", err))
 		return
 	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading workspace variable response body", map[string]any{"error": err.Error()})
-	}
-
-	// A resource that is already gone is what a delete wants.
-	if response.StatusCode == http.StatusNotFound {
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "deleting workspace variable", response, body) {
-		return
-	}
+	reportDeleteFailure(&resp.Diagnostics, "deleting workspace variable", response)
 }
 
 func (r *WorkspaceVariableResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

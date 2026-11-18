@@ -482,11 +482,12 @@ func (r *CollectionItemResource) Delete(ctx context.Context, req resource.Delete
 	}
 	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
 
-	_, err = r.client.Do(workspaceRequest)
+	response, err := r.client.Do(workspaceRequest)
 	if err != nil {
 		resp.Diagnostics.AddError("Error executing collection item resource request", fmt.Sprintf("Error executing collection item resource request: %s", err))
 		return
 	}
+	reportDeleteFailure(&resp.Diagnostics, "deleting collection item", response)
 }
 
 func (r *CollectionItemResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
