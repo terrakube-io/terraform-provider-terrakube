@@ -25,8 +25,14 @@ func TestAccOrganizationTemplateDataSource(t *testing.T) {
 }
 
 func TestAccOrganizationVariableDataSource(t *testing.T) {
-	testAccDataSource(t, testAccCheckSameAttrs("data.terrakube_organization_variable.test", "terrakube_organization_variable.test",
-		"id", "organization_id", "key", "value", "description", "category", "sensitive", "hcl"))
+	testAccDataSource(t, resource.ComposeAggregateTestCheckFunc(
+		testAccCheckSameAttrs("data.terrakube_organization_variable.test", "terrakube_organization_variable.test",
+			"id", "organization_id", "key", "value", "description", "category", "sensitive", "hcl"),
+		testAccCheckSameAttrs("data.terrakube_organization_variable.secret", "terrakube_organization_variable.secret",
+			"id", "organization_id", "key", "description", "category", "sensitive", "hcl"),
+		resource.TestCheckResourceAttr("data.terrakube_organization_variable.secret", "sensitive", "true"),
+		resource.TestCheckNoResourceAttr("data.terrakube_organization_variable.secret", "value"),
+	))
 }
 
 func TestAccProjectDataSource(t *testing.T) {

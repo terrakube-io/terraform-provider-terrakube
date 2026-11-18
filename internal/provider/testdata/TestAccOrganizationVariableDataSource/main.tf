@@ -38,3 +38,20 @@ data "terrakube_organization_variable" "test" {
   organization_id = terrakube_organization.test.id
   key             = terrakube_organization_variable.test.key
 }
+
+# Terrakube never returns the value of a sensitive variable, so the data source reads it as null.
+resource "terrakube_organization_variable" "secret" {
+  depends_on      = [terrakube_team.admins]
+  organization_id = terrakube_organization.test.id
+  key             = "ACC_SECRET"
+  value           = "acceptance-secret"
+  description     = "Acceptance test sensitive variable"
+  category        = "ENV"
+  sensitive       = true
+  hcl             = false
+}
+
+data "terrakube_organization_variable" "secret" {
+  organization_id = terrakube_organization.test.id
+  key             = terrakube_organization_variable.secret.key
+}

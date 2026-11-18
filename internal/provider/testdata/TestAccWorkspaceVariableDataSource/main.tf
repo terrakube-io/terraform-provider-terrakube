@@ -49,3 +49,21 @@ data "terrakube_workspace_variable" "test" {
   workspace_id    = terrakube_workspace_cli.test.id
   key             = terrakube_workspace_variable.test.key
 }
+
+# Terrakube never returns the value of a sensitive variable, so the data source reads it as null.
+resource "terrakube_workspace_variable" "secret" {
+  organization_id = terrakube_organization.test.id
+  workspace_id    = terrakube_workspace_cli.test.id
+  key             = "acc_secret"
+  value           = "acceptance-secret"
+  description     = "Acceptance test sensitive variable"
+  category        = "TERRAFORM"
+  sensitive       = true
+  hcl             = false
+}
+
+data "terrakube_workspace_variable" "secret" {
+  organization_id = terrakube_organization.test.id
+  workspace_id    = terrakube_workspace_cli.test.id
+  key             = terrakube_workspace_variable.secret.key
+}

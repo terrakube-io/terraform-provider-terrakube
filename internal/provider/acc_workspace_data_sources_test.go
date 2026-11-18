@@ -41,8 +41,14 @@ func TestAccWorkspaceTagDataSource_value(t *testing.T) {
 }
 
 func TestAccWorkspaceVariableDataSource(t *testing.T) {
-	testAccDataSource(t, testAccCheckSameAttrs("data.terrakube_workspace_variable.test", "terrakube_workspace_variable.test",
-		"id", "organization_id", "workspace_id", "key", "value", "description", "category", "sensitive", "hcl"))
+	testAccDataSource(t, resource.ComposeAggregateTestCheckFunc(
+		testAccCheckSameAttrs("data.terrakube_workspace_variable.test", "terrakube_workspace_variable.test",
+			"id", "organization_id", "workspace_id", "key", "value", "description", "category", "sensitive", "hcl"),
+		testAccCheckSameAttrs("data.terrakube_workspace_variable.secret", "terrakube_workspace_variable.secret",
+			"id", "organization_id", "workspace_id", "key", "description", "category", "sensitive", "hcl"),
+		resource.TestCheckResourceAttr("data.terrakube_workspace_variable.secret", "sensitive", "true"),
+		resource.TestCheckNoResourceAttr("data.terrakube_workspace_variable.secret", "value"),
+	))
 }
 
 func TestAccWorkspaceAccessDataSource(t *testing.T) {
