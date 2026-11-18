@@ -51,7 +51,7 @@ resource "terrakube_team" "team" {
 
 ### Required
 
-- `name` (String) Team name
+- `name` (String) Team name. Changing this forces a new resource.
 - `organization_id` (String) Terrakube organization id
 
 ### Optional

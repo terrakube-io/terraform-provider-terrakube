@@ -57,7 +57,7 @@ func (r *FederatedCredentialClaimResource) Schema(ctx context.Context, req resou
 			},
 			"federated_credential_id": schema.StringAttribute{
 				Required:    true,
-				Description: "Terrakube federated credential ID this claim condition belongs to",
+				Description: "Terrakube federated credential ID this claim condition belongs to. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},

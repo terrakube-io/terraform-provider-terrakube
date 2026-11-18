@@ -45,7 +45,7 @@ resource "terrakube_workspace_access" "workspace_access" {
 
 ### Required
 
-- `name` (String) Team name
+- `name` (String) Team name. Changing this forces a new resource.
 - `organization_id` (String) Terrakube organization id
 - `workspace_id` (String) Terrakube workspace id
 

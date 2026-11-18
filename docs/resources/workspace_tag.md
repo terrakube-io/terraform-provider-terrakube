@@ -53,9 +53,9 @@ resource "terrakube_workspace_tag" "env" {
 
 ### Required
 
-- `organization_id` (String) Terrakube organization id
-- `tag_id` (String) Tag Id
-- `workspace_id` (String) Terrakube workspace id
+- `organization_id` (String) Terrakube organization id. Changing this forces a new resource.
+- `tag_id` (String) Tag Id. Changing this forces a new resource.
+- `workspace_id` (String) Terrakube workspace id. Changing this forces a new resource.
 
 ### Optional
 

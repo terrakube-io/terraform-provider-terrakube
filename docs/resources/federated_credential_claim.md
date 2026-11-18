@@ -33,7 +33,7 @@ resource "terrakube_federated_credential_claim" "repository_owner" {
 
 - `claim_key` (String) Claim key to match in the identity provider token. Example: "repository_owner"
 - `claim_value` (String) Expected value for the claim key. Example: "terrakube-org"
-- `federated_credential_id` (String) Terrakube federated credential ID this claim condition belongs to
+- `federated_credential_id` (String) Terrakube federated credential ID this claim condition belongs to. Changing this forces a new resource.
 
 ### Read-Only
 

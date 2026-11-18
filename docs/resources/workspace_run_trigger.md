@@ -46,8 +46,8 @@ resource "terrakube_workspace_run_trigger" "example" {
 
 ### Required
 
-- `destination_workspace_id` (String) ID of the downstream workspace that receives the triggered run.
-- `source_workspace_id` (String) ID of the upstream workspace whose successful apply fires the trigger.
+- `destination_workspace_id` (String) ID of the downstream workspace that receives the triggered run. Changing this forces a new resource.
+- `source_workspace_id` (String) ID of the upstream workspace whose successful apply fires the trigger. Changing this forces a new resource.
 
 ### Optional
 

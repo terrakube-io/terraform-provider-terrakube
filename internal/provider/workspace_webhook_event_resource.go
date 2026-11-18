@@ -146,7 +146,7 @@ func (r *WorkspaceWebhookEventResource) Schema(ctx context.Context, req resource
 			},
 			"webhook_id": schema.StringAttribute{
 				Required:    true,
-				Description: "The ID of the webhook this event belongs to",
+				Description: "The ID of the webhook this event belongs to. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},

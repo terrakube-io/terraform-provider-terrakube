@@ -63,7 +63,7 @@ func (r *TeamTokenResource) Schema(ctx context.Context, req resource.SchemaReque
 			},
 			"team_name": schema.StringAttribute{
 				Required:    true,
-				Description: "The name of the team who owns the token.",
+				Description: "The name of the team who owns the token. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 					stringplanmodifier.RequiresReplace(),
@@ -71,28 +71,28 @@ func (r *TeamTokenResource) Schema(ctx context.Context, req resource.SchemaReque
 			},
 			"description": schema.StringAttribute{
 				Required:    true,
-				Description: "A description of this token.",
+				Description: "A description of this token. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"days": schema.Int32Attribute{
 				Required:    true,
-				Description: "The number of days this token is valid for.",
+				Description: "The number of days this token is valid for. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.Int32{
 					int32planmodifier.RequiresReplace(),
 				},
 			},
 			"hours": schema.Int32Attribute{
 				Required:    true,
-				Description: "The number of hours this token is valid for.",
+				Description: "The number of hours this token is valid for. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.Int32{
 					int32planmodifier.RequiresReplace(),
 				},
 			},
 			"minutes": schema.Int32Attribute{
 				Required:    true,
-				Description: "The number of minutes this token is valid for.",
+				Description: "The number of minutes this token is valid for. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.Int32{
 					int32planmodifier.RequiresReplace(),
 				},

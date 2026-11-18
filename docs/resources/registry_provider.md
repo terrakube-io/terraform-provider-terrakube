@@ -41,7 +41,7 @@ resource "terrakube_registry_provider" "internal" {
 ### Required
 
 - `name` (String) Provider name, for example `aws`. For an imported provider it is the name in the public registry.
-- `organization_id` (String) Terrakube organization ID
+- `organization_id` (String) Terrakube organization ID. Changing this forces a new resource.
 
 ### Optional
 

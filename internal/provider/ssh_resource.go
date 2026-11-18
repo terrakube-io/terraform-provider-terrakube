@@ -71,7 +71,7 @@ func (r *SshResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 			},
 			"name": schema.StringAttribute{
 				Optional:    true,
-				Description: "Ssh key name",
+				Description: "Ssh key name. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},

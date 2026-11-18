@@ -65,12 +65,12 @@ resource "terrakube_vcs" "vcs_wo" {
 > **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
 
 - `api_url` (String) The API URL of the VCS connection
-- `client_secret` (String, Sensitive) The secret of the VCS connection, stored in the Terraform state. At least one of `client_secret`, `client_secret_wo`, `private_key` or `private_key_wo` is required.
+- `client_secret` (String, Sensitive) The secret of the VCS connection, stored in the Terraform state. At least one of `client_secret`, `client_secret_wo`, `private_key` or `private_key_wo` is required. Changing this forces a new resource, unless it moves to `client_secret_wo`.
 - `client_secret_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) The secret of the VCS connection as a write-only argument: sent to Terrakube but never stored in the plan or state. Requires Terraform 1.11+ or OpenTofu 1.11+. Terraform cannot detect changes to it: bump `client_secret_wo_version` to send a new value.
 - `client_secret_wo_version` (Number) Version of `client_secret_wo`. Change it to update the value in Terrakube.
 - `connection_type` (String) The connection type of the VCS connection, valid vaules are `OAUTH` and `STANDALONE`, default is `OAUTH`. `STANDALONE` is used for GitHub App only.
 - `endpoint` (String) The endpoint of the VCS connection
-- `private_key` (String, Sensitive) The private key in PKCS8 format of the VCS connection. Please use command `openssl pkcs8 -topk8 -inform PEM -inform pem -outform pem -in github_rsa_private_key.pem -out private_key.pem -nocrypt` to convert the private key to PKCS8 format form Github default RSA.
+- `private_key` (String, Sensitive) The private key in PKCS8 format of the VCS connection. Please use command `openssl pkcs8 -topk8 -inform PEM -inform pem -outform pem -in github_rsa_private_key.pem -out private_key.pem -nocrypt` to convert the private key to PKCS8 format form Github default RSA. Changing this forces a new resource, unless it moves to `private_key_wo`.
 - `private_key_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) The private key in PKCS8 format of the VCS connection as a write-only argument: sent to Terrakube but never stored in the plan or state. Requires Terraform 1.11+ or OpenTofu 1.11+. Terraform cannot detect changes to it: bump `private_key_wo_version` to send a new value.
 - `private_key_wo_version` (Number) Version of `private_key_wo`. Change it to update the value in Terrakube.
 - `vcs_type` (String) Variable description

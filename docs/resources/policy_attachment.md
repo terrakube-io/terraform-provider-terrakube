@@ -46,13 +46,13 @@ resource "terrakube_policy_attachment" "tag_attachment" {
 
 ### Required
 
-- `policy_set_id` (String) ID of the target Policy Set
+- `policy_set_id` (String) ID of the target Policy Set. Changing this forces a new resource.
 
 ### Optional
 
-- `project_id` (String) Project ID to attach the policy set to all workspaces in the project. Mutually exclusive with workspace_id and tag_id.
-- `tag_id` (String) Organization Tag ID to attach the policy set to all workspaces bearing the tag. Mutually exclusive with workspace_id and project_id.
-- `workspace_id` (String) Workspace ID to attach the policy set to. Mutually exclusive with project_id and tag_id.
+- `project_id` (String) Project ID to attach the policy set to all workspaces in the project. Mutually exclusive with workspace_id and tag_id. Changing this forces a new resource.
+- `tag_id` (String) Organization Tag ID to attach the policy set to all workspaces bearing the tag. Mutually exclusive with workspace_id and project_id. Changing this forces a new resource.
+- `workspace_id` (String) Workspace ID to attach the policy set to. Mutually exclusive with project_id and tag_id. Changing this forces a new resource.
 
 ### Read-Only
 

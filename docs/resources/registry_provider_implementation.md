@@ -61,10 +61,10 @@ resource "terrakube_registry_provider_implementation" "linux_amd64" {
 - `arch` (String) Architecture, for example `amd64` or `arm64`
 - `download_url` (String) Where the provider archive can be downloaded from
 - `filename` (String) Name of the provider archive, for example `terraform-provider-internal_1.2.3_linux_amd64.zip`
-- `organization_id` (String) Terrakube organization ID
+- `organization_id` (String) Terrakube organization ID. Changing this forces a new resource.
 - `os` (String) Operating system, for example `linux`, `darwin` or `windows`
-- `provider_id` (String) ID of the `terrakube_registry_provider`
-- `version_id` (String) ID of the `terrakube_registry_provider_version` this is a download of
+- `provider_id` (String) ID of the `terrakube_registry_provider`. Changing this forces a new resource.
+- `version_id` (String) ID of the `terrakube_registry_provider_version` this is a download of. Changing this forces a new resource.
 
 ### Optional
 

@@ -39,7 +39,7 @@ resource "terrakube_policy_exemption" "apim_gateway_exemption" {
 ### Required
 
 - `justification` (String) Detailed justification explaining why the policy rule is exempted
-- `organization_id` (String) Terrakube organization ID
+- `organization_id` (String) Terrakube organization ID. Changing this forces a new resource.
 - `policy_set_id` (String) Target Policy Set ID containing the rule to exempt
 - `rule_id` (String) OPA Rego rule ID or package path (e.g. azure_apim_no_public_network)
 - `ticket_reference` (String) Ticketing system reference (e.g. Jira SEC-8842, ServiceNow RITM10293)

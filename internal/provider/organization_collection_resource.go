@@ -74,7 +74,7 @@ func (r *CollectionResource) Schema(ctx context.Context, req resource.SchemaRequ
 			},
 			"priority": schema.Int32Attribute{
 				Required:    true,
-				Description: "Collection priority",
+				Description: "Collection priority. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.Int32{
 					int32planmodifier.RequiresReplace(),
 				},

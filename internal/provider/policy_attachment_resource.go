@@ -59,28 +59,28 @@ func (r *PolicyAttachmentResource) Schema(ctx context.Context, req resource.Sche
 			},
 			"policy_set_id": schema.StringAttribute{
 				Required:    true,
-				Description: "ID of the target Policy Set",
+				Description: "ID of the target Policy Set. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"workspace_id": schema.StringAttribute{
 				Optional:    true,
-				Description: "Workspace ID to attach the policy set to. Mutually exclusive with project_id and tag_id.",
+				Description: "Workspace ID to attach the policy set to. Mutually exclusive with project_id and tag_id. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"project_id": schema.StringAttribute{
 				Optional:    true,
-				Description: "Project ID to attach the policy set to all workspaces in the project. Mutually exclusive with workspace_id and tag_id.",
+				Description: "Project ID to attach the policy set to all workspaces in the project. Mutually exclusive with workspace_id and tag_id. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"tag_id": schema.StringAttribute{
 				Optional:    true,
-				Description: "Organization Tag ID to attach the policy set to all workspaces bearing the tag. Mutually exclusive with workspace_id and project_id.",
+				Description: "Organization Tag ID to attach the policy set to all workspaces bearing the tag. Mutually exclusive with workspace_id and project_id. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},

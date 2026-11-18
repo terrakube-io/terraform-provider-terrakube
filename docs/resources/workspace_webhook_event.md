@@ -69,7 +69,7 @@ resource "terrakube_workspace_webhook_event" "push_main" {
 
 ### Required
 
-- `webhook_id` (String) The ID of the webhook this event belongs to
+- `webhook_id` (String) The ID of the webhook this event belongs to. Changing this forces a new resource.
 
 ### Optional
 

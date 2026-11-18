@@ -33,7 +33,7 @@ resource "terrakube_policy_set_parameter" "max_changes" {
 ### Required
 
 - `key` (String) Parameter key identifier, referenced in Rego as data.terrakube.inputs.<key>
-- `policy_set_id` (String) Target Policy Set ID
+- `policy_set_id` (String) Target Policy Set ID. Changing this forces a new resource.
 - `value` (String) Parameter value (supports strings, numbers, booleans, and JSON structures)
 
 ### Optional

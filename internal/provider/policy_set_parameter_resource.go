@@ -59,7 +59,7 @@ func (r *PolicySetParameterResource) Schema(ctx context.Context, req resource.Sc
 			},
 			"policy_set_id": schema.StringAttribute{
 				Required:    true,
-				Description: "Target Policy Set ID",
+				Description: "Target Policy Set ID. Changing this forces a new resource.",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},

@@ -45,10 +45,10 @@ resource "terrakube_registry_provider_version" "old" {
 
 ### Required
 
-- `organization_id` (String) Terrakube organization ID
+- `organization_id` (String) Terrakube organization ID. Changing this forces a new resource.
 - `protocols` (List of String) Plugin protocol versions the provider supports, for example `["6.0"]`. Providers built with the Terraform plugin framework use `6.0`, and ones built with SDKv2 use `5.0`. The registry cannot serve a version without them.
-- `provider_id` (String) ID of the `terrakube_registry_provider` this is a version of
-- `version_number` (String) Version, for example `1.2.3`. Changing it creates a new version.
+- `provider_id` (String) ID of the `terrakube_registry_provider` this is a version of. Changing this forces a new resource.
+- `version_number` (String) Version, for example `1.2.3`. Changing this forces a new resource, so a new version is created.
 
 ### Optional
 
