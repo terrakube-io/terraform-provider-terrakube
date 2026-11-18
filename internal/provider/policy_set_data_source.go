@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"terraform-provider-terrakube/internal/client"
@@ -162,7 +163,7 @@ func (d *PolicySetDataSource) Read(ctx context.Context, req datasource.ReadReque
 	}
 
 	// 1. Resolve Organization ID
-	orgReq, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, state.Organization.ValueString()), nil)
+	orgReq, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, url.QueryEscape(rsqlQuote(state.Organization.ValueString()))), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization lookup request", fmt.Sprintf("Error: %s", err))
 		return
@@ -188,16 +189,19 @@ func (d *PolicySetDataSource) Read(ctx context.Context, req datasource.ReadReque
 	}
 
 	orgs, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(orgBody)), reflect.TypeOf(new(client.OrganizationEntity)))
-	if err != nil || len(orgs) == 0 {
-		resp.Diagnostics.AddError("Organization Not Found", fmt.Sprintf("Organization %s was not found.", state.Organization.ValueString()))
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to unmarshal organization payload", fmt.Sprintf("Error: %s", err))
 		return
 	}
-
-	orgData, _ := orgs[0].(*client.OrganizationEntity)
+	orgData := findSingleByName(&resp.Diagnostics, "organization", state.Organization.ValueString(), "", orgs,
+		func(e *client.OrganizationEntity) string { return e.Name })
+	if orgData == nil {
+		return
+	}
 	state.OrganizationId = types.StringValue(orgData.ID)
 
 	// 2. Query Policy Set by name
-	psReq, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/policySet?filter[policy_set]=name==%s", d.endpoint, orgData.ID, state.Name.ValueString()), nil)
+	psReq, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/policySet?filter[policy_set]=name==%s", d.endpoint, url.PathEscape(orgData.ID), url.QueryEscape(rsqlQuote(state.Name.ValueString()))), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating policy set query request", fmt.Sprintf("Error: %s", err))
 		return
@@ -223,12 +227,15 @@ func (d *PolicySetDataSource) Read(ctx context.Context, req datasource.ReadReque
 	}
 
 	policySets, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(psBody)), reflect.TypeOf(new(client.PolicySetEntity)))
-	if err != nil || len(policySets) == 0 {
-		resp.Diagnostics.AddError("Policy Set Not Found", fmt.Sprintf("Policy Set %s was not found in organization %s.", state.Name.ValueString(), state.Organization.ValueString()))
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to unmarshal policy set payload", fmt.Sprintf("Error: %s", err))
 		return
 	}
-
-	data, _ := policySets[0].(*client.PolicySetEntity)
+	data := findSingleByName(&resp.Diagnostics, "policy set", state.Name.ValueString(), " in organization "+state.Organization.ValueString(), policySets,
+		func(e *client.PolicySetEntity) string { return e.Name })
+	if data == nil {
+		return
+	}
 	state.ID = types.StringValue(data.ID)
 	state.Name = types.StringValue(data.Name)
 	state.Description = types.StringPointerValue(data.Description)

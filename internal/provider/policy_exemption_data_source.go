@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"terraform-provider-terrakube/internal/client"
@@ -140,7 +141,7 @@ func (d *PolicyExemptionDataSource) Read(ctx context.Context, req datasource.Rea
 	}
 
 	// 1. Resolve Organization ID
-	orgReq, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, state.Organization.ValueString()), nil)
+	orgReq, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, url.QueryEscape(rsqlQuote(state.Organization.ValueString()))), nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating organization lookup request", fmt.Sprintf("Error: %s", err))
 		return
@@ -166,12 +167,15 @@ func (d *PolicyExemptionDataSource) Read(ctx context.Context, req datasource.Rea
 	}
 
 	orgs, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(orgBody)), reflect.TypeOf(new(client.OrganizationEntity)))
-	if err != nil || len(orgs) == 0 {
-		resp.Diagnostics.AddError("Organization Not Found", fmt.Sprintf("Organization %s was not found.", state.Organization.ValueString()))
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to unmarshal organization payload", fmt.Sprintf("Error: %s", err))
 		return
 	}
-
-	orgData, _ := orgs[0].(*client.OrganizationEntity)
+	orgData := findSingleByName(&resp.Diagnostics, "organization", state.Organization.ValueString(), "", orgs,
+		func(e *client.OrganizationEntity) string { return e.Name })
+	if orgData == nil {
+		return
+	}
 	state.OrganizationId = types.StringValue(orgData.ID)
 
 	var targetExemption *client.PolicyExemptionEntity
@@ -179,7 +183,7 @@ func (d *PolicyExemptionDataSource) Read(ctx context.Context, req datasource.Rea
 	switch {
 	case !state.ID.IsNull() && state.ID.ValueString() != "":
 		// Lookup by ID
-		exReq, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/policy_exemption/%s", d.endpoint, state.ID.ValueString()), nil)
+		exReq, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/policy_exemption/%s", d.endpoint, url.PathEscape(state.ID.ValueString())), nil)
 		if err != nil {
 			resp.Diagnostics.AddError("Error creating policy exemption request", fmt.Sprintf("Error: %s", err))
 			return
@@ -213,7 +217,7 @@ func (d *PolicyExemptionDataSource) Read(ctx context.Context, req datasource.Rea
 		targetExemption = single
 	case !state.RuleId.IsNull() && state.RuleId.ValueString() != "":
 		// Lookup by Rule ID in Org
-		queryUrl := fmt.Sprintf("%s/api/v1/organization/%s/policyExemption?filter[policy_exemption]=ruleId==%s", d.endpoint, orgData.ID, state.RuleId.ValueString())
+		queryUrl := fmt.Sprintf("%s/api/v1/organization/%s/policyExemption?filter[policy_exemption]=ruleId==%s", d.endpoint, url.PathEscape(orgData.ID), url.QueryEscape(rsqlQuote(state.RuleId.ValueString())))
 		if !state.PolicySetId.IsNull() && state.PolicySetId.ValueString() != "" {
 			queryUrl = fmt.Sprintf("%s;policySet.id==%s", queryUrl, state.PolicySetId.ValueString())
 		}
