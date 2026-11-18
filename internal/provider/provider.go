@@ -81,6 +81,7 @@ func (p *TerrakubeProvider) Schema(ctx context.Context, req provider.SchemaReque
 			},
 			"token": schema.StringAttribute{
 				Optional:    true,
+				Sensitive:   true,
 				Description: "Access Token generated in Terrakube UI (https://docs.terrakube.io/user-guide/organizations/api-tokens), can also be specificed with environment variable `TERRAKUBE_TOKEN`.",
 			},
 			"insecure_http_client": schema.BoolAttribute{

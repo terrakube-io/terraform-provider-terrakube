@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/provider"
+	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
@@ -171,5 +172,22 @@ func TestProviderConfigureRejectsMissingOrUnknownSettings(t *testing.T) {
 				t.Error("provider data must not be set when configuration fails")
 			}
 		})
+	}
+}
+
+func TestProviderSchemaTokenIsSensitive(t *testing.T) {
+	var resp provider.SchemaResponse
+	(&TerrakubeProvider{}).Schema(context.Background(), provider.SchemaRequest{}, &resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected schema diagnostics: %v", resp.Diagnostics)
+	}
+
+	token, ok := resp.Schema.Attributes["token"].(schema.StringAttribute)
+	if !ok {
+		t.Fatalf("token attribute missing or not a string attribute")
+	}
+	if !token.Sensitive {
+		t.Fatalf("token must be marked sensitive so it is redacted from plan output and logs")
 	}
 }

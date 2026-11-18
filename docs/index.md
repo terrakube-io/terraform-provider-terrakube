@@ -89,4 +89,4 @@ To bring existing Terrakube objects under management, see
 
 - `endpoint` (String) Terrakube API Endpoint. Example: https://terrakube-api.minikube.net, can also be specified with environment variable `TERRAKUBE_ENDPOINT`.
 - `insecure_http_client` (Boolean) Disable https certificate validation, default is `false`.
-- `token` (String) Access Token generated in Terrakube UI (https://docs.terrakube.io/user-guide/organizations/api-tokens), can also be specificed with environment variable `TERRAKUBE_TOKEN`.
+- `token` (String, Sensitive) Access Token generated in Terrakube UI (https://docs.terrakube.io/user-guide/organizations/api-tokens), can also be specificed with environment variable `TERRAKUBE_TOKEN`.
