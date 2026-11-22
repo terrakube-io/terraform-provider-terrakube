@@ -14,7 +14,7 @@ func TestOrganizationTagResource(t *testing.T) {
 		itemType:   "tag",
 		collection: "/api/v1/organization/org-1/tag",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
-			return &OrganizationTagResource{client: c, endpoint: endpoint, token: "test-token"}
+			return &OrganizationTagResource{client: newTestClient(c, endpoint)}
 		},
 		create:        map[string]tftypes.Value{"name": str("production")},
 		wantSent:      map[string]any{"name": "production"},
@@ -24,5 +24,7 @@ func TestOrganizationTagResource(t *testing.T) {
 		update:        map[string]tftypes.Value{"name": str("staging")},
 		wantSentPatch: map[string]any{"name": "staging"},
 		wantUpdated:   map[string]string{"name": "staging"},
+
+		deleteMissingIsOK: true,
 	})
 }

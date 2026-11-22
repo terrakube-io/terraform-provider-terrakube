@@ -1,24 +1,18 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
-
-	"github.com/google/jsonapi"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -26,9 +20,7 @@ var _ resource.Resource = &OrganizationTagResource{}
 var _ resource.ResourceWithImportState = &OrganizationTagResource{}
 
 type OrganizationTagResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type OrganizationTagResourceModel struct {
@@ -70,164 +62,56 @@ func (r *OrganizationTagResource) Schema(ctx context.Context, req resource.Schem
 }
 
 func (r *OrganizationTagResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Organization Tag Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Organization Tag resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Organization Tag Resource")
 }
 
 func (r *OrganizationTagResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan OrganizationTagResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	bodyRequest := &client.OrganizationTagEntity{
-		Name: plan.Name.ValueString(),
-	}
+	attributes := patchAttributes{}
+	attributes.createString("name", plan.Name)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
+	tag, err := r.client.Tags.CreateFields(ctx, plan.OrganizationId.ValueString(), terrakube.Patch{Attributes: attributes})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating organization tag", err)
 		return
 	}
 
-	organizationTagRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/tag", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization tag resource request", fmt.Sprintf("Error creating organization tag resource request: %s", err))
-		return
-	}
-	organizationTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationTagResponse, err := r.client.Do(organizationTagRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization tag resource request", fmt.Sprintf("Error executing organization tag resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(organizationTagResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading organization tag resource response, response status: %s, error: %s", organizationTagResponse.Status, err))
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating organization tag", organizationTagResponse, bodyResponse) {
-		return
-	}
-
-	newOrganizationTag := &client.OrganizationTagEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newOrganizationTag)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", organizationTagResponse.Status, string(bodyResponse), err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	plan.ID = types.StringValue(newOrganizationTag.ID)
-	plan.Name = types.StringValue(newOrganizationTag.Name)
+	plan.ID = types.StringValue(tag.ID)
+	plan.Name = types.StringValue(tag.Name)
 
 	tflog.Info(ctx, "Organization Tag Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *OrganizationTagResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state OrganizationTagResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	organizationTagRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/tag/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization tag resource request", fmt.Sprintf("Error creating organization tag resource request: %s", err))
-		return
-	}
-	organizationTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationTagResponse, err := r.client.Do(organizationTagRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization tag resource request", fmt.Sprintf("Error executing organization tag resource request: %s", err))
-		return
-	}
-
-	if organizationTagResponse.StatusCode == http.StatusNotFound {
+	tag, err := r.client.Tags.Get(ctx, state.OrganizationId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Organization tag not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(organizationTagResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading organization tag resource response, response status: %s, error: %s", organizationTagResponse.Status, err))
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization tag", organizationTagResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading organization tag", err)
 		return
 	}
 
-	organizationTag := &client.OrganizationTagEntity{}
+	state.Name = types.StringValue(tag.Name)
 
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organizationTag)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", organizationTagResponse.Status, string(bodyResponse), err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	state.Name = types.StringValue(organizationTag.Name)
-
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	tflog.Info(ctx, "Organization Tag Resource reading", map[string]any{"success": true})
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *OrganizationTagResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan OrganizationTagResourceModel
 	var state OrganizationTagResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -236,109 +120,40 @@ func (r *OrganizationTagResource) Update(ctx context.Context, req resource.Updat
 		return
 	}
 
-	bodyRequest := &client.OrganizationTagEntity{
-		ID:   plan.ID.ValueString(),
-		Name: plan.Name.ValueString(),
-	}
+	attributes := patchAttributes{}
+	attributes.updateString("name", plan.Name, state.Name)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
+	tag, err := r.client.Tags.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating organization tag", err)
 		return
 	}
 
-	organizationTagRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/tag/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
+	tag, err = readAfterPatch(tag, func() (*terrakube.Tag, error) {
+		return r.client.Tags.Get(ctx, organizationID, id)
+	})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization tag resource request", fmt.Sprintf("Error creating organization tag resource request: %s", err))
-		return
-	}
-	organizationTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationTagResponse, err := r.client.Do(organizationTagRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization tag resource request", fmt.Sprintf("Error executing organization tag resource request: %s", err))
+		reportClientError(&resp.Diagnostics, "reading organization tag after update", err)
 		return
 	}
 
-	bodyResponse, err := io.ReadAll(organizationTagResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading organization tag resource response, response status: %s, error: %s", organizationTagResponse.Status, err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating organization tag", organizationTagResponse, bodyResponse) {
-		return
-	}
-
-	organizationTagRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/tag/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization tag resource request", fmt.Sprintf("Error creating organization tag resource request: %s", err))
-		return
-	}
-	organizationTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationTagResponse, err = r.client.Do(organizationTagRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization tag resource request", fmt.Sprintf("Error executing organization tag resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err = io.ReadAll(organizationTagResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading organization tag resource response body", fmt.Sprintf("Error reading organization tag resource response body, response status: %s, error: %s", organizationTagResponse.Status, err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization tag after update", organizationTagResponse, bodyResponse) {
-		return
-	}
-
-	organizationTag := &client.OrganizationTagEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organizationTag)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	plan.ID = types.StringValue(organizationTag.ID)
-	plan.Name = types.StringValue(organizationTag.Name)
+	plan.ID = types.StringValue(id)
+	plan.Name = types.StringValue(tag.Name)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *OrganizationTagResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data OrganizationTagResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	reqOrg, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/tag/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization tag resource request", fmt.Sprintf("Error creating organization tag resource request: %s", err))
-		return
-	}
-	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	organizationTagResponse, err := r.client.Do(reqOrg)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization tag resource request", fmt.Sprintf("Error executing organization tag resource request: %s", err))
-		return
-	}
-	if organizationTagResponse.StatusCode != http.StatusNoContent {
-		deleteBody, _ := io.ReadAll(organizationTagResponse.Body)
-		resp.Diagnostics.AddError("Error executing organization tag resource request", fmt.Sprintf("Error executing organization tag resource request, response status: %s, response body: %s", organizationTagResponse.Status, string(deleteBody)))
-		return
+	err := r.client.Tags.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting organization tag", err)
 	}
 }
 

@@ -1,26 +1,18 @@
 package provider
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
-	"strconv"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
-
-	"github.com/google/jsonapi"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -28,9 +20,7 @@ var _ resource.Resource = &OrganizationResource{}
 var _ resource.ResourceWithImportState = &OrganizationResource{}
 
 type OrganizationResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type OrganizationResourceModel struct {
@@ -82,175 +72,60 @@ func (r *OrganizationResource) Schema(ctx context.Context, req resource.SchemaRe
 }
 
 func (r *OrganizationResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Organization Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Organization resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Organization Resource")
 }
 
 func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan OrganizationResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	bodyRequest := &client.OrganizationEntity{
-		Name:          plan.Name.ValueString(),
-		Description:   plan.Description.ValueStringPointer(),
-		ExecutionMode: plan.ExecutionMode.ValueString(),
-		Icon:          plan.Icon.ValueStringPointer(),
-	}
+	attributes := patchAttributes{}
+	attributes.createString("name", plan.Name)
+	attributes.createString("description", plan.Description)
+	attributes.createString("executionMode", plan.ExecutionMode)
+	attributes.createString("icon", plan.Icon)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
+	organization, err := r.client.Organizations.CreateFields(ctx, terrakube.Patch{Attributes: attributes})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating organization", err)
 		return
 	}
 
-	organizationRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization", r.endpoint), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization resource request", fmt.Sprintf("Error creating organization resource request: %s", err))
-		return
-	}
-	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationResponse, err := r.client.Do(organizationRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization resource request", fmt.Sprintf("Error executing organization resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(organizationResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading organization resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating organization", organizationResponse, bodyResponse) {
-		return
-	}
-
-	newOrganization := &client.OrganizationEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newOrganization)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-	// result is back
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	plan.ID = types.StringValue(newOrganization.ID)
-	plan.Name = types.StringValue(newOrganization.Name)
-	plan.Description = types.StringPointerValue(newOrganization.Description)
-	plan.ExecutionMode = types.StringValue(newOrganization.ExecutionMode)
-	plan.Icon = types.StringPointerValue(newOrganization.Icon)
+	plan.ID = types.StringValue(organization.ID)
+	setOrganizationState(&plan, organization)
 
 	tflog.Info(ctx, "Organization Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *OrganizationResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state OrganizationResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	organizationRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s", r.endpoint, state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization resource request", fmt.Sprintf("Error creating organization resource request: %s", err))
-		return
-	}
-	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationResponse, err := r.client.Do(organizationRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization resource request", fmt.Sprintf("Error executing organization resource request: %s", err))
-		return
-	}
-
-	if organizationResponse.StatusCode == http.StatusNotFound {
+	organization, err := r.client.Organizations.Get(ctx, state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Organization not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(organizationResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, "Error reading organization resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization", organizationResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading organization", err)
 		return
 	}
 
-	organization := &client.OrganizationEntity{}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organization)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	state.Description = types.StringPointerValue(organization.Description)
-	state.ExecutionMode = types.StringValue(organization.ExecutionMode)
-	state.Name = types.StringValue(organization.Name)
-	state.Icon = types.StringPointerValue(organization.Icon)
 	state.ID = types.StringValue(organization.ID)
+	setOrganizationState(&state, organization)
 
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	tflog.Info(ctx, "Organization Resource reading", map[string]any{"success": true})
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *OrganizationResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan OrganizationResourceModel
 	var state OrganizationResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -259,164 +134,73 @@ func (r *OrganizationResource) Update(ctx context.Context, req resource.UpdateRe
 		return
 	}
 
-	bodyRequest := &client.OrganizationEntity{
-		Description:   plan.Description.ValueStringPointer(),
-		ExecutionMode: plan.ExecutionMode.ValueString(),
-		Name:          plan.Name.ValueString(),
-		Icon:          plan.Icon.ValueStringPointer(),
-		ID:            state.ID.ValueString(),
-	}
+	attributes := patchAttributes{}
+	attributes.updateString("name", plan.Name, state.Name)
+	attributes.updateString("description", plan.Description, state.Description)
+	attributes.updateString("executionMode", plan.ExecutionMode, state.ExecutionMode)
+	attributes.updateString("icon", plan.Icon, state.Icon)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	id := state.ID.ValueString()
+	organization, err := r.client.Organizations.UpdateFields(ctx, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating organization", err)
 		return
 	}
 
-	organizationRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s", r.endpoint, state.ID.ValueString()), strings.NewReader(out.String()))
+	organization, err = readAfterPatch(organization, func() (*terrakube.Organization, error) {
+		return r.client.Organizations.Get(ctx, id)
+	})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization resource request", fmt.Sprintf("Error creating organization resource request: %s", err))
-		return
-	}
-	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationResponse, err := r.client.Do(organizationRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error organization resource request", fmt.Sprintf("Error executing organization resource request: %s", err))
+		reportClientError(&resp.Diagnostics, "reading organization after update", err)
 		return
 	}
 
-	bodyResponse, err := io.ReadAll(organizationResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading organization resource response")
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating organization", organizationResponse, bodyResponse) {
-		return
-	}
-
-	organizationRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s", r.endpoint, state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization resource request", fmt.Sprintf("Error creating organization resource request: %s", err))
-		return
-	}
-	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationResponse, err = r.client.Do(organizationRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization resource request", fmt.Sprintf("Error executing organizationñ resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err = io.ReadAll(organizationResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading organization resource response body", fmt.Sprintf("Error reading organization resource response body: %s", err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization after update", organizationResponse, bodyResponse) {
-		return
-	}
-
-	organization := &client.OrganizationEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organization)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	plan.ID = types.StringValue(state.ID.ValueString())
-	plan.Name = types.StringValue(organization.Name)
-	plan.Description = types.StringPointerValue(organization.Description)
-	plan.ExecutionMode = types.StringValue(organization.ExecutionMode)
+	plan.ID = types.StringValue(id)
+	setOrganizationState(&plan, organization)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
+// Delete disables the organization, since Terrakube cannot delete one, and renames it so the
+// name can be used again.
 func (r *OrganizationResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data OrganizationResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
-
-	ll := len(chars)
-	b := make([]byte, 4)
-
-	if _, err := rand.Read(b); err != nil {
-		resp.Diagnostics.AddError("Error generating random string to delete workspace", fmt.Sprintf("Error generating random string to delete workspace: %s", err))
+	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+	suffix := make([]byte, 4)
+	if _, err := rand.Read(suffix); err != nil {
+		resp.Diagnostics.AddError("Error generating random string to delete organization", fmt.Sprintf("Error generating random string to delete organization: %s", err))
 		return
 	}
-
-	for i := 0; i < 4; i++ {
-		b[i] = chars[int(b[i])%ll]
+	for i := range suffix {
+		suffix[i] = chars[int(suffix[i])%len(chars)]
 	}
 
-	tflog.Info(ctx, "Send patch request to mark organization as deleted...")
-	tflog.Info(ctx, softDeletedName(data.Name.ValueString(), string(b), 32))
-
-	description := "Deleted from terraform provider"
-	bodyRequest := &client.OrganizationEntity{
-		Disabled:      true,
-		Name:          softDeletedName(data.Name.ValueString(), string(b), 32),
-		ID:            data.ID.ValueString(),
-		ExecutionMode: data.ExecutionMode.ValueString(),
-		Description:   &description,
+	attributes := patchAttributes{
+		"disabled":    true,
+		"name":        softDeletedName(data.Name.ValueString(), string(suffix), 32),
+		"description": "Deleted from terraform provider",
 	}
+	attributes.createString("executionMode", data.ExecutionMode)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	tflog.Info(ctx, "Request Body Delete Organization...")
-	tflog.Info(ctx, out.String())
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
+	_, err := r.client.Organizations.UpdateFields(ctx, data.ID.ValueString(), terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting organization", err)
 	}
-
-	reqOrg, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s", r.endpoint, data.ID.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization resource request", fmt.Sprintf("Error creating organization resource request: %s", err))
-		return
-	}
-	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	reqOrg.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationResponse, err := r.client.Do(reqOrg)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization resource request", fmt.Sprintf("Error executing organization resource request: %s", err))
-		return
-	}
-
-	defer organizationResponse.Body.Close()
-	body, err := io.ReadAll(organizationResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading delete response", err.Error())
-		return
-	}
-	if organizationResponse.StatusCode == http.StatusNotFound {
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "deleting organization", organizationResponse, body) {
-		return
-	}
-	tflog.Info(ctx, "Delete Organization response code: "+strconv.Itoa(organizationResponse.StatusCode))
 }
 
 func (r *OrganizationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// setOrganizationState copies the attributes Terrakube returned into the model.
+func setOrganizationState(model *OrganizationResourceModel, organization *terrakube.Organization) {
+	model.Name = types.StringValue(organization.Name)
+	model.Description = types.StringPointerValue(organization.Description)
+	model.ExecutionMode = types.StringValue(organization.ExecutionMode)
+	model.Icon = types.StringPointerValue(organization.Icon)
 }

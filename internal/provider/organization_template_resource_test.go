@@ -22,7 +22,7 @@ func TestOrganizationTemplateResource(t *testing.T) {
 		itemType:   "template",
 		collection: "/api/v1/organization/org-1/template",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
-			return &OrganizationTemplateResource{client: c, endpoint: endpoint, token: "test-token"}
+			return &OrganizationTemplateResource{client: newTestClient(c, endpoint)}
 		},
 		create: map[string]tftypes.Value{
 			"name":        str("plan-and-apply"),
@@ -42,5 +42,7 @@ func TestOrganizationTemplateResource(t *testing.T) {
 		},
 		wantSentPatch: map[string]any{"version": "2.0.0", "tcl": encode(updatedFlow)},
 		wantUpdated:   map[string]string{"version": "2.0.0", "content": updatedFlow},
+
+		deleteMissingIsOK: true,
 	})
 }

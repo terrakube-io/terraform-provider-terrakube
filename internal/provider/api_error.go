@@ -86,3 +86,27 @@ func reportDeleteFailure(diags *diag.Diagnostics, action string, response *http.
 	}
 	reportAPIErrorStatus(diags, action, response, body)
 }
+
+// patchFailed reports whether an error from a terrakube-go UpdateFields call means the PATCH
+// itself failed. When Terrakube answers a PATCH with 204, UpdateFields reads the object back with
+// a GET; an API error from that GET does not undo the update, so it is not a failure here. A
+// transport error carries no method and still counts as a failure.
+func patchFailed(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *terrakube.APIError
+	return !errors.As(err, &apiErr) || apiErr.Method != http.MethodGet
+}
+
+// readAfterPatch returns the object a terrakube-go UpdateFields call returned, so an update costs
+// one PATCH and at most one GET. UpdateFields returns nil only when its read-back after a 204
+// failed, which patchFailed ignores; get then reads the object again. When the read-back answers
+// 404, UpdateFields returns an object that holds only the attributes that were sent, so Terraform
+// reports an inconsistent result for an object that was deleted right after the PATCH.
+func readAfterPatch[T any](updated *T, get func() (*T, error)) (*T, error) {
+	if updated != nil {
+		return updated, nil
+	}
+	return get()
+}

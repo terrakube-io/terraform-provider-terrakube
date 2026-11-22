@@ -14,7 +14,7 @@ func TestProjectResource(t *testing.T) {
 		itemType:   "project",
 		collection: "/api/v1/organization/org-1/project",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
-			return &ProjectResource{client: c, endpoint: endpoint, token: "test-token"}
+			return &ProjectResource{client: newTestClient(c, endpoint)}
 		},
 		create: map[string]tftypes.Value{
 			"name":        str("platform"),
@@ -27,5 +27,7 @@ func TestProjectResource(t *testing.T) {
 		update:        map[string]tftypes.Value{"description": str("Shared platform workspaces")},
 		wantSentPatch: map[string]any{"name": "platform", "description": "Shared platform workspaces"},
 		wantUpdated:   map[string]string{"name": "platform", "description": "Shared platform workspaces"},
+
+		deleteMissingIsOK: true,
 	})
 }
