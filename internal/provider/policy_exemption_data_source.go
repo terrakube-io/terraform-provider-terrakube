@@ -2,19 +2,13 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
+	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -36,9 +30,7 @@ type PolicyExemptionDataSourceModel struct {
 }
 
 type PolicyExemptionDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewPolicyExemptionDataSource() datasource.DataSource {
@@ -100,36 +92,8 @@ func (d *PolicyExemptionDataSource) Schema(_ context.Context, _ datasource.Schem
 	}
 }
 
-func (d *PolicyExemptionDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, res *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		res.Diagnostics.AddError(
-			"Unexpected Policy Exemption Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-
-	tflog.Info(ctx, "Configured Policy Exemption datasource", map[string]any{"success": true})
+func (d *PolicyExemptionDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Policy Exemption Data Source")
 }
 
 func (d *PolicyExemptionDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
@@ -140,126 +104,62 @@ func (d *PolicyExemptionDataSource) Read(ctx context.Context, req datasource.Rea
 	}
 
 	// 1. Resolve Organization ID
-	orgReq, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, state.Organization.ValueString()), nil)
+	orgs, err := d.client.Organizations.List(ctx, &terrakube.ListOptions{Filter: "name==" + state.Organization.ValueString()})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization lookup request", fmt.Sprintf("Error: %s", err))
+		reportClientError(&resp.Diagnostics, "reading organization", err)
 		return
 	}
-	orgReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	orgReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	orgResp, err := d.client.Do(orgReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization lookup request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer orgResp.Body.Close()
-
-	orgBody, err := io.ReadAll(orgResp.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading organization response", fmt.Sprintf("Error: %s", err))
-		return
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization", orgResp, orgBody) {
-		return
-	}
-
-	orgs, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(orgBody)), reflect.TypeOf(new(client.OrganizationEntity)))
-	if err != nil || len(orgs) == 0 {
+	if len(orgs) == 0 {
 		resp.Diagnostics.AddError("Organization Not Found", fmt.Sprintf("Organization %s was not found.", state.Organization.ValueString()))
 		return
 	}
 
-	orgData, _ := orgs[0].(*client.OrganizationEntity)
+	orgData := orgs[0]
 	state.OrganizationId = types.StringValue(orgData.ID)
 
-	var targetExemption *client.PolicyExemptionEntity
+	var targetExemption *terrakube.PolicyExemption
 
 	switch {
 	case !state.ID.IsNull() && state.ID.ValueString() != "":
 		// Lookup by ID
-		exReq, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/policy_exemption/%s", d.endpoint, state.ID.ValueString()), nil)
+		single, err := d.client.PolicyExemptions.GetByID(ctx, state.ID.ValueString())
 		if err != nil {
-			resp.Diagnostics.AddError("Error creating policy exemption request", fmt.Sprintf("Error: %s", err))
-			return
-		}
-		exReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-		exReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-		exResp, err := d.client.Do(exReq)
-		if err != nil {
-			resp.Diagnostics.AddError("Error executing policy exemption request", fmt.Sprintf("Error: %s", err))
-			return
-		}
-		defer exResp.Body.Close()
-
-		exBody, err := io.ReadAll(exResp.Body)
-		if err != nil {
-			resp.Diagnostics.AddError("Error reading policy exemption response", fmt.Sprintf("Error: %s", err))
-			return
-		}
-
-		if exResp.StatusCode >= http.StatusBadRequest {
-			resp.Diagnostics.AddError("Policy Exemption Not Found", fmt.Sprintf("Policy exemption ID %s was not found.", state.ID.ValueString()))
-			return
-		}
-
-		single := &client.PolicyExemptionEntity{}
-		if err := jsonapi.UnmarshalPayload(strings.NewReader(string(exBody)), single); err != nil {
-			resp.Diagnostics.AddError("Error unmarshalling policy exemption response", fmt.Sprintf("Error: %s", err))
+			var apiErr *terrakube.APIError
+			if errors.As(err, &apiErr) {
+				resp.Diagnostics.AddError("Policy Exemption Not Found", fmt.Sprintf("Policy exemption ID %s was not found.", state.ID.ValueString()))
+				return
+			}
+			reportClientError(&resp.Diagnostics, "reading policy exemption", err)
 			return
 		}
 		targetExemption = single
 	case !state.RuleId.IsNull() && state.RuleId.ValueString() != "":
 		// Lookup by Rule ID in Org
-		queryUrl := fmt.Sprintf("%s/api/v1/organization/%s/policyExemption?filter[policy_exemption]=ruleId==%s", d.endpoint, orgData.ID, state.RuleId.ValueString())
+		filter := "ruleId==" + state.RuleId.ValueString()
 		if !state.PolicySetId.IsNull() && state.PolicySetId.ValueString() != "" {
-			queryUrl = fmt.Sprintf("%s;policySet.id==%s", queryUrl, state.PolicySetId.ValueString())
+			filter = fmt.Sprintf("%s;policySet.id==%s", filter, state.PolicySetId.ValueString())
 		}
 
-		exReq, err := http.NewRequest(http.MethodGet, queryUrl, nil)
+		exemptions, err := d.client.PolicyExemptions.List(ctx, orgData.ID, &terrakube.ListOptions{Filter: filter})
 		if err != nil {
-			resp.Diagnostics.AddError("Error creating policy exemption query request", fmt.Sprintf("Error: %s", err))
+			reportClientError(&resp.Diagnostics, "reading policy exemption", err)
 			return
 		}
-		exReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-		exReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-		exResp, err := d.client.Do(exReq)
-		if err != nil {
-			resp.Diagnostics.AddError("Error executing policy exemption query request", fmt.Sprintf("Error: %s", err))
-			return
-		}
-		defer exResp.Body.Close()
-
-		exBody, err := io.ReadAll(exResp.Body)
-		if err != nil {
-			resp.Diagnostics.AddError("Error reading policy exemption query response", fmt.Sprintf("Error: %s", err))
-			return
-		}
-
-		if reportAPIErrorStatus(&resp.Diagnostics, "reading policy exemption", exResp, exBody) {
-			return
-		}
-
-		exemptions, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(exBody)), reflect.TypeOf(new(client.PolicyExemptionEntity)))
-		if err != nil || len(exemptions) == 0 {
+		if len(exemptions) == 0 {
 			resp.Diagnostics.AddError("Policy Exemption Not Found", fmt.Sprintf("Policy exemption for rule %s was not found in organization %s.", state.RuleId.ValueString(), state.Organization.ValueString()))
 			return
 		}
-		data, _ := exemptions[0].(*client.PolicyExemptionEntity)
-		targetExemption = data
+		targetExemption = exemptions[0]
 	default:
 		resp.Diagnostics.AddError("Missing Filter Parameter", "Either 'id' or 'rule_id' must be specified to query a policy exemption.")
 		return
 	}
 
 	state.ID = types.StringValue(targetExemption.ID)
-	state.RuleId = types.StringValue(targetExemption.RuleId)
-	state.TicketReference = types.StringValue(targetExemption.TicketReference)
-	state.Justification = types.StringValue(targetExemption.Justification)
-	state.ExpiresAt = types.StringPointerValue(targetExemption.ExpiresAt)
+	state.RuleId = types.StringValue(stringOrEmpty(targetExemption.RuleID))
+	state.TicketReference = types.StringValue(stringOrEmpty(targetExemption.TicketReference))
+	state.Justification = types.StringValue(stringOrEmpty(targetExemption.Justification))
+	state.ExpiresAt = expiresAtState(types.StringNull(), targetExemption.ExpiresAt)
 	if targetExemption.PolicySet != nil {
 		state.PolicySetId = types.StringValue(targetExemption.PolicySet.ID)
 	} else {

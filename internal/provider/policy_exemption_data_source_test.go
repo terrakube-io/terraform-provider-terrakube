@@ -59,11 +59,7 @@ func TestPolicyExemptionDataSource_Read_ById(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	d := &PolicyExemptionDataSource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	d := &PolicyExemptionDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization": tftypes.NewValue(tftypes.String, "enterprise"),
@@ -117,11 +113,7 @@ func TestPolicyExemptionDataSource_Read_ByRuleId(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	d := &PolicyExemptionDataSource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	d := &PolicyExemptionDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization": tftypes.NewValue(tftypes.String, "enterprise"),

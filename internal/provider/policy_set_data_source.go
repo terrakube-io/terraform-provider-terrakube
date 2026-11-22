@@ -2,19 +2,12 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -41,9 +34,7 @@ type PolicySetDataSourceModel struct {
 }
 
 type PolicySetDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewPolicySetDataSource() datasource.DataSource {
@@ -122,36 +113,8 @@ func (d *PolicySetDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 	}
 }
 
-func (d *PolicySetDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, res *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		res.Diagnostics.AddError(
-			"Unexpected Policy Set Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-
-	tflog.Info(ctx, "Configured Policy Set datasource", map[string]any{"success": true})
+func (d *PolicySetDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Policy Set Data Source")
 }
 
 func (d *PolicySetDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
@@ -162,89 +125,47 @@ func (d *PolicySetDataSource) Read(ctx context.Context, req datasource.ReadReque
 	}
 
 	// 1. Resolve Organization ID
-	orgReq, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, state.Organization.ValueString()), nil)
+	orgs, err := d.client.Organizations.List(ctx, &terrakube.ListOptions{Filter: "name==" + state.Organization.ValueString()})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization lookup request", fmt.Sprintf("Error: %s", err))
+		reportClientError(&resp.Diagnostics, "reading organization", err)
 		return
 	}
-	orgReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	orgReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	orgResp, err := d.client.Do(orgReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization lookup request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer orgResp.Body.Close()
-
-	orgBody, err := io.ReadAll(orgResp.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading organization response", fmt.Sprintf("Error: %s", err))
-		return
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization", orgResp, orgBody) {
-		return
-	}
-
-	orgs, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(orgBody)), reflect.TypeOf(new(client.OrganizationEntity)))
-	if err != nil || len(orgs) == 0 {
+	if len(orgs) == 0 {
 		resp.Diagnostics.AddError("Organization Not Found", fmt.Sprintf("Organization %s was not found.", state.Organization.ValueString()))
 		return
 	}
 
-	orgData, _ := orgs[0].(*client.OrganizationEntity)
+	orgData := orgs[0]
 	state.OrganizationId = types.StringValue(orgData.ID)
 
 	// 2. Query Policy Set by name
-	psReq, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/policySet?filter[policy_set]=name==%s", d.endpoint, orgData.ID, state.Name.ValueString()), nil)
+	policySets, err := d.client.PolicySets.List(ctx, orgData.ID, &terrakube.ListOptions{Filter: "name==" + state.Name.ValueString()})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy set query request", fmt.Sprintf("Error: %s", err))
+		reportClientError(&resp.Diagnostics, "reading policy set", err)
 		return
 	}
-	psReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	psReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	psResp, err := d.client.Do(psReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy set query request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer psResp.Body.Close()
-
-	psBody, err := io.ReadAll(psResp.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading policy set response", fmt.Sprintf("Error: %s", err))
-		return
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading policy set", psResp, psBody) {
-		return
-	}
-
-	policySets, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(psBody)), reflect.TypeOf(new(client.PolicySetEntity)))
-	if err != nil || len(policySets) == 0 {
+	if len(policySets) == 0 {
 		resp.Diagnostics.AddError("Policy Set Not Found", fmt.Sprintf("Policy Set %s was not found in organization %s.", state.Name.ValueString(), state.Organization.ValueString()))
 		return
 	}
 
-	data, _ := policySets[0].(*client.PolicySetEntity)
+	data := policySets[0]
 	state.ID = types.StringValue(data.ID)
-	state.Name = types.StringValue(data.Name)
+	state.Name = types.StringValue(stringOrEmpty(data.Name))
 	state.Description = types.StringPointerValue(data.Description)
-	state.EnforcementLevel = types.StringValue(strings.ToLower(data.EnforcementLevel))
+	state.EnforcementLevel = enforcementLevelState(types.StringNull(), stringOrEmpty(data.EnforcementLevel))
 	if data.ShadowEnforcementLevel != nil {
-		state.ShadowEnforcementLevel = types.StringValue(strings.ToLower(*data.ShadowEnforcementLevel))
+		state.ShadowEnforcementLevel = enforcementLevelState(types.StringNull(), *data.ShadowEnforcementLevel)
 	} else {
 		state.ShadowEnforcementLevel = types.StringNull()
 	}
 	state.OverrideTeam = types.StringPointerValue(data.OverrideTeam)
 	state.Global = types.BoolValue(data.Global)
 	state.Repository = types.StringPointerValue(data.Repository)
-	state.Branch = types.StringValue(data.Branch)
-	state.Folder = types.StringValue(data.Folder)
-	if data.Vcs != nil {
-		state.VcsId = types.StringValue(data.Vcs.ID)
+	state.Branch = types.StringValue(stringOrEmpty(data.Branch))
+	state.Folder = types.StringValue(stringOrEmpty(data.Folder))
+	if data.VCS != nil {
+		state.VcsId = types.StringValue(data.VCS.ID)
 	} else {
 		state.VcsId = types.StringNull()
 	}

@@ -126,30 +126,30 @@ func runLookupDataSourceTests(t *testing.T, tc lookupDataSourceCase) {
 
 type lookupTestEntity struct{ Name string }
 
-func TestFindSingleByName(t *testing.T) {
+func TestFindSingleByNameIn(t *testing.T) {
 	nameOf := func(e *lookupTestEntity) string { return e.Name }
 	a, b := &lookupTestEntity{"a"}, &lookupTestEntity{"b"}
 
 	var diags diag.Diagnostics
-	if got := findSingleByName(&diags, "thing", "a", "", []interface{}{b, a}, nameOf); got != a || diags.HasError() {
+	if got := findSingleByNameIn(&diags, "thing", "a", "", []*lookupTestEntity{b, a}, nameOf); got != a || diags.HasError() {
 		t.Errorf("expected a without error, got %v, %v", got, diags)
 	}
 
 	diags = nil
-	if got := findSingleByName(&diags, "thing", "z", " in organization o", []interface{}{a, b}, nameOf); got != nil ||
+	if got := findSingleByNameIn(&diags, "thing", "z", " in organization o", []*lookupTestEntity{a, b}, nameOf); got != nil ||
 		len(diags.Errors()) != 1 || diags.Errors()[0].Summary() != "Thing not found" ||
 		!strings.Contains(diags.Errors()[0].Detail(), `No thing named "z" was found in organization o.`) {
 		t.Errorf("unexpected result for no match: %v, %v", got, diags)
 	}
 
 	diags = nil
-	if got := findSingleByName(&diags, "thing", "a", "", []interface{}{a, &lookupTestEntity{"a"}}, nameOf); got != nil ||
+	if got := findSingleByNameIn(&diags, "thing", "a", "", []*lookupTestEntity{a, {"a"}}, nameOf); got != nil ||
 		len(diags.Errors()) != 1 || diags.Errors()[0].Summary() != "Multiple thing entries found" {
 		t.Errorf("unexpected result for duplicates: %v, %v", got, diags)
 	}
 
 	diags = nil
-	if got := findSingleByName(&diags, "thing", "a", "", []interface{}{"not an entity"}, nameOf); got != nil || !diags.HasError() {
-		t.Errorf("expected an error for an unexpected type, got %v, %v", got, diags)
+	if got := findSingleByNameIn(&diags, "thing", "a", "", []*lookupTestEntity{nil, a, nil}, nameOf); got != a || diags.HasError() {
+		t.Errorf("expected nil entries to be skipped, got %v, %v", got, diags)
 	}
 }

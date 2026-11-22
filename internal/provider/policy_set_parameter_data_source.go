@@ -2,19 +2,14 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
+	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -31,9 +26,7 @@ type PolicySetParameterDataSourceModel struct {
 }
 
 type PolicySetParameterDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewPolicySetParameterDataSource() datasource.DataSource {
@@ -75,33 +68,7 @@ func (d *PolicySetParameterDataSource) Schema(_ context.Context, _ datasource.Sc
 }
 
 func (d *PolicySetParameterDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Policy Set Parameter Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Policy Set Parameter Data Source")
 }
 
 func (d *PolicySetParameterDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
@@ -123,81 +90,31 @@ func (d *PolicySetParameterDataSource) Read(ctx context.Context, req datasource.
 	}
 
 	policySetID := state.PolicySetId.ValueString()
-	var targetParam *client.PolicySetParameterEntity
+	var targetParam *terrakube.PolicySetParameter
 
 	if hasID {
 		paramID := state.ID.ValueString()
-		url := fmt.Sprintf("%s/api/v1/policy_set/%s/parameters/%s", d.endpoint, policySetID, paramID)
-		readReq, err := http.NewRequest(http.MethodGet, url, nil)
+		param, err := d.client.PolicySetParameters.GetByPolicySet(ctx, policySetID, paramID)
 		if err != nil {
-			resp.Diagnostics.AddError("Error creating policy set parameter read request", fmt.Sprintf("Error: %s", err))
-			return
-		}
-		readReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-		readReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-		readResp, err := d.client.Do(readReq)
-		if err != nil {
-			resp.Diagnostics.AddError("Error executing policy set parameter read request", fmt.Sprintf("Error: %s", err))
-			return
-		}
-		defer readResp.Body.Close()
-
-		bodyResponse, err := io.ReadAll(readResp.Body)
-		if err != nil {
-			resp.Diagnostics.AddError("Error reading policy set parameter response body", fmt.Sprintf("Error: %s", err))
-			return
-		}
-
-		if readResp.StatusCode >= http.StatusBadRequest {
-			resp.Diagnostics.AddError("Policy Set Parameter Not Found", fmt.Sprintf("Parameter ID %s was not found for policy set %s: %s", paramID, policySetID, string(bodyResponse)))
-			return
-		}
-
-		param := &client.PolicySetParameterEntity{}
-		if err := jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), param); err != nil {
-			resp.Diagnostics.AddError("Error unmarshalling policy set parameter payload", fmt.Sprintf("Error: %s", err))
+			var apiErr *terrakube.APIError
+			if errors.As(err, &apiErr) {
+				resp.Diagnostics.AddError("Policy Set Parameter Not Found", fmt.Sprintf("Parameter ID %s was not found for policy set %s: %s", paramID, policySetID, string(apiErr.Body)))
+				return
+			}
+			reportClientError(&resp.Diagnostics, "reading policy set parameter", err)
 			return
 		}
 		targetParam = param
 	} else {
 		targetKey := state.Key.ValueString()
-		url := fmt.Sprintf("%s/api/v1/policy_set/%s/parameters", d.endpoint, policySetID)
-		readReq, err := http.NewRequest(http.MethodGet, url, nil)
+		params, err := d.client.PolicySetParameters.ListByPolicySet(ctx, policySetID, nil)
 		if err != nil {
-			resp.Diagnostics.AddError("Error creating policy set parameter query request", fmt.Sprintf("Error: %s", err))
-			return
-		}
-		readReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-		readReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-		readResp, err := d.client.Do(readReq)
-		if err != nil {
-			resp.Diagnostics.AddError("Error executing policy set parameter query request", fmt.Sprintf("Error: %s", err))
-			return
-		}
-		defer readResp.Body.Close()
-
-		bodyResponse, err := io.ReadAll(readResp.Body)
-		if err != nil {
-			resp.Diagnostics.AddError("Error reading policy set parameter list response", fmt.Sprintf("Error: %s", err))
+			reportClientError(&resp.Diagnostics, "querying policy set parameters", err)
 			return
 		}
 
-		if readResp.StatusCode >= http.StatusBadRequest {
-			resp.Diagnostics.AddError("Error querying policy set parameters", fmt.Sprintf("status: %v, body: %v", readResp.Status, string(bodyResponse)))
-			return
-		}
-
-		rawParams, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(bodyResponse)), reflect.TypeOf(new(client.PolicySetParameterEntity)))
-		if err != nil {
-			resp.Diagnostics.AddError("Error unmarshalling policy set parameters", fmt.Sprintf("Error: %s", err))
-			return
-		}
-
-		for _, item := range rawParams {
-			p, ok := item.(*client.PolicySetParameterEntity)
-			if ok && p.Key == targetKey {
+		for _, p := range params {
+			if p != nil && stringOrEmpty(p.Key) == targetKey {
 				targetParam = p
 				break
 			}
@@ -213,14 +130,10 @@ func (d *PolicySetParameterDataSource) Read(ctx context.Context, req datasource.
 	}
 
 	state.ID = types.StringValue(targetParam.ID)
-	state.Key = types.StringValue(targetParam.Key)
-	state.Value = types.StringValue(targetParam.Value)
-	if targetParam.Description != nil {
-		state.Description = types.StringValue(*targetParam.Description)
-	} else {
-		state.Description = types.StringNull()
-	}
+	state.Key = types.StringValue(stringOrEmpty(targetParam.Key))
+	state.Value = types.StringValue(stringOrEmpty(targetParam.Value))
+	state.Description = types.StringPointerValue(targetParam.Description)
 
-	tflog.Debug(ctx, "Policy set parameter data source resolved", map[string]any{"id": targetParam.ID, "key": targetParam.Key})
+	tflog.Debug(ctx, "Policy set parameter data source resolved", map[string]any{"id": targetParam.ID, "key": stringOrEmpty(targetParam.Key)})
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

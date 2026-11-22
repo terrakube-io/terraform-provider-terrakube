@@ -57,11 +57,7 @@ func TestPolicySetDataSource_Read(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	d := &PolicySetDataSource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	d := &PolicySetDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization": tftypes.NewValue(tftypes.String, "enterprise"),

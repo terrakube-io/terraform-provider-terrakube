@@ -81,7 +81,7 @@ func (h *outputHarness) read() *datasource.ReadResponse {
 		forbidden := `{"errors":[{"detail":"the server said no"}]}`
 		switch {
 		case r.URL.Path == "/api/v1/organization":
-			h.query["organization"] = r.URL.Query().Get("filter[organization]")
+			h.query["organization"] = r.URL.Query().Get("filter")
 			if h.orgStatus != http.StatusOK {
 				reply(h.orgStatus, forbidden)
 				return
@@ -115,7 +115,7 @@ func (h *outputHarness) read() *datasource.ReadResponse {
 	h.t.Cleanup(server.Close)
 	serverURL = server.URL
 
-	d := &OutputDataSource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	d := &OutputDataSource{client: newTestClient(server.Client(), server.URL)}
 	var schemaResp datasource.SchemaResponse
 	d.Schema(ctx, datasource.SchemaRequest{}, &schemaResp)
 	objType, ok := schemaResp.Schema.Type().TerraformType(ctx).(tftypes.Object)
