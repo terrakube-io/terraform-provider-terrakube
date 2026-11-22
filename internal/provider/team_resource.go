@@ -315,9 +315,9 @@ func setTeamState(model *TeamResourceModel, team *terrakube.Team) {
 	model.ManageCollection = types.BoolValue(team.ManageCollection)
 	model.PlanJob = types.BoolValue(team.PlanJob)
 	model.ApproveJob = types.BoolValue(team.ApproveJob)
-	model.DestroyJob = optionalBoolState(team.DestroyJob, model.DestroyJob)
+	model.DestroyJob = types.BoolPointerValue(team.DestroyJob)
 	model.Role = roleToState(&team.Role)
-	model.ManagePolicies = optionalBoolState(team.ManagePolicies, model.ManagePolicies)
+	model.ManagePolicies = types.BoolPointerValue(team.ManagePolicies)
 }
 
 func (r *TeamResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

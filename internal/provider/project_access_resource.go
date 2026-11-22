@@ -267,7 +267,7 @@ func setProjectAccessState(model *ProjectAccessResourceModel, access *terrakube.
 	model.ManageJob = types.BoolValue(access.ManageJob)
 	model.PlanJob = types.BoolValue(access.PlanJob)
 	model.ApproveJob = types.BoolValue(access.ApproveJob)
-	model.DestroyJob = optionalBoolState(access.DestroyJob, model.DestroyJob)
+	model.DestroyJob = types.BoolPointerValue(access.DestroyJob)
 	model.Role = roleToState(&access.Role)
 }
 
