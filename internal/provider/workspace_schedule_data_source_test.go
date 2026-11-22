@@ -18,7 +18,7 @@ func readWorkspaceScheduleDataSource(t *testing.T, cron *string, handler http.Ha
 
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	d := &WorkspaceScheduleDataSource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	d := &WorkspaceScheduleDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	var schemaResp datasource.SchemaResponse
 	d.Schema(ctx, datasource.SchemaRequest{}, &schemaResp)
@@ -114,7 +114,7 @@ func TestWorkspaceScheduleDataSource_ReadErrors(t *testing.T) {
 		{"other schedule", &cron, http.StatusOK, `{"data":[` + scheduleJSON("sch-1", "0 0 6 ? * MON-FRI", "tpl-apply") + `]}`, "Workspace schedule not found"},
 		{"ambiguous", nil, http.StatusOK, `{"data":[` + scheduleJSON("sch-1", "0 0 6 ? * MON-FRI", "tpl-apply") + `,` + scheduleJSON("sch-2", cron, "tpl-apply") + `]}`, "Multiple workspace schedules found"},
 		{"api error", nil, http.StatusForbidden, `{"errors":[{"detail":"forbidden"}]}`, "Error reading workspace schedule: 403 Forbidden"},
-		{"invalid payload", nil, http.StatusOK, `not json`, "Unable to unmarshal workspace schedule payload"},
+		{"invalid payload", nil, http.StatusOK, `not json`, "Error reading workspace schedule"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

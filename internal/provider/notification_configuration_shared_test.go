@@ -10,6 +10,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
@@ -86,52 +87,58 @@ func TestSyncNotificationTriggers_NoChangesMakesNoRequests(t *testing.T) {
 	}
 }
 
-func TestFetchNotificationConfigurationTemplateIDs_ReturnsIDsOnly(t *testing.T) {
+// readNotificationConfigurationTemplateIDs runs the data source's Read against a configuration
+// list whose match has the given templates relationship, and returns template_ids from the state.
+func readNotificationConfigurationTemplateIDs(t *testing.T, templatesLinkage string) []string {
+	t.Helper()
 	ctx := context.Background()
+	s, objType := notificationConfigurationDataSourceSchemaAndType(t, ctx)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/notification_configuration/cfg-1/templates", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/organization/org-1/notificationConfiguration", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Fatalf("unexpected method %s", r.Method)
 		}
-		fmt.Fprint(w, `{"data":[
-			{"type":"template","id":"tmpl-1","attributes":{"name":"Plan/Apply"}},
-			{"type":"template","id":"tmpl-2","attributes":{"name":"Plan/Destroy"}}
-		]}`)
+		fmt.Fprintf(w, `{"data":[{"type":"notification_configuration","id":"cfg-1","attributes":{
+			"name":"prod-alerts","channelType":"SLACK","destinationUrl":"https://org","active":true,"messageStyle":"DETAILED"},
+			"relationships":{"templates":{"data":%s}}}]}`, templatesLinkage)
 	})
-
-	server := httptest.NewServer(mux)
-	defer server.Close()
-
-	api := notificationConfigAPI{client: server.Client(), endpoint: server.URL, token: "test-token"}
-
-	ids, diags := api.fetchNotificationConfigurationTemplateIDs(ctx, "cfg-1")
-	if diags.HasError() {
-		t.Fatalf("unexpected diagnostics: %v", diags)
-	}
-
-	if len(ids) != 2 || ids[0] != "tmpl-1" || ids[1] != "tmpl-2" {
-		t.Errorf("ids = %v, want [tmpl-1 tmpl-2]", ids)
-	}
-}
-
-func TestFetchNotificationConfigurationTemplateIDs_EmptyMeansAllTemplates(t *testing.T) {
-	ctx := context.Background()
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/notification_configuration/cfg-1/templates", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/notification_configuration/cfg-1/triggers", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"data":[]}`)
 	})
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	api := notificationConfigAPI{client: server.Client(), endpoint: server.URL, token: "test-token"}
-
-	ids, diags := api.fetchNotificationConfigurationTemplateIDs(ctx, "cfg-1")
-	if diags.HasError() {
-		t.Fatalf("unexpected diagnostics: %v", diags)
+	d := &NotificationConfigurationDataSource{client: newTestClient(server.Client(), server.URL)}
+	configValue := buildObjectValue(objType, map[string]tftypes.Value{
+		"organization_id": tftypes.NewValue(tftypes.String, "org-1"),
+		"name":            tftypes.NewValue(tftypes.String, "prod-alerts"),
+	})
+	resp := &datasource.ReadResponse{State: tfsdk.State{Schema: s}}
+	d.Read(ctx, datasource.ReadRequest{Config: tfsdk.Config{Schema: s, Raw: configValue}}, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
 	}
+
+	var ids []string
+	if diags := resp.State.GetAttribute(ctx, path.Root("template_ids"), &ids); diags.HasError() {
+		t.Fatalf("reading template_ids from state: %v", diags)
+	}
+	return ids
+}
+
+// The data source takes template_ids from the templates relationship linkage of the listed
+// configuration (notificationTemplateIDs): the ids only, in order.
+func TestNotificationTemplateIDs_ReturnsIDsOnly(t *testing.T) {
+	ids := readNotificationConfigurationTemplateIDs(t, `[{"type":"template","id":"tmpl-1"},{"type":"template","id":"tmpl-2"}]`)
+	if len(ids) != 2 || ids[0] != "tmpl-1" || ids[1] != "tmpl-2" {
+		t.Errorf("ids = %v, want [tmpl-1 tmpl-2]", ids)
+	}
+}
+
+func TestNotificationTemplateIDs_EmptyMeansAllTemplates(t *testing.T) {
+	ids := readNotificationConfigurationTemplateIDs(t, `[]`)
 	if len(ids) != 0 {
 		t.Errorf("ids = %v, want empty (meaning \"applies to every template\")", ids)
 	}

@@ -12,13 +12,33 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
-func readWorkspaceRunTriggerDataSource(t *testing.T, handler http.Handler) *datasource.ReadResponse {
+// runTriggerDestinationPath is where the data source lists the destination workspace's run
+// triggers, after reading the workspace for its organization.
+const runTriggerDestinationPath = "/api/v1/organization/org-1/workspace/ws-destination/runTriggers"
+
+// readWorkspaceRunTriggerDataSource runs Read with handler serving the run trigger list. The
+// destination workspace, read first for its organization, is served by workspaceHandler, or as
+// workspace ws-destination of organization org-1 when workspaceHandler is nil.
+func readWorkspaceRunTriggerDataSource(t *testing.T, handler http.Handler, workspaceHandler http.HandlerFunc) *datasource.ReadResponse {
 	t.Helper()
 	ctx := context.Background()
 
-	server := httptest.NewServer(handler)
+	mux := http.NewServeMux()
+	mux.Handle("/", handler)
+	if workspaceHandler != nil {
+		mux.Handle("/api/v1/workspace/ws-destination", workspaceHandler)
+	} else {
+		mux.HandleFunc("/api/v1/workspace/ws-destination", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			}
+			fmt.Fprint(w, `{"data":{"type":"workspace","id":"ws-destination","attributes":{"name":"destination"},
+				"relationships":{"organization":{"data":{"type":"organization","id":"org-1"}}}}}`)
+		})
+	}
+	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
-	d := &WorkspaceRunTriggerDataSource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	d := &WorkspaceRunTriggerDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	var schemaResp datasource.SchemaResponse
 	d.Schema(ctx, datasource.SchemaRequest{}, &schemaResp)
@@ -52,7 +72,7 @@ func runTriggerJSON(id, source, destination, template string, enabled bool) stri
 
 func TestWorkspaceRunTriggerDataSource_Read(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/runTrigger" {
+		if r.Method != http.MethodGet || r.URL.Path != runTriggerDestinationPath {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		want := `sourceWorkspace.id=="ws-source";destinationWorkspace.id=="ws-destination"`
@@ -65,7 +85,7 @@ func TestWorkspaceRunTriggerDataSource_Read(t *testing.T) {
 		fmt.Fprintf(w, `{"data":[%s]}`, runTriggerJSON("rt-1", "ws-source", "ws-destination", "tpl-1", false))
 	})
 
-	resp := readWorkspaceRunTriggerDataSource(t, handler)
+	resp := readWorkspaceRunTriggerDataSource(t, handler, nil)
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
 	}
@@ -83,7 +103,7 @@ func TestWorkspaceRunTriggerDataSource_ReadWithoutTemplate(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, `{"data":[%s]}`, runTriggerJSON("rt-1", "ws-source", "ws-destination", "", true))
 	})
-	resp := readWorkspaceRunTriggerDataSource(t, handler)
+	resp := readWorkspaceRunTriggerDataSource(t, handler, nil)
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
 	}
@@ -109,7 +129,7 @@ func TestWorkspaceRunTriggerDataSource_ReadErrors(t *testing.T) {
 		{"other destination", http.StatusOK, `{"data":[` + runTriggerJSON("rt-2", "ws-source", "ws-other", "", true) + `]}`, "Workspace run trigger not found"},
 		{"duplicate", http.StatusOK, `{"data":[` + match + `,` + runTriggerJSON("rt-2", "ws-source", "ws-destination", "", true) + `]}`, "Multiple workspace run triggers found"},
 		{"api error", http.StatusForbidden, `{"errors":[{"detail":"forbidden"}]}`, "Error reading workspace run trigger: 403 Forbidden"},
-		{"invalid payload", http.StatusOK, `not json`, "Unable to unmarshal workspace run trigger payload"},
+		{"invalid payload", http.StatusOK, `not json`, "Error reading workspace run trigger"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -117,7 +137,7 @@ func TestWorkspaceRunTriggerDataSource_ReadErrors(t *testing.T) {
 				w.WriteHeader(test.status)
 				fmt.Fprint(w, test.body)
 			})
-			resp := readWorkspaceRunTriggerDataSource(t, handler)
+			resp := readWorkspaceRunTriggerDataSource(t, handler, nil)
 			if !resp.Diagnostics.HasError() {
 				t.Fatal("expected an error diagnostic")
 			}
@@ -125,5 +145,23 @@ func TestWorkspaceRunTriggerDataSource_ReadErrors(t *testing.T) {
 				t.Errorf("diagnostic = %q, want %q", got, test.summary)
 			}
 		})
+	}
+}
+
+// A destination workspace that does not exist (or is not visible) has no run triggers: the same
+// diagnostic as an empty list, not an API error.
+func TestWorkspaceRunTriggerDataSource_DestinationWorkspaceNotFound(t *testing.T) {
+	handler := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+	})
+	resp := readWorkspaceRunTriggerDataSource(t, handler, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, `{"errors":[{"detail":"not found"}]}`)
+	})
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected an error diagnostic")
+	}
+	if got := resp.Diagnostics.Errors()[0].Summary(); got != "Workspace run trigger not found" {
+		t.Errorf("diagnostic = %q, want %q", got, "Workspace run trigger not found")
 	}
 }

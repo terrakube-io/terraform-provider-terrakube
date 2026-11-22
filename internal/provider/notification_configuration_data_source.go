@@ -2,20 +2,12 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -38,44 +30,15 @@ type NotificationConfigurationDataSourceModel struct {
 }
 
 type NotificationConfigurationDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewNotificationConfigurationDataSource() datasource.DataSource {
 	return &NotificationConfigurationDataSource{}
 }
 
-func (d *NotificationConfigurationDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Notification Configuration Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-
-	tflog.Info(ctx, "Creating Notification Configuration datasource")
+func (d *NotificationConfigurationDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Notification Configuration Data Source")
 }
 
 func (d *NotificationConfigurationDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -143,48 +106,17 @@ func (d *NotificationConfigurationDataSource) Read(ctx context.Context, req data
 		return
 	}
 
-	reqURL := fmt.Sprintf("%s/api/v1/organization/%s/notificationConfiguration?filter[notification_configuration]=name==%s",
-		d.endpoint, state.OrganizationId.ValueString(), url.QueryEscape(state.Name.ValueString()))
-	request, err := http.NewRequest(http.MethodGet, reqURL, nil)
+	list, err := d.client.NotificationConfigurations.List(ctx, state.OrganizationId.ValueString(), &terrakube.ListOptions{Filter: "name==" + state.Name.ValueString()})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating notification configuration datasource request", fmt.Sprintf("Error creating notification configuration datasource request: %s", err))
-		return
-	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
-
-	response, err := d.client.Do(request)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing notification configuration request", fmt.Sprintf("Error executing notification configuration request: %s", err))
-		return
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading notification configuration response body", fmt.Sprintf("Error reading notification configuration response body: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(body)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading notification configuration", response, body) {
-		return
-	}
-
-	list, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.NotificationConfigurationEntity)))
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to unmarshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "reading notification configuration", err)
 		return
 	}
 
 	wantWorkspaceScope := !state.WorkspaceId.IsNull() && state.WorkspaceId.ValueString() != ""
-	var found *client.NotificationConfigurationEntity
-	for _, item := range list {
-		cfg, ok := item.(*client.NotificationConfigurationEntity)
-		if !ok {
-			resp.Diagnostics.AddError("Unable to unmarshal payload", "Unexpected type in notification configurations payload")
-			return
+	var found *terrakube.NotificationConfiguration
+	for _, cfg := range list {
+		if cfg == nil {
+			continue
 		}
 		hasWorkspace := cfg.Workspace != nil
 		if wantWorkspaceScope {
@@ -204,10 +136,9 @@ func (d *NotificationConfigurationDataSource) Read(ctx context.Context, req data
 		return
 	}
 
-	api := notificationConfigAPI{client: d.client, endpoint: d.endpoint, token: d.token}
-	triggers, diags := api.fetchNotificationTriggers(ctx, found.ID)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
+	triggers, err := d.client.NotificationTriggers.ListByConfiguration(ctx, found.ID, nil)
+	if err != nil {
+		reportClientError(&resp.Diagnostics, "reading notification triggers", err)
 		return
 	}
 	statuses := make([]string, 0, len(triggers))
@@ -217,18 +148,13 @@ func (d *NotificationConfigurationDataSource) Read(ctx context.Context, req data
 	triggerList, listDiags := types.ListValueFrom(ctx, types.StringType, statuses)
 	resp.Diagnostics.Append(listDiags...)
 
-	templateIds, templateDiags := api.fetchNotificationConfigurationTemplateIDs(ctx, found.ID)
-	resp.Diagnostics.Append(templateDiags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	templateList, templateListDiags := types.ListValueFrom(ctx, types.StringType, templateIds)
+	templateList, templateListDiags := types.ListValueFrom(ctx, types.StringType, notificationTemplateIDs(found))
 	resp.Diagnostics.Append(templateListDiags...)
 
 	state.ID = types.StringValue(found.ID)
 	state.Description = optionalStringValue(found.Description)
 	state.ChannelType = types.StringValue(found.ChannelType)
-	state.DestinationUrl = types.StringValue(found.DestinationUrl)
+	state.DestinationUrl = types.StringValue(found.DestinationURL)
 	state.Active = types.BoolValue(found.Active)
 	state.MessageStyle = types.StringValue(found.MessageStyle)
 	state.TriggerStatuses = triggerList

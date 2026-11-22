@@ -3,13 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -18,16 +12,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	terrakube "github.com/terrakube-io/terrakube-go"
 )
-
-// notificationConfigAPI bundles the HTTP client/endpoint/token of the data source's net/http
-// calls, so the helpers below don't need three positional arguments each. Only
-// notification_configuration_data_source.go (and the tests of these helpers) uses it: the
-// notification configuration resources are on terrakube-go.
-type notificationConfigAPI struct {
-	client   *http.Client
-	endpoint string
-	token    string
-}
 
 // notificationTemplatesRelationship is the "templates" relationship of a notification
 // configuration create or update. It always replaces the whole set, mirroring
@@ -41,8 +25,8 @@ func notificationTemplatesRelationship(templateIDs []string) map[string]terrakub
 }
 
 // notificationTemplateIDs returns the ids of the templates a notification configuration is
-// narrowed to, in the order of the "templates" relationship linkage of its GET response. An
-// empty result means "applies to every template".
+// narrowed to, in the order of the "templates" relationship linkage of its GET or list response.
+// An empty result means "applies to every template".
 func notificationTemplateIDs(configuration *terrakube.NotificationConfiguration) []string {
 	ids := make([]string, 0, len(configuration.Templates))
 	for _, template := range configuration.Templates {
@@ -59,59 +43,6 @@ func optionalStringValue(s *string) types.String {
 		return types.StringNull()
 	}
 	return types.StringValue(*s)
-}
-
-// fetchNotificationTriggers is used only by the data source; the resources read triggers with
-// terrakube-go's NotificationTriggers.ListByConfiguration. It reads the full set of trigger resources attached to a notification
-// configuration via the related-resource collection endpoint, which - unlike the relationship
-// linkage embedded in the configuration's own GET response - returns each trigger's full
-// attributes (jobStatus), not just its id. Mirrors workspace_webhook_event_resource.go's Update
-// method, which reads its parent webhook's events the same way.
-func (a notificationConfigAPI) fetchNotificationTriggers(ctx context.Context, configID string) ([]client.NotificationTriggerEntity, diag.Diagnostics) {
-	var diags diag.Diagnostics
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/api/v1/notification_configuration/%s/triggers", a.endpoint, configID), nil)
-	if err != nil {
-		diags.AddError("Error creating notification triggers request", fmt.Sprintf("Error creating notification triggers request: %s", err))
-		return nil, diags
-	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", a.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
-
-	response, err := a.client.Do(request)
-	if err != nil {
-		diags.AddError("Error executing notification triggers request", fmt.Sprintf("Error executing notification triggers request: %s", err))
-		return nil, diags
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		diags.AddError("Error reading notification triggers response", fmt.Sprintf("Error reading notification triggers response: %s", err))
-		return nil, diags
-	}
-
-	if response.StatusCode != http.StatusOK {
-		diags.AddError("Error reading notification triggers", fmt.Sprintf("Received non-200 status code: %d, body: %s", response.StatusCode, string(body)))
-		return nil, diags
-	}
-
-	raw, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.NotificationTriggerEntity)))
-	if err != nil {
-		diags.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return nil, diags
-	}
-
-	triggers := make([]client.NotificationTriggerEntity, 0, len(raw))
-	for _, item := range raw {
-		trigger, ok := item.(*client.NotificationTriggerEntity)
-		if !ok {
-			diags.AddError("Error unmarshal payload response", "Unexpected type in notification triggers payload")
-			return nil, diags
-		}
-		triggers = append(triggers, *trigger)
-	}
-	return triggers, diags
 }
 
 // syncNotificationTriggers reconciles a configuration's trigger set with the desired list of job
@@ -153,60 +84,6 @@ func syncNotificationTriggers(ctx context.Context, c *terrakube.Client, configID
 	}
 
 	return diags
-}
-
-// fetchNotificationConfigurationTemplateIDs is used only by the data source.
-//
-// fetchNotificationConfigurationTemplateIDs reads the ids of every template a notification
-// configuration is currently narrowed to, via the related-resource collection endpoint (same
-// "full resources, not just linkage" shape fetchNotificationTriggers relies on). An empty result
-// means "applies to every template" - there's no separate flag for that, it's just the absence of
-// any narrowing rows in notification_configuration_template.
-func (a notificationConfigAPI) fetchNotificationConfigurationTemplateIDs(ctx context.Context, configID string) ([]string, diag.Diagnostics) {
-	var diags diag.Diagnostics
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/api/v1/notification_configuration/%s/templates", a.endpoint, configID), nil)
-	if err != nil {
-		diags.AddError("Error creating notification configuration templates request", fmt.Sprintf("Error creating notification configuration templates request: %s", err))
-		return nil, diags
-	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", a.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
-
-	response, err := a.client.Do(request)
-	if err != nil {
-		diags.AddError("Error executing notification configuration templates request", fmt.Sprintf("Error executing notification configuration templates request: %s", err))
-		return nil, diags
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		diags.AddError("Error reading notification configuration templates response", fmt.Sprintf("Error reading notification configuration templates response: %s", err))
-		return nil, diags
-	}
-
-	if response.StatusCode != http.StatusOK {
-		diags.AddError("Error reading notification configuration templates", fmt.Sprintf("Received non-200 status code: %d, body: %s", response.StatusCode, string(body)))
-		return nil, diags
-	}
-
-	raw, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.OrganizationTemplateEntity)))
-	if err != nil {
-		diags.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return nil, diags
-	}
-
-	ids := make([]string, 0, len(raw))
-	for _, item := range raw {
-		template, ok := item.(*client.OrganizationTemplateEntity)
-		if !ok {
-			diags.AddError("Error unmarshal payload response", "Unexpected type in notification configuration templates payload")
-			return nil, diags
-		}
-		ids = append(ids, template.ID)
-	}
-	return ids, diags
 }
 
 // signingSecretDescription is shared by the organization and workspace notification

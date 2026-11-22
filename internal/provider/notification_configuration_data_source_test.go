@@ -50,18 +50,11 @@ func TestNotificationConfigurationDataSource_Read_DisambiguatesScopeByWorkspaceI
 	mux.HandleFunc("/api/v1/notification_configuration/cfg-ws-override/triggers", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"data":[{"type":"notification_trigger","id":"trig-1","attributes":{"jobStatus":"failed"}}]}`)
 	})
-	mux.HandleFunc("/api/v1/notification_configuration/cfg-ws-override/templates", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"data":[]}`)
-	})
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	d := &NotificationConfigurationDataSource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	d := &NotificationConfigurationDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id": tftypes.NewValue(tftypes.String, "org-1"),
@@ -104,11 +97,7 @@ func TestNotificationConfigurationDataSource_Read_ErrorsWhenNotFound(t *testing.
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	d := &NotificationConfigurationDataSource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	d := &NotificationConfigurationDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id": tftypes.NewValue(tftypes.String, "org-1"),
