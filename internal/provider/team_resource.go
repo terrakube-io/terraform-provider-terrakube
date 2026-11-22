@@ -1,16 +1,10 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
@@ -23,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -31,9 +26,7 @@ var _ resource.ResourceWithImportState = &TeamResource{}
 var _ resource.ResourceWithConfigValidators = &TeamResource{}
 
 type TeamResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type TeamResourceModel struct {
@@ -184,208 +177,50 @@ func (r *TeamResource) Schema(ctx context.Context, req resource.SchemaRequest, r
 }
 
 func (r *TeamResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Team Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Team resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Team Resource")
 }
 
 func (r *TeamResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan TeamResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	bodyRequest := &client.TeamEntity{
-		Name:             plan.Name.ValueString(),
-		ManageState:      plan.ManageState.ValueBool(),
-		ManageWorkspace:  plan.ManageWorkspace.ValueBool(),
-		ManageModule:     plan.ManageModule.ValueBool(),
-		ManageProvider:   plan.ManageProvider.ValueBool(),
-		ManageTemplate:   plan.ManageTemplate.ValueBool(),
-		ManageVcs:        plan.ManageVcs.ValueBool(),
-		ManageJob:        plan.ManageJob.ValueBool(),
-		ManageCollection: plan.ManageCollection.ValueBool(),
-		PlanJob:          resolveJobFlag(plan.PlanJob, plan.ManageJob),
-		ApproveJob:       resolveJobFlag(plan.ApproveJob, plan.ManageJob),
-	}
-
-	bodyRequest.DestroyJob = optionalBoolPointer(plan.DestroyJob)
-
-	if !plan.Role.IsNull() && !plan.Role.IsUnknown() {
-		role := plan.Role.ValueString()
-		bodyRequest.Role = &role
-	}
-
-	if !plan.ManagePolicies.IsNull() && !plan.ManagePolicies.IsUnknown() {
-		mp := plan.ManagePolicies.ValueBool()
-		bodyRequest.ManagePolicies = &mp
-	}
-
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
+	team, err := r.client.Teams.CreateFields(ctx, plan.OrganizationId.ValueString(), terrakube.Patch{Attributes: teamAttributes(plan)})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating team", err)
 		return
 	}
 
-	teamRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/team", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating team resource request", fmt.Sprintf("Error creating team resource request: %s", err))
-		return
-	}
-	teamRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	teamRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	teamResponse, err := r.client.Do(teamRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing team resource request", fmt.Sprintf("Error executing team resource request: %s", err))
-		return
-	}
-	defer teamResponse.Body.Close()
-
-	bodyResponse, err := io.ReadAll(teamResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading team resource response body", fmt.Sprintf("Error reading team resource response body: %s", err))
-		return
-	}
-
-	if teamResponse.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error creating team", fmt.Sprintf("status: %v, body: %v", teamResponse.Status, string(bodyResponse)))
-		return
-	}
-
-	newTeam := &client.TeamEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newTeam)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	plan.ID = types.StringValue(newTeam.ID)
-	plan.Name = types.StringValue(newTeam.Name)
-	plan.ManageState = types.BoolValue(newTeam.ManageState)
-	plan.ManageWorkspace = types.BoolValue(newTeam.ManageWorkspace)
-	plan.ManageModule = types.BoolValue(newTeam.ManageModule)
-	plan.ManageVcs = types.BoolValue(newTeam.ManageVcs)
-	plan.ManageProvider = types.BoolValue(newTeam.ManageProvider)
-	plan.ManageTemplate = types.BoolValue(newTeam.ManageTemplate)
-	plan.ManageJob = types.BoolValue(newTeam.ManageJob)
-	plan.ManageCollection = types.BoolValue(newTeam.ManageCollection)
-	plan.PlanJob = types.BoolValue(newTeam.PlanJob)
-	plan.ApproveJob = types.BoolValue(newTeam.ApproveJob)
-	plan.DestroyJob = types.BoolPointerValue(newTeam.DestroyJob)
-	plan.Role = roleToState(newTeam.Role)
-	plan.ManagePolicies = types.BoolPointerValue(newTeam.ManagePolicies)
+	plan.ID = types.StringValue(team.ID)
+	setTeamState(&plan, team)
 
 	tflog.Info(ctx, "Team Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *TeamResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state TeamResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	teamRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/team/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating team resource request", fmt.Sprintf("Error creating team resource request: %s", err))
-		return
-	}
-	teamRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	teamRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	teamResponse, err := r.client.Do(teamRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing team resource request", fmt.Sprintf("Error executing team resource request: %s", err))
-		return
-	}
-	defer teamResponse.Body.Close()
-
-	if teamResponse.StatusCode == http.StatusNotFound {
+	team, err := r.client.Teams.Get(ctx, state.OrganizationId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Team not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(teamResponse.Body)
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading team resource response body", fmt.Sprintf("Error reading team resource response body: %s", err))
+		reportClientError(&resp.Diagnostics, "reading team", err)
 		return
 	}
 
-	if teamResponse.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error reading team", fmt.Sprintf("status: %v, body: %v", teamResponse.Status, string(bodyResponse)))
-		return
-	}
+	setTeamState(&state, team)
 
-	team := &client.TeamEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), team)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	state.Name = types.StringValue(team.Name)
-	state.ManageState = types.BoolValue(team.ManageState)
-	state.ManageWorkspace = types.BoolValue(team.ManageWorkspace)
-	state.ManageModule = types.BoolValue(team.ManageModule)
-	state.ManageVcs = types.BoolValue(team.ManageVcs)
-	state.ManageProvider = types.BoolValue(team.ManageProvider)
-	state.ManageTemplate = types.BoolValue(team.ManageTemplate)
-	state.ManageJob = types.BoolValue(team.ManageJob)
-	state.ManageCollection = types.BoolValue(team.ManageCollection)
-	state.PlanJob = types.BoolValue(team.PlanJob)
-	state.ApproveJob = types.BoolValue(team.ApproveJob)
-	state.DestroyJob = types.BoolPointerValue(team.DestroyJob)
-	state.Role = roleToState(team.Role)
-	state.ManagePolicies = types.BoolPointerValue(team.ManagePolicies)
-
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -394,7 +229,6 @@ func (r *TeamResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 }
 
 func (r *TeamResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan TeamResourceModel
 	var state TeamResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -403,169 +237,87 @@ func (r *TeamResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		return
 	}
 
-	bodyRequest := &client.TeamEntity{
-		ManageState:      plan.ManageState.ValueBool(),
-		ManageWorkspace:  plan.ManageWorkspace.ValueBool(),
-		ManageModule:     plan.ManageModule.ValueBool(),
-		ManageProvider:   plan.ManageProvider.ValueBool(),
-		ManageTemplate:   plan.ManageTemplate.ValueBool(),
-		ManageVcs:        plan.ManageVcs.ValueBool(),
-		ManageJob:        plan.ManageJob.ValueBool(),
-		ManageCollection: plan.ManageCollection.ValueBool(),
-		PlanJob:          resolveJobFlag(plan.PlanJob, plan.ManageJob),
-		ApproveJob:       resolveJobFlag(plan.ApproveJob, plan.ManageJob),
-		ID:               state.ID.ValueString(),
-		Name:             state.Name.ValueString(),
-	}
-
-	bodyRequest.DestroyJob = optionalBoolPointer(plan.DestroyJob)
-
-	if !plan.Role.IsNull() && !plan.Role.IsUnknown() {
-		role := plan.Role.ValueString()
-		bodyRequest.Role = &role
-	}
-
-	if !plan.ManagePolicies.IsNull() && !plan.ManagePolicies.IsUnknown() {
-		mp := plan.ManagePolicies.ValueBool()
-		bodyRequest.ManagePolicies = &mp
-	}
-
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-
-	teamRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/team/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating team resource request", fmt.Sprintf("Error creating team resource request: %s", err))
-		return
-	}
-	teamRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	teamRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	teamResponse, err := r.client.Do(teamRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing team resource request", fmt.Sprintf("Error executing team resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(teamResponse.Body)
-	teamResponse.Body.Close()
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading team resource response body",
-			fmt.Sprintf("Error reading team resource response body: %s", err))
-		return
-	}
-
-	if teamResponse.StatusCode == http.StatusNotFound {
-		tflog.Warn(ctx, "Team not found during update, removing from state", map[string]any{"id": state.ID.ValueString()})
+	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
+	_, err := r.client.Teams.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: teamAttributes(plan)})
+	if terrakube.IsNotFound(err) {
+		tflog.Warn(ctx, "Team not found during update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	if teamResponse.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error updating team", fmt.Sprintf("status: %v, body: %v", teamResponse.Status, string(bodyResponse)))
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating team", err)
 		return
 	}
 
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	teamRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/team/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating team resource request", fmt.Sprintf("Error creating team resource request: %s", err))
-		return
-	}
-	teamRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	teamRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	teamResponse, err = r.client.Do(teamRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing team resource request", fmt.Sprintf("Error executing team resource request: %s", err))
-		return
-	}
-	defer teamResponse.Body.Close()
-
-	bodyResponse, err = io.ReadAll(teamResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading team resource response body", fmt.Sprintf("Error reading team resource response body: %s", err))
-		return
-	}
-
-	if teamResponse.StatusCode == http.StatusNotFound {
-		tflog.Warn(ctx, "Team not found after update, removing from state", map[string]any{"id": state.ID.ValueString()})
+	team, err := r.client.Teams.Get(ctx, organizationID, id)
+	if terrakube.IsNotFound(err) {
+		tflog.Warn(ctx, "Team not found after update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	if teamResponse.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error reading team after update", fmt.Sprintf("status: %v, body: %v", teamResponse.Status, string(bodyResponse)))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	team := &client.TeamEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), team)
-
 	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
+		reportClientError(&resp.Diagnostics, "reading team after update", err)
 		return
 	}
 
-	plan.ID = types.StringValue(state.ID.ValueString())
-	plan.Name = types.StringValue(team.Name)
-	plan.ManageState = types.BoolValue(team.ManageState)
-	plan.ManageWorkspace = types.BoolValue(team.ManageWorkspace)
-	plan.ManageModule = types.BoolValue(team.ManageModule)
-	plan.ManageVcs = types.BoolValue(team.ManageVcs)
-	plan.ManageProvider = types.BoolValue(team.ManageProvider)
-	plan.ManageTemplate = types.BoolValue(team.ManageTemplate)
-	plan.ManageJob = types.BoolValue(team.ManageJob)
-	plan.ManageCollection = types.BoolValue(team.ManageCollection)
-	plan.PlanJob = types.BoolValue(team.PlanJob)
-	plan.ApproveJob = types.BoolValue(team.ApproveJob)
-	plan.DestroyJob = types.BoolPointerValue(team.DestroyJob)
-	plan.Role = roleToState(team.Role)
-	plan.ManagePolicies = types.BoolPointerValue(team.ManagePolicies)
+	plan.ID = types.StringValue(id)
+	setTeamState(&plan, team)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *TeamResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data TeamResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	reqOrg, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/team/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating team resource request", fmt.Sprintf("Error creating team resource request: %s", err))
-		return
+	err := r.client.Teams.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting team", err)
 	}
-	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+}
 
-	delResp, err := r.client.Do(reqOrg)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing team resource request", fmt.Sprintf("Error executing team resource request: %s", err))
-		return
+// teamAttributes builds the attributes sent on create and on update. The permission flags are
+// always sent, plan_job and approve_job inheriting manage_job when unset. destroy_job, role and
+// manage_policies are sent only when known, never as null: older APIs reject them.
+func teamAttributes(plan TeamResourceModel) patchAttributes {
+	attributes := patchAttributes{
+		"manageState":      plan.ManageState.ValueBool(),
+		"manageWorkspace":  plan.ManageWorkspace.ValueBool(),
+		"manageModule":     plan.ManageModule.ValueBool(),
+		"manageProvider":   plan.ManageProvider.ValueBool(),
+		"manageTemplate":   plan.ManageTemplate.ValueBool(),
+		"manageVcs":        plan.ManageVcs.ValueBool(),
+		"manageJob":        plan.ManageJob.ValueBool(),
+		"manageCollection": plan.ManageCollection.ValueBool(),
+		"planJob":          resolveJobFlag(plan.PlanJob, plan.ManageJob),
+		"approveJob":       resolveJobFlag(plan.ApproveJob, plan.ManageJob),
 	}
-	defer delResp.Body.Close()
-	body, err := io.ReadAll(delResp.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading delete response", err.Error())
-		return
-	}
-	if delResp.StatusCode == http.StatusNotFound {
-		return
-	}
-	reportAPIErrorStatus(&resp.Diagnostics, "deleting team", delResp, body)
+	attributes.createString("name", plan.Name)
+	attributes.createBool("destroyJob", plan.DestroyJob)
+	attributes.createString("role", plan.Role)
+	attributes.createBool("managePolicies", plan.ManagePolicies)
+	return attributes
+}
+
+// setTeamState copies the team the API returned into model, all but the ID.
+func setTeamState(model *TeamResourceModel, team *terrakube.Team) {
+	model.Name = types.StringValue(team.Name)
+	model.ManageState = types.BoolValue(team.ManageState)
+	model.ManageWorkspace = types.BoolValue(team.ManageWorkspace)
+	model.ManageModule = types.BoolValue(team.ManageModule)
+	model.ManageVcs = types.BoolValue(team.ManageVcs)
+	model.ManageProvider = types.BoolValue(team.ManageProvider)
+	model.ManageTemplate = types.BoolValue(team.ManageTemplate)
+	model.ManageJob = types.BoolValue(team.ManageJob)
+	model.ManageCollection = types.BoolValue(team.ManageCollection)
+	model.PlanJob = types.BoolValue(team.PlanJob)
+	model.ApproveJob = types.BoolValue(team.ApproveJob)
+	model.DestroyJob = optionalBoolState(team.DestroyJob, model.DestroyJob)
+	model.Role = roleToState(&team.Role)
+	model.ManagePolicies = optionalBoolState(team.ManagePolicies, model.ManagePolicies)
 }
 
 func (r *TeamResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

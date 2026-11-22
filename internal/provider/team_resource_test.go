@@ -72,11 +72,7 @@ func TestTeamResource_Create_WithManagePolicies(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &TeamResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &TeamResource{client: newTestClient(server.Client(), server.URL)}
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id": tftypes.NewValue(tftypes.String, orgID),
@@ -128,11 +124,7 @@ func TestTeamResource_Create_BackwardCompatibility_OmitWhenUnset(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &TeamResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &TeamResource{client: newTestClient(server.Client(), server.URL)}
 
 	// manage_policies is omitted / unset in planValue
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{

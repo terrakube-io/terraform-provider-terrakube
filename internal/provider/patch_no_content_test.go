@@ -145,6 +145,30 @@ func TestPatchNoContent(t *testing.T) {
 			create: map[string]tftypes.Value{"claim_key": str("repository"), "claim_value": str("terrakube-io/terrakube")},
 			update: map[string]tftypes.Value{"claim_value": str("changed")},
 		}, "claim_value"},
+		{"team", crudResourceCase{
+			itemType: "team", collection: "/api/v1/organization/org-1/team",
+			newSource: func(c *http.Client, e string) resource.Resource { return &TeamResource{client: newTestClient(c, e)} },
+			create:    map[string]tftypes.Value{"name": str("platform-team"), "role": str("custom")},
+			update:    map[string]tftypes.Value{"role": str("changed")},
+		}, "role"},
+		{"project_access", crudResourceCase{
+			itemType: "project_access", collection: "/api/v1/organization/org-1/project/project-1/projectAccess",
+			scope: map[string]tftypes.Value{"project_id": str("project-1")},
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &ProjectAccessResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{"name": str("platform-team"), "role": str("custom")},
+			update: map[string]tftypes.Value{"role": str("changed")},
+		}, "role"},
+		{"workspace_access", crudResourceCase{
+			itemType: "access", collection: "/api/v1/organization/org-1/workspace/ws-1/access",
+			scope: map[string]tftypes.Value{"workspace_id": str("ws-1")},
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &WorkspaceAccessResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{"name": str("platform-team"), "role": str("custom")},
+			update: map[string]tftypes.Value{"role": str("changed")},
+		}, "role"},
 	}
 
 	// These resources use the item UpdateFields read back instead of reading it again.
