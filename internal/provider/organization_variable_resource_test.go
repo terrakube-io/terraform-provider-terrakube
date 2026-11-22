@@ -15,7 +15,7 @@ func TestOrganizationVariableResource(t *testing.T) {
 		itemType:   "globalvar",
 		collection: "/api/v1/organization/org-1/globalvar",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
-			return &OrganizationVariableResource{client: c, endpoint: endpoint, token: "test-token"}
+			return &OrganizationVariableResource{client: newTestClient(c, endpoint)}
 		},
 		create: map[string]tftypes.Value{
 			"key":         str("AWS_REGION"),
