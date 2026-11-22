@@ -24,7 +24,7 @@ func TestResourceDelete_ReportsFailures(t *testing.T) {
 		make func(c *http.Client, endpoint string) resource.Resource
 	}{
 		{"collection", "/api/v1/organization/org-1/collection/item-1", func(c *http.Client, e string) resource.Resource {
-			return &CollectionResource{client: c, endpoint: e, token: "test-token"}
+			return &CollectionResource{client: newTestClient(c, e)}
 		}},
 		{"organization_variable", "/api/v1/organization/org-1/globalvar/item-1", func(c *http.Client, e string) resource.Resource {
 			return &OrganizationVariableResource{client: c, endpoint: e, token: "test-token"}
@@ -48,10 +48,10 @@ func TestResourceDelete_ReportsFailures(t *testing.T) {
 			return &WorkspaceNotificationConfigurationResource{client: c, endpoint: e, token: "test-token"}
 		}},
 		{"collection_item", "/api/v1/organization/org-1/collection/coll-1/item/item-1", func(c *http.Client, e string) resource.Resource {
-			return &CollectionItemResource{client: c, endpoint: e, token: "test-token"}
+			return &CollectionItemResource{client: newTestClient(c, e)}
 		}},
 		{"collection_reference", "/api/v1/reference/item-1", func(c *http.Client, e string) resource.Resource {
-			return &CollectionReferenceResource{client: c, endpoint: e, token: "test-token"}
+			return &CollectionReferenceResource{client: newTestClient(c, e)}
 		}},
 		{"workspace_schedule", "/api/v1/workspace/ws-1/schedule/item-1", func(c *http.Client, e string) resource.Resource {
 			return &WorkspaceScheduleResource{client: c, endpoint: e, token: "test-token"}

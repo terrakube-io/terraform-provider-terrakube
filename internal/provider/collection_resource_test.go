@@ -15,7 +15,7 @@ func TestCollectionResource(t *testing.T) {
 		itemType:   "collection",
 		collection: "/api/v1/organization/org-1/collection",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
-			return &CollectionResource{client: c, endpoint: endpoint, token: "test-token"}
+			return &CollectionResource{client: newTestClient(c, endpoint)}
 		},
 		create: map[string]tftypes.Value{
 			"name":        str("shared-settings"),

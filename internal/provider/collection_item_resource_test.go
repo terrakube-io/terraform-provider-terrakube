@@ -110,7 +110,7 @@ func TestCollectionItemResource_Create_ValueWo(t *testing.T) {
 	server := collectionItemServer(t, &captured)
 	defer server.Close()
 
-	r := &CollectionItemResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &CollectionItemResource{client: newTestClient(server.Client(), server.URL)}
 
 	// Write-only values are null in the plan; only the configuration has them.
 	planValue := collectionItemValues(objType, map[string]tftypes.Value{
@@ -162,7 +162,7 @@ func TestCollectionItemResource_Create_Value(t *testing.T) {
 	server := collectionItemServer(t, &captured)
 	defer server.Close()
 
-	r := &CollectionItemResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &CollectionItemResource{client: newTestClient(server.Client(), server.URL)}
 
 	values := collectionItemValues(objType, map[string]tftypes.Value{
 		"value": tftypes.NewValue(tftypes.String, collectionItemTestSecret),
@@ -200,7 +200,7 @@ func TestCollectionItemResource_Update_ValueWo(t *testing.T) {
 	server := collectionItemServer(t, &captured)
 	defer server.Close()
 
-	r := &CollectionItemResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &CollectionItemResource{client: newTestClient(server.Client(), server.URL)}
 
 	stateValue := collectionItemValues(objType, map[string]tftypes.Value{
 		"id":               tftypes.NewValue(tftypes.String, "item-1"),
@@ -251,7 +251,7 @@ func TestCollectionItemResource_Read_KeepsNullValue(t *testing.T) {
 	server := collectionItemServer(t, &captured)
 	defer server.Close()
 
-	r := &CollectionItemResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &CollectionItemResource{client: newTestClient(server.Client(), server.URL)}
 
 	stateValue := collectionItemValues(objType, map[string]tftypes.Value{
 		"id": tftypes.NewValue(tftypes.String, "item-1"),

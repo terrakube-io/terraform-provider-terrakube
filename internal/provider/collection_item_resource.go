@@ -1,26 +1,20 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"regexp"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
-
-	"github.com/google/jsonapi"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -30,10 +24,11 @@ var _ resource.ResourceWithConfigValidators = &CollectionItemResource{}
 var _ resource.ResourceWithValidateConfig = &CollectionItemResource{}
 
 type CollectionItemResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
+
+// unknownCollectionItemPattern matches the error Terrakube returns for an item id it does not know.
+var unknownCollectionItemPattern = regexp.MustCompile(`Unknown identifier .* for item`)
 
 type CollectionItemResourceModel struct {
 	ID             types.String `tfsdk:"id"`
@@ -117,43 +112,12 @@ func (r *CollectionItemResource) ValidateConfig(ctx context.Context, req resourc
 }
 
 func (r *CollectionItemResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Collection Item Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Collection Item resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Collection Item Resource")
 }
 
 func (r *CollectionItemResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan CollectionItemResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -164,56 +128,19 @@ func (r *CollectionItemResource) Create(ctx context.Context, req resource.Create
 		return
 	}
 
-	bodyRequest := &client.CollectionItemEntity{
-		Key:         plan.Key.ValueString(),
-		Value:       value,
-		Description: plan.Description.ValueStringPointer(),
-		Sensitive:   plan.Sensitive.ValueBool(),
-		Category:    plan.Category.ValueString(),
-		Hcl:         plan.Hcl.ValueBool(),
-	}
+	// value comes from value or value_wo, exactly one of which is set, so it is always sent.
+	attributes := patchAttributes{"value": value}
+	attributes.createString("key", plan.Key)
+	attributes.createString("description", plan.Description)
+	attributes.createString("category", plan.Category)
+	attributes.createBool("sensitive", plan.Sensitive)
+	attributes.createBool("hcl", plan.Hcl)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
+	collectionItem, err := r.client.CollectionItems.CreateFields(ctx, plan.OrganizationId.ValueString(), plan.CollectionId.ValueString(), terrakube.Patch{Attributes: attributes})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating collection item", err)
 		return
 	}
-
-	collectionItemRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item", r.endpoint, plan.OrganizationId.ValueString(), plan.CollectionId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating collection item resource request", fmt.Sprintf("Error creating collection item resource request: %s", err))
-		return
-	}
-	collectionItemRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionItemRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	collectionItemResponse, err := r.client.Do(collectionItemRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing collection item resource request", fmt.Sprintf("Error executing collection item resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(collectionItemResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading collection item resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating collection item", collectionItemResponse, bodyResponse) {
-		return
-	}
-
-	collectionItem := &client.CollectionItemEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), collectionItem)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	if collectionItem.Sensitive {
 		tflog.Info(ctx, "Collection item value is not included in response, keeping the planned value for sensitive=true...")
@@ -231,104 +158,43 @@ func (r *CollectionItemResource) Create(ctx context.Context, req resource.Create
 	plan.ID = types.StringValue(collectionItem.ID)
 
 	tflog.Info(ctx, "collection item Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *CollectionItemResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state CollectionItemResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	collectionItemRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item/%s", r.endpoint, state.OrganizationId.ValueString(), state.CollectionId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating collection resource request", fmt.Sprintf("Error creating collection item resource request: %s", err))
-		return
-	}
-	collectionItemRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionItemRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	collectionItemResponse, err := r.client.Do(collectionItemRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing collection item resource request", fmt.Sprintf("Error executing collection item resource request: %s", err))
-		return
-	}
-
-	if collectionItemResponse.StatusCode == http.StatusNotFound {
+	organizationID, collectionID := state.OrganizationId.ValueString(), state.CollectionId.ValueString()
+	collectionItem, err := r.client.CollectionItems.Get(ctx, organizationID, collectionID, state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Collection item not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(collectionItemResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading collection item resource response")
-	}
-	collectionItem := &client.CollectionItemEntity{}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), collectionItem)
-
-	if err != nil {
-		// Response is not what we expected, perhaps it is a detailed error message, so more detail wanted
-		ErrorsItem := &client.ErrorsEntity{}
-		err2 := json.Unmarshal([]byte(string(bodyResponse)), ErrorsItem)
-		switch {
-		case err2 != nil:
-			// No, not a detailed error either
-			resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s %s", err, err2))
-			tflog.Debug(ctx, fmt.Sprintf("Data returned not as expected: %s", string(bodyResponse)))
-			return
-		case len(ErrorsItem.Errors) > 0 && regexp.MustCompile(`Unknown identifier .* for item`).MatchString(ErrorsItem.Errors[0].DetailedError):
-			// this might be a known issue where the variable is removed in the gui and added back manually with the same key but a different id
-			tflog.Debug(ctx, "this might be a known issue where the variable is removed in the gui and added back manually with the same key but a different id")
-			// lets query on key to see if we can find it
-			collectionItemRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item?filter[item]=key==%s", r.endpoint, state.OrganizationId.ValueString(), state.CollectionId.ValueString(), state.Key.ValueString()), nil)
-			if err != nil {
-				resp.Diagnostics.AddError("Error creating collection resource request", fmt.Sprintf("Error creating collection item resource request: %s", err))
-				return
-			}
-			collectionItemRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-			collectionItemRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-			collectionItemResponse, err := r.client.Do(collectionItemRequest)
-			if err != nil {
-				resp.Diagnostics.AddError("Error executing collection item resource request", fmt.Sprintf("Error executing collection item resource request: %s", err))
-				return
-			}
-
-			bodyResponse, err := io.ReadAll(collectionItemResponse.Body)
-			if err != nil {
-				tflog.Error(ctx, "Error reading collection item resource response")
-			}
-
-			if reportAPIErrorStatus(&resp.Diagnostics, "searching collection item by key", collectionItemResponse, bodyResponse) {
-				return
-			}
-
-			collectionItem = &client.CollectionItemEntity{}
-
-			// try to unmarshal but removing the [ ] from around the response, because we want only one match
-			err = jsonapi.UnmarshalPayload(strings.NewReader(strings.Replace(strings.Replace(string(bodyResponse), "]", "", 1), "[", "", 1)), collectionItem)
-
-			if err != nil {
-				resp.Diagnostics.AddError("Error unmarshal second payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-			} else {
-				tflog.Info(ctx, fmt.Sprintf("Successfully found the new id for this variable %s => %s", state.ID.ValueString(), collectionItem.ID))
-			}
-		default:
-			tflog.Debug(ctx, "Detailed response contains an error")
-			for _, e := range ErrorsItem.Errors {
-				resp.Diagnostics.AddError("Error reading values from variable : ", fmt.Sprint(e.DetailedError))
-			}
+	var apiErr *terrakube.APIError
+	if errors.As(err, &apiErr) && len(apiErr.Errors) > 0 && unknownCollectionItemPattern.MatchString(apiErr.Errors[0].Detail) {
+		// This might be a known issue where the item is removed in the UI and added back manually
+		// with the same key but a different id, so look it up by key.
+		tflog.Debug(ctx, "this might be a known issue where the variable is removed in the gui and added back manually with the same key but a different id")
+		items, err := r.client.CollectionItems.List(ctx, organizationID, collectionID, &terrakube.ListOptions{Filter: "key==" + state.Key.ValueString()})
+		if err != nil {
+			reportClientError(&resp.Diagnostics, "searching collection item by key", err)
 			return
 		}
+		if len(items) == 0 {
+			resp.Diagnostics.AddError("Error unmarshal second payload response", fmt.Sprintf("No collection item with the key %q was found", state.Key.ValueString()))
+			return
+		}
+		collectionItem = items[0]
+		tflog.Info(ctx, fmt.Sprintf("Successfully found the new id for this variable %s => %s", state.ID.ValueString(), collectionItem.ID))
+	} else if err != nil {
+		reportClientError(&resp.Diagnostics, "reading collection item", err)
+		return
 	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	if collectionItem.Sensitive {
 		tflog.Info(ctx, "Collection item value is not included in response, keeping the current state value")
@@ -344,18 +210,10 @@ func (r *CollectionItemResource) Read(ctx context.Context, req resource.ReadRequ
 	state.Hcl = types.BoolValue(collectionItem.Hcl)
 	state.ID = types.StringValue(collectionItem.ID)
 
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	tflog.Info(ctx, "Collection item Resource reading", map[string]any{"success": true})
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *CollectionItemResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan CollectionItemResourceModel
 	var state CollectionItemResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -370,79 +228,23 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 		return
 	}
 
-	bodyRequest := &client.CollectionItemEntity{
-		Key:         plan.Key.ValueString(),
-		Value:       value,
-		Description: plan.Description.ValueStringPointer(),
-		Category:    plan.Category.ValueString(),
-		Sensitive:   plan.Sensitive.ValueBool(),
-		Hcl:         plan.Hcl.ValueBool(),
-		ID:          state.ID.ValueString(),
-	}
+	// The value is always sent: a write-only value is null in both plan and state.
+	attributes := patchAttributes{"value": value}
+	attributes.updateString("key", plan.Key, state.Key)
+	attributes.updateString("description", plan.Description, state.Description)
+	attributes.updateString("category", plan.Category, state.Category)
+	attributes.updateBool("sensitive", plan.Sensitive, state.Sensitive)
+	attributes.updateBool("hcl", plan.Hcl, state.Hcl)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	organizationID, collectionID, id := state.OrganizationId.ValueString(), state.CollectionId.ValueString(), state.ID.ValueString()
+	if _, err := r.client.CollectionItems.UpdateFields(ctx, organizationID, collectionID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating collection item", err)
 		return
 	}
 
-	collectionItemReq, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item/%s", r.endpoint, state.OrganizationId.ValueString(), state.CollectionId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
+	collectionItem, err := r.client.CollectionItems.Get(ctx, organizationID, collectionID, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating collection item resource request", fmt.Sprintf("Error creating collection item resource request: %s", err))
-		return
-	}
-	collectionItemReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionItemReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	collectionItemResponse, err := r.client.Do(collectionItemReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing collection item resource request", fmt.Sprintf("Error executing collection item resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(collectionItemResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading collection item resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating collection item", collectionItemResponse, bodyResponse) {
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	collectionItemReq, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item/%s", r.endpoint, state.OrganizationId.ValueString(), state.CollectionId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating collection item resource request", fmt.Sprintf("Error creating collection item resource request: %s", err))
-		return
-	}
-	collectionItemReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionItemReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	collectionItemResponse, err = r.client.Do(collectionItemReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing collection item resource request", fmt.Sprintf("Error executing collection item resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err = io.ReadAll(collectionItemResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading collection item resource response body", fmt.Sprintf("Error reading collection item resource response body: %s", err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading collection item after update", collectionItemResponse, bodyResponse) {
-		return
-	}
-
-	collectionItem := &client.CollectionItemEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), collectionItem)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
+		reportClientError(&resp.Diagnostics, "reading collection item after update", err)
 		return
 	}
 
@@ -455,7 +257,7 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 	}
 	plan.ValueWo = types.StringNull()
 
-	plan.ID = types.StringValue(state.ID.ValueString())
+	plan.ID = types.StringValue(id)
 	plan.Key = types.StringValue(collectionItem.Key)
 	plan.Description = types.StringPointerValue(collectionItem.Description)
 	plan.Category = types.StringValue(collectionItem.Category)
@@ -467,27 +269,15 @@ func (r *CollectionItemResource) Update(ctx context.Context, req resource.Update
 
 func (r *CollectionItemResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data CollectionItemResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	workspaceRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/item/%s", r.endpoint, data.OrganizationId.ValueString(), data.CollectionId.ValueString(), data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating collection item resource request", fmt.Sprintf("Error creating collection item resource request: %s", err))
-		return
+	err := r.client.CollectionItems.Delete(ctx, data.OrganizationId.ValueString(), data.CollectionId.ValueString(), data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting collection item", err)
 	}
-	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	response, err := r.client.Do(workspaceRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing collection item resource request", fmt.Sprintf("Error executing collection item resource request: %s", err))
-		return
-	}
-	reportDeleteFailure(&resp.Diagnostics, "deleting collection item", response)
 }
 
 func (r *CollectionItemResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

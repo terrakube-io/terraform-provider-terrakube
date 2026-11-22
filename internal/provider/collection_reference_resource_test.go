@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -56,11 +57,7 @@ func TestCollectionReferenceResource_Read_HandlesNullWorkspaceRelationship(t *te
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &CollectionReferenceResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &CollectionReferenceResource{client: newTestClient(server.Client(), server.URL)}
 
 	stateValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"id":              tftypes.NewValue(tftypes.String, refID),
@@ -89,5 +86,110 @@ func TestCollectionReferenceResource_Read_HandlesNullWorkspaceRelationship(t *te
 	}
 	if result.CollectionId.ValueString() != colID {
 		t.Errorf("expected collection_id to be updated to %q, got %q", colID, result.CollectionId.ValueString())
+	}
+}
+
+// collectionReferenceServer creates a reference under the collection and serves it at the flat
+// /api/v1/reference/{id} path, as Terrakube does. It records the body of every POST and PATCH.
+// A PATCH answers 204; failReadBack makes the next GET fail with 502.
+type collectionReferenceServer struct {
+	bodies       map[string]map[string]any
+	failReadBack bool
+}
+
+func (s *collectionReferenceServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost || r.Method == http.MethodPatch {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		s.bodies[r.Method+" "+r.URL.Path] = body
+	}
+	reference := `{"data":{"type":"reference","id":"ref-1","attributes":{"description":"d"},` +
+		`"relationships":{"workspace":{"data":{"type":"workspace","id":"ws-1"}},"collection":{"data":{"type":"collection","id":"col-1"}}}}}`
+	switch {
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/organization/org-1/collection/col-1/reference":
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprint(w, reference)
+	case r.Method == http.MethodPatch && r.URL.Path == "/api/v1/reference/ref-1":
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/reference/ref-1":
+		if s.failReadBack {
+			s.failReadBack = false
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		fmt.Fprint(w, reference)
+	default:
+		w.WriteHeader(http.StatusTeapot)
+	}
+}
+
+// The reference links the workspace and the collection with JSON:API relationships, as the
+// hand-written client did, on create and on update.
+func TestCollectionReferenceResource_SendsRelationships(t *testing.T) {
+	ctx := context.Background()
+	s, objType := collectionReferenceSchemaAndType(t, ctx)
+
+	srv := &collectionReferenceServer{bodies: map[string]map[string]any{}}
+	server := httptest.NewServer(srv)
+	defer server.Close()
+	r := &CollectionReferenceResource{client: newTestClient(server.Client(), server.URL)}
+
+	values := func(id tftypes.Value) tftypes.Value {
+		return buildObjectValue(objType, map[string]tftypes.Value{
+			"id":              id,
+			"organization_id": tftypes.NewValue(tftypes.String, "org-1"),
+			"workspace_id":    tftypes.NewValue(tftypes.String, "ws-1"),
+			"collection_id":   tftypes.NewValue(tftypes.String, "col-1"),
+			"description":     tftypes.NewValue(tftypes.String, "d"),
+		})
+	}
+	checkRelationships := func(t *testing.T, key string) {
+		t.Helper()
+		body, ok := srv.bodies[key]
+		if !ok {
+			t.Fatalf("no %s request was sent", key)
+		}
+		data, _ := body["data"].(map[string]any)
+		if data["type"] != "reference" {
+			t.Errorf("%s type = %v, want reference", key, data["type"])
+		}
+		relationships, _ := data["relationships"].(map[string]any)
+		for name, id := range map[string]string{"workspace": "ws-1", "collection": "col-1"} {
+			link, _ := relationships[name].(map[string]any)
+			target, _ := link["data"].(map[string]any)
+			if target["type"] != name || target["id"] != id {
+				t.Errorf("%s relationship %s = %v, want type %s id %s", key, name, link, name, id)
+			}
+		}
+	}
+
+	plan := values(tftypes.NewValue(tftypes.String, tftypes.UnknownValue))
+	createResp := &resource.CreateResponse{State: tfsdk.State{Schema: s}}
+	r.Create(ctx, resource.CreateRequest{Plan: tfsdk.Plan{Schema: s, Raw: plan}, Config: tfsdk.Config{Schema: s, Raw: plan}}, createResp)
+	if createResp.Diagnostics.HasError() {
+		t.Fatalf("Create returned diagnostics: %v", createResp.Diagnostics)
+	}
+	checkRelationships(t, "POST /api/v1/organization/org-1/collection/col-1/reference")
+
+	// The PATCH answers 204 and the read-back inside UpdateFields fails: the update still succeeds.
+	srv.failReadBack = true
+	known := values(tftypes.NewValue(tftypes.String, "ref-1"))
+	updateResp := &resource.UpdateResponse{State: createResp.State}
+	r.Update(ctx, resource.UpdateRequest{
+		State:  createResp.State,
+		Plan:   tfsdk.Plan{Schema: s, Raw: known},
+		Config: tfsdk.Config{Schema: s, Raw: known},
+	}, updateResp)
+	if updateResp.Diagnostics.HasError() {
+		t.Fatalf("Update returned diagnostics: %v", updateResp.Diagnostics)
+	}
+	checkRelationships(t, "PATCH /api/v1/reference/ref-1")
+
+	var result CollectionReferenceResourceModel
+	if diags := updateResp.State.Get(ctx, &result); diags.HasError() {
+		t.Fatalf("reading resulting state: %v", diags)
+	}
+	if result.ID.ValueString() != "ref-1" || result.WorkspaceId.ValueString() != "ws-1" || result.CollectionId.ValueString() != "col-1" {
+		t.Errorf("unexpected state after update: %+v", result)
 	}
 }
