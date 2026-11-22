@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -62,11 +63,7 @@ func TestWorkspaceWebhookV2Resource_Create_ResolvesMigratedV2WhenUnset(t *testin
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceWebhookV2Resource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceWebhookV2Resource{client: newTestClient(server.Client(), server.URL)}
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id": tftypes.NewValue(tftypes.String, orgID),
@@ -134,11 +131,7 @@ func TestWorkspaceWebhookV2Resource_Update_SendsValidJsonApiPayload(t *testing.T
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceWebhookV2Resource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceWebhookV2Resource{client: newTestClient(server.Client(), server.URL)}
 
 	base := map[string]tftypes.Value{
 		"id":              tftypes.NewValue(tftypes.String, id),
@@ -178,5 +171,61 @@ func TestWorkspaceWebhookV2Resource_Update_SendsValidJsonApiPayload(t *testing.T
 	}
 	if strings.Contains(patchBody, `"createdBy":""`) {
 		t.Errorf("expected read-only empty fields to be omitted from the PATCH body, got: %s", patchBody)
+	}
+}
+
+// TestWorkspaceWebhookV2Resource_Create_SendsAtomicAdd checks the atomic operation Create sends:
+// an add on the workspace's webhook collection, with the atomic media type.
+func TestWorkspaceWebhookV2Resource_Create_SendsAtomicAdd(t *testing.T) {
+	ctx := context.Background()
+	s, objType := workspaceWebhookV2SchemaAndType(t, ctx)
+
+	var body map[string]any
+	var contentType string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost || req.URL.Path != "/api/v1/operations" {
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+		contentType = req.Header.Get("Content-Type")
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			t.Errorf("decoding request body: %v", err)
+		}
+		fmt.Fprint(w, `{"atomic:results":[{"data":{"type":"webhook","id":"wh-created-1"}}]}`)
+	}))
+	defer server.Close()
+
+	r := &WorkspaceWebhookV2Resource{client: newTestClient(server.Client(), server.URL)}
+	planValue := buildObjectValue(objType, map[string]tftypes.Value{
+		"organization_id": tftypes.NewValue(tftypes.String, "org-1"),
+		"workspace_id":    tftypes.NewValue(tftypes.String, "ws-1"),
+		"migrated_v2":     tftypes.NewValue(tftypes.Bool, true),
+	})
+	resp := &resource.CreateResponse{State: tfsdk.State{Schema: s}}
+	r.Create(ctx, resource.CreateRequest{Plan: tfsdk.Plan{Schema: s, Raw: planValue}}, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Create returned diagnostics: %v", resp.Diagnostics)
+	}
+
+	if !strings.Contains(contentType, `ext="https://jsonapi.org/ext/atomic"`) {
+		t.Errorf("expected the atomic media type, got %q", contentType)
+	}
+	ops, _ := body["atomic:operations"].([]any)
+	if len(ops) != 1 {
+		t.Fatalf("expected one atomic operation, got: %v", body)
+	}
+	op, _ := ops[0].(map[string]any)
+	data, _ := op["data"].(map[string]any)
+	attributes, _ := data["attributes"].(map[string]any)
+	if op["op"] != "add" || op["href"] != "/organization/org-1/workspace/ws-1/webhook" {
+		t.Errorf("expected an add on /organization/org-1/workspace/ws-1/webhook, got: %v", op)
+	}
+	if data["type"] != "webhook" || data["id"] == "" || attributes["migratedV2"] != true {
+		t.Errorf("expected a webhook with a client ID and migratedV2 true, got: %v", data)
+	}
+
+	var result WorkspaceWebhookV2ResourceModel
+	resp.Diagnostics.Append(resp.State.Get(ctx, &result)...)
+	if result.ID.ValueString() != "wh-created-1" || result.RemoteHookId.ValueString() != "wh-created-1" {
+		t.Errorf("expected id and remote_hook_id from the atomic result, got %q and %q", result.ID.ValueString(), result.RemoteHookId.ValueString())
 	}
 }

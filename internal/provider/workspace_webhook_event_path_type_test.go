@@ -88,7 +88,7 @@ func TestWorkspaceWebhookEventResource_Create_SendsPathType(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceWebhookEventResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &WorkspaceWebhookEventResource{client: newTestClient(server.Client(), server.URL)}
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"webhook_id":  tftypes.NewValue(tftypes.String, webhookID),
@@ -151,7 +151,7 @@ func TestWorkspaceWebhookEventResource_Create_SendsDefaultRegexPathType(t *testi
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceWebhookEventResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &WorkspaceWebhookEventResource{client: newTestClient(server.Client(), server.URL)}
 
 	// Terraform applies the schema Default before Create is called, so the
 	// plan carries REGEX when the user did not set path_type.
@@ -195,7 +195,7 @@ func TestWorkspaceWebhookEventResource_Read_RoundTripsPathType(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceWebhookEventResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &WorkspaceWebhookEventResource{client: newTestClient(server.Client(), server.URL)}
 
 	// Prior state says REGEX; the server says PATTERN (e.g. changed in the UI).
 	stateValue := buildObjectValue(objType, map[string]tftypes.Value{
@@ -243,7 +243,7 @@ func TestWorkspaceWebhookEventResource_Read_MissingPathTypeIsRegex(t *testing.T)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceWebhookEventResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &WorkspaceWebhookEventResource{client: newTestClient(server.Client(), server.URL)}
 
 	stateValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"id":         tftypes.NewValue(tftypes.String, eventID),
@@ -314,7 +314,7 @@ func TestWorkspaceWebhookEventResource_Update_RoundTripsPathType(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceWebhookEventResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &WorkspaceWebhookEventResource{client: newTestClient(server.Client(), server.URL)}
 
 	pathList := tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, []tftypes.Value{
 		tftypes.NewValue(tftypes.String, "terraform/*"),

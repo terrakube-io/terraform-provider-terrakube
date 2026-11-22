@@ -318,6 +318,40 @@ func TestPatchNoContent(t *testing.T) {
 		})
 	}
 
+	// A workspace webhook is created with an atomic operation, which the harness does not serve,
+	// so its prior state is built directly.
+	webhookV2 := crudResourceCase{
+		itemType: "webhook", collection: "/api/v1/organization/org-1/workspace/ws-1/webhook",
+		scope: map[string]tftypes.Value{"workspace_id": str("ws-1")},
+		newSource: func(c *http.Client, e string) resource.Resource {
+			return &WorkspaceWebhookV2Resource{client: newTestClient(c, e)}
+		},
+		create: map[string]tftypes.Value{"remote_hook_id": str(""), "migrated_v2": tftypes.NewValue(tftypes.Bool, false)},
+		update: map[string]tftypes.Value{"migrated_v2": tftypes.NewValue(tftypes.Bool, true)},
+	}
+	for _, failReadBack := range []bool{false, true} {
+		name := "workspace_webhook_v2/update"
+		if failReadBack {
+			name += " survives a failed read-back"
+		}
+		t.Run(name, func(t *testing.T) {
+			h := newCrudHarness(t, webhookV2)
+			h.server.attrs = map[string]any{"remoteHookId": "", "migratedV2": false}
+			prior := h.state(h.value(h.known(), webhookV2.create))
+			h.server.patchNoContent = true
+			if failReadBack {
+				h.server.fail[http.MethodGet] = http.StatusBadGateway // only the read-back inside UpdateFields
+			}
+			resp := h.update(prior)
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("Update returned diagnostics: %v", resp.Diagnostics)
+			}
+			h.checkState(resp.State, map[string]string{"migrated_v2": "true"})
+			request, _ := h.server.lastRequest(http.MethodPatch)
+			checkSent(t, request, map[string]any{"migratedV2": true})
+		})
+	}
+
 	t.Run("organization/delete survives a failed read-back", func(t *testing.T) {
 		h := newCrudHarness(t, cases[0].tc)
 		prior := h.createdState()
