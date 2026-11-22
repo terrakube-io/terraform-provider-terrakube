@@ -14,7 +14,7 @@ func registryProviderImplementationCase(create map[string]tftypes.Value) crudRes
 		itemType:   "implementation",
 		collection: "/api/v1/organization/org-1/provider/prov-1/version/ver-1/implementation",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
-			return &RegistryProviderImplementationResource{client: c, endpoint: endpoint, token: "test-token"}
+			return &RegistryProviderImplementationResource{client: newTestClient(c, endpoint)}
 		},
 		scope:  map[string]tftypes.Value{"provider_id": str("prov-1"), "version_id": str("ver-1")},
 		create: create,

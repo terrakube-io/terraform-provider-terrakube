@@ -285,6 +285,36 @@ func TestPatchNoContent(t *testing.T) {
 			},
 			update: map[string]tftypes.Value{"ticket_reference": str("changed")},
 		}, "ticket_reference"},
+		{"registry_provider", crudResourceCase{
+			itemType: "provider", collection: "/api/v1/organization/org-1/provider",
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &RegistryProviderResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{"name": str("internal"), "imported": tftypes.NewValue(tftypes.Bool, false)},
+			update: map[string]tftypes.Value{"description": str("changed")},
+		}, "description"},
+		{"registry_provider_version", crudResourceCase{
+			itemType: "version", collection: "/api/v1/organization/org-1/provider/prov-1/version",
+			scope: map[string]tftypes.Value{"provider_id": str("prov-1")},
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &RegistryProviderVersionResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{
+				"version_number": str("1.2.3"), "protocols": protocolList("6.0"), "status": str("active"),
+			},
+			update: map[string]tftypes.Value{"deprecation_message": str("changed")},
+		}, "deprecation_message"},
+		{"registry_provider_implementation", crudResourceCase{
+			itemType: "implementation", collection: "/api/v1/organization/org-1/provider/prov-1/version/ver-1/implementation",
+			scope: map[string]tftypes.Value{"provider_id": str("prov-1"), "version_id": str("ver-1")},
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &RegistryProviderImplementationResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{
+				"os": str("linux"), "arch": str("amd64"), "filename": str("provider.zip"), "download_url": str("https://example.com/provider.zip"),
+			},
+			update: map[string]tftypes.Value{"download_url": str("changed")},
+		}, "download_url"},
 	}
 
 	// These resources use the item UpdateFields read back instead of reading it again.

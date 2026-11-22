@@ -21,7 +21,7 @@ func registryProviderCase(create map[string]tftypes.Value) crudResourceCase {
 		itemType:   "provider",
 		collection: "/api/v1/organization/org-1/provider",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
-			return &RegistryProviderResource{client: c, endpoint: endpoint, token: "test-token"}
+			return &RegistryProviderResource{client: newTestClient(c, endpoint)}
 		},
 		create:        create,
 		wantSent:      map[string]any{"name": "aws", "description": "AWS provider", "imported": true, "registryNamespace": "hashicorp"},
@@ -175,7 +175,7 @@ func TestRegistryProviderResource_DeleteOfAMissingProviderIsNotAnError(t *testin
 
 	h := newCrudHarness(t, registryProviderCase(map[string]tftypes.Value{"name": tftypes.NewValue(tftypes.String, "aws")}))
 	prior := h.createdState()
-	res := &RegistryProviderResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	res := &RegistryProviderResource{client: newTestClient(server.Client(), server.URL)}
 	resp := &resource.DeleteResponse{State: prior}
 	res.Delete(h.ctx, resource.DeleteRequest{State: prior}, resp)
 	if resp.Diagnostics.HasError() {

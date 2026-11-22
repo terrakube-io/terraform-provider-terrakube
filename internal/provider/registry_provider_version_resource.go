@@ -3,13 +3,10 @@ package provider
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 	"unicode"
 	"unicode/utf16"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -20,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -29,9 +27,7 @@ var (
 )
 
 type RegistryProviderVersionResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type RegistryProviderVersionResourceModel struct {
@@ -165,28 +161,7 @@ func (deprecationMessageValidator) ValidateString(_ context.Context, req validat
 }
 
 func (r *RegistryProviderVersionResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Registry Provider Version Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-	r.client = newTerrakubeHTTPClient(providerData)
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-}
-
-func (r *RegistryProviderVersionResource) versionURL(organizationID, providerID, id string) string {
-	url := fmt.Sprintf("%s/api/v1/organization/%s/provider/%s/version", r.endpoint, organizationID, providerID)
-	if id != "" {
-		url += "/" + id
-	}
-	return url
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Registry Provider Version Resource")
 }
 
 func (m *RegistryProviderVersionResourceModel) protocolList(ctx context.Context) ([]string, error) {
@@ -197,43 +172,43 @@ func (m *RegistryProviderVersionResourceModel) protocolList(ctx context.Context)
 	return protocols, nil
 }
 
-// registryProviderVersionRequestBody builds the JSON:API body for a create or an update. Status and
-// the deprecation message are only sent when they are set (and, for status, changed), because a Terrakube older than 2.34.0
-// does not know them. A message removed from the configuration is sent empty, since a PATCH that
-// leaves it out keeps the old one.
-func registryProviderVersionRequestBody(ctx context.Context, plan, prior *RegistryProviderVersionResourceModel, id string) ([]byte, error) {
+// registryProviderVersionAttributes builds the attributes of a create (prior is nil) or an update.
+// Status and the deprecation message are only sent when they are set (and, for status, changed),
+// because a Terrakube older than 2.34.0 does not know them. A message removed from the
+// configuration is sent empty, since a PATCH that leaves it out keeps the old one.
+func registryProviderVersionAttributes(ctx context.Context, plan, prior *RegistryProviderVersionResourceModel) (patchAttributes, error) {
 	protocols, err := plan.protocolList(ctx)
 	if err != nil {
 		return nil, err
 	}
-	entity := &client.ProviderVersionEntity{
-		ID:            id,
-		VersionNumber: plan.VersionNumber.ValueString(),
-		Protocols:     strings.Join(protocols, ","),
+	attributes := patchAttributes{
+		"versionNumber": plan.VersionNumber.ValueString(),
+		"protocols":     strings.Join(protocols, ","),
 	}
 	// An update only sends status when it changes. A version that never set one reads back as
 	// active, and a Terrakube older than 2.34.0 rejects the attribute.
 	if !plan.Status.IsNull() && !plan.Status.IsUnknown() && (prior == nil || prior.Status.ValueString() != plan.Status.ValueString()) {
-		entity.Status = plan.Status.ValueStringPointer()
+		attributes["status"] = plan.Status.ValueString()
 	}
 	switch {
 	case !plan.DeprecationMessage.IsNull() && !plan.DeprecationMessage.IsUnknown():
-		entity.DeprecationMessage = plan.DeprecationMessage.ValueStringPointer()
+		attributes["deprecationMessage"] = plan.DeprecationMessage.ValueString()
 	case prior != nil && !prior.DeprecationMessage.IsNull():
-		empty := ""
-		entity.DeprecationMessage = &empty
+		attributes["deprecationMessage"] = ""
 	}
-	return marshalJSONAPI(entity)
+	return attributes, nil
 }
 
-func (m *RegistryProviderVersionResourceModel) setFromAPI(version *client.ProviderVersionEntity) {
+func (m *RegistryProviderVersionResourceModel) setFromAPI(version *terrakube.ProviderVersion) {
 	m.ID = types.StringValue(version.ID)
 	m.VersionNumber = types.StringValue(version.VersionNumber)
 
 	elements := []types.String{}
-	for _, protocol := range strings.Split(version.Protocols, ",") {
-		if protocol = strings.TrimSpace(protocol); protocol != "" {
-			elements = append(elements, types.StringValue(protocol))
+	if version.Protocols != nil {
+		for _, protocol := range strings.Split(*version.Protocols, ",") {
+			if protocol = strings.TrimSpace(protocol); protocol != "" {
+				elements = append(elements, types.StringValue(protocol))
+			}
 		}
 	}
 	values := make([]attrValue, len(elements))
@@ -257,25 +232,15 @@ func (r *RegistryProviderVersionResource) Create(ctx context.Context, req resour
 		return
 	}
 
-	body, err := registryProviderVersionRequestBody(ctx, &plan, nil, "")
+	attributes, err := registryProviderVersionAttributes(ctx, &plan, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
 		return
 	}
-	response, responseBody, err := doJSONAPIRequest(ctx, r.client, r.token, http.MethodPost,
-		r.versionURL(plan.OrganizationId.ValueString(), plan.ProviderId.ValueString(), ""), body)
+	created, err := r.client.ProviderVersions.CreateFields(ctx, plan.OrganizationId.ValueString(), plan.ProviderId.ValueString(),
+		terrakube.Patch{Attributes: attributes})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating registry provider version", err.Error())
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating registry provider version", response, responseBody) {
-		return
-	}
-
-	created := &client.ProviderVersionEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(responseBody)), created); err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response",
-			fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", response.Status, responseBody, err))
+		reportClientError(&resp.Diagnostics, "creating registry provider version", err)
 		return
 	}
 
@@ -290,25 +255,14 @@ func (r *RegistryProviderVersionResource) Read(ctx context.Context, req resource
 		return
 	}
 
-	response, responseBody, err := doJSONAPIRequest(ctx, r.client, r.token, http.MethodGet,
-		r.versionURL(state.OrganizationId.ValueString(), state.ProviderId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading registry provider version", err.Error())
-		return
-	}
-	if response.StatusCode == http.StatusNotFound {
+	version, err := r.client.ProviderVersions.Get(ctx, state.OrganizationId.ValueString(), state.ProviderId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Registry provider version not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading registry provider version", response, responseBody) {
-		return
-	}
-
-	version := &client.ProviderVersionEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(responseBody)), version); err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response",
-			fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", response.Status, responseBody, err))
+	if err != nil {
+		reportClientError(&resp.Diagnostics, "reading registry provider version", err)
 		return
 	}
 
@@ -324,32 +278,21 @@ func (r *RegistryProviderVersionResource) Update(ctx context.Context, req resour
 		return
 	}
 
-	url := r.versionURL(state.OrganizationId.ValueString(), state.ProviderId.ValueString(), state.ID.ValueString())
-	body, err := registryProviderVersionRequestBody(ctx, &plan, &state, state.ID.ValueString())
+	attributes, err := registryProviderVersionAttributes(ctx, &plan, &state)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
 		return
 	}
-	response, responseBody, err := doJSONAPIRequest(ctx, r.client, r.token, http.MethodPatch, url, body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error updating registry provider version", err.Error())
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating registry provider version", response, responseBody) {
+	organizationID, providerID, id := state.OrganizationId.ValueString(), state.ProviderId.ValueString(), state.ID.ValueString()
+	_, err = r.client.ProviderVersions.UpdateFields(ctx, organizationID, providerID, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating registry provider version", err)
 		return
 	}
 
-	response, responseBody, err = doJSONAPIRequest(ctx, r.client, r.token, http.MethodGet, url, nil)
+	updated, err := r.client.ProviderVersions.Get(ctx, organizationID, providerID, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading registry provider version after update", err.Error())
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading registry provider version after update", response, responseBody) {
-		return
-	}
-	updated := &client.ProviderVersionEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(responseBody)), updated); err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
+		reportClientError(&resp.Diagnostics, "reading registry provider version after update", err)
 		return
 	}
 
@@ -364,20 +307,10 @@ func (r *RegistryProviderVersionResource) Delete(ctx context.Context, req resour
 		return
 	}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodDelete,
-		r.versionURL(state.OrganizationId.ValueString(), state.ProviderId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating registry provider version request", fmt.Sprintf("Error creating registry provider version request: %s", err))
-		return
+	err := r.client.ProviderVersions.Delete(ctx, state.OrganizationId.ValueString(), state.ProviderId.ValueString(), state.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting registry provider version", err)
 	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	response, err := r.client.Do(request)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing registry provider version request", fmt.Sprintf("Error executing registry provider version request: %s", err))
-		return
-	}
-	reportDeleteFailure(&resp.Diagnostics, "deleting registry provider version", response)
 }
 
 func (r *RegistryProviderVersionResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
