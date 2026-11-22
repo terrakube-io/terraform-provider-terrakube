@@ -28,9 +28,7 @@ func readSelfHostedAgentDataSource(t *testing.T, name string, handler http.Handl
 
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	d.client = server.Client()
-	d.endpoint = server.URL
-	d.token = "test-token"
+	d.client = newTestClient(server.Client(), server.URL)
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"name":            tftypes.NewValue(tftypes.String, name),
@@ -53,8 +51,8 @@ func TestSelfHostedAgentDataSource_Read(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
 			t.Errorf("Authorization = %q", got)
 		}
-		if got := r.Header.Get("Content-Type"); got != "application/vnd.api+json" {
-			t.Errorf("Content-Type = %q", got)
+		if got := r.Header.Get("Accept"); got != "application/vnd.api+json" {
+			t.Errorf("Accept = %q", got)
 		}
 		fmt.Fprint(w, `{"data":[
 			{"type":"agent","id":"other","attributes":{"name":"other","description":"wrong","url":"https://other.example.com"}},
@@ -86,9 +84,9 @@ func TestSelfHostedAgentDataSource_ReadErrors(t *testing.T) {
 	}{
 		{"not found", http.StatusOK, `{"data":[]}`, "Self-hosted agent not found"},
 		{"unmatched", http.StatusOK, `{"data":[{"type":"agent","id":"1","attributes":{"name":"other"}}]}`, "Self-hosted agent not found"},
-		{"duplicate", http.StatusOK, `{"data":[{"type":"agent","id":"1","attributes":{"name":"agent"}},{"type":"agent","id":"2","attributes":{"name":"agent"}}]}`, "Multiple self-hosted agents found"},
+		{"duplicate", http.StatusOK, `{"data":[{"type":"agent","id":"1","attributes":{"name":"agent"}},{"type":"agent","id":"2","attributes":{"name":"agent"}}]}`, "Multiple self-hosted agent entries found"},
 		{"api error", http.StatusForbidden, `{"errors":[{"detail":"forbidden"}]}`, "Error reading self-hosted agent: 403 Forbidden"},
-		{"invalid payload", http.StatusOK, `not json`, "Unable to unmarshal self-hosted agent payload"},
+		{"invalid payload", http.StatusOK, `not json`, "Error reading self-hosted agent"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

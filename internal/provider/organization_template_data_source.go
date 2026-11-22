@@ -2,20 +2,11 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -30,48 +21,15 @@ type OrganizationTemplateDataSourceModel struct {
 }
 
 type OrganizationTemplateDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewOrganizationTemplateDataSource() datasource.DataSource {
 	return &OrganizationTemplateDataSource{}
 }
 
-func (d *OrganizationTemplateDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, res *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		res.Diagnostics.AddError(
-			"Unexpected Organization Template Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-
-	ctx = tflog.SetField(ctx, "endpoint", d.endpoint)
-	ctx = tflog.SetField(ctx, "token", d.token)
-	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "token")
-	tflog.Info(ctx, "Organization Template Data Source configured")
+func (d *OrganizationTemplateDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Organization Template Data Source")
 }
 
 func (d *OrganizationTemplateDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -101,43 +59,19 @@ func (d *OrganizationTemplateDataSource) Schema(_ context.Context, _ datasource.
 func (d *OrganizationTemplateDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var state OrganizationTemplateDataSourceModel
 
-	req.Config.Get(ctx, &state)
-
-	apiUrl := fmt.Sprintf("%s/api/v1/organization/%s/template?filter[template]=name==%s", d.endpoint, url.PathEscape(state.OrganizationId.ValueString()), url.QueryEscape(rsqlQuote(state.Name.ValueString())))
-	reqTemplate, err := http.NewRequest(http.MethodGet, apiUrl, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization template datasource request", fmt.Sprintf("Error creating organization template datasource request: %s", err))
-		return
-	}
-	reqTemplate.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	reqTemplate.Header.Add("Content-Type", "application/vnd.api+json")
-
-	resTemplate, err := d.client.Do(reqTemplate)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization template datasource request", fmt.Sprintf("Error executing organization template datasource request: %s", err))
+	resp.Diagnostics.Append(req.Config.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	body, err := io.ReadAll(resTemplate.Body)
+	templates, err := d.client.Templates.List(ctx, state.OrganizationId.ValueString(), &terrakube.ListOptions{Filter: "name==" + rsqlQuote(state.Name.ValueString())})
 	if err != nil {
-		tflog.Error(ctx, "Error reading organization response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization template", resTemplate, body) {
+		reportClientError(&resp.Diagnostics, "reading organization template", err)
 		return
 	}
 
-	var templates []interface{}
-
-	templates, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.OrganizationTemplateEntity)))
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to marshal, error: %s, response status %s, response body %s", err, resTemplate.Status, string(body)))
-		return
-	}
-
-	data := findSingleByName(&resp.Diagnostics, "organization template", state.Name.ValueString(), " in organization "+state.OrganizationId.ValueString(), templates,
-		func(e *client.OrganizationTemplateEntity) string { return e.Name })
+	data := findSingleByNameIn(&resp.Diagnostics, "organization template", state.Name.ValueString(), " in organization "+state.OrganizationId.ValueString(), templates,
+		func(e *terrakube.Template) string { return e.Name })
 	if data == nil {
 		return
 	}
@@ -146,7 +80,4 @@ func (d *OrganizationTemplateDataSource) Read(ctx context.Context, req datasourc
 
 	diags := resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
 }

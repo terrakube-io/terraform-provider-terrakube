@@ -2,20 +2,11 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -35,46 +26,15 @@ type VcsDataSourceModel struct {
 }
 
 type VcsDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewVcsDataSource() datasource.DataSource {
 	return &VcsDataSource{}
 }
 
-func (d *VcsDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, res *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		res.Diagnostics.AddError(
-			"Unexpected Vcs Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-
-	tflog.Info(ctx, "Creating Vcs datasource")
+func (d *VcsDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Vcs Data Source")
 }
 
 func (d *VcsDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -124,58 +84,30 @@ func (d *VcsDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, re
 func (d *VcsDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var state VcsDataSourceModel
 
-	req.Config.Get(ctx, &state)
-
-	apiURL := fmt.Sprintf("%s/api/v1/organization/%s/vcs?filter[vcs]=name==%s", d.endpoint, url.PathEscape(state.OrganizationId.ValueString()), url.QueryEscape(rsqlQuote(state.Name.ValueString())))
-	requestVcs, err := http.NewRequest(http.MethodGet, apiURL, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating ssh request", fmt.Sprintf("Error creating team resource request: %s", err))
-		return
-	}
-	requestVcs.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	requestVcs.Header.Add("Content-Type", "application/vnd.api+json")
-
-	responseVcs, err := d.client.Do(requestVcs)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing ssh request", fmt.Sprintf("Error executing ssh request: %s", err))
+	resp.Diagnostics.Append(req.Config.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	bodyResponse, err := io.ReadAll(responseVcs.Body)
+	connections, err := d.client.VCS.List(ctx, state.OrganizationId.ValueString(), &terrakube.ListOptions{Filter: "name==" + rsqlQuote(state.Name.ValueString())})
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading ssh response body", fmt.Sprintf("Error reading team resource response body: %s", err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading vcs connection", responseVcs, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading vcs connection", err)
 		return
 	}
 
-	var vcss []interface{}
-
-	vcss, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(bodyResponse)), reflect.TypeOf(new(client.VcsEntity)))
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to unmarshal payload, error: %s, response status %s, response body %s", err, responseVcs.Status, string(bodyResponse)))
-		return
-	}
-
-	data := findSingleByName(&resp.Diagnostics, "vcs connection", state.Name.ValueString(), " in organization "+state.OrganizationId.ValueString(), vcss,
-		func(e *client.VcsEntity) string { return e.Name })
+	data := findSingleByNameIn(&resp.Diagnostics, "vcs connection", state.Name.ValueString(), " in organization "+state.OrganizationId.ValueString(), connections,
+		func(e *terrakube.VCS) string { return e.Name })
 	if data == nil {
 		return
 	}
+	// The client secret and private key are not part of the data source.
 	state.ID = types.StringValue(data.ID)
 	state.Description = types.StringValue(data.Description)
-	state.ClientId = types.StringValue(data.ClientId)
+	state.ClientId = types.StringValue(data.ClientID)
 	state.Endpoint = types.StringValue(data.Endpoint)
-	state.ApiUrl = types.StringValue(data.ApiUrl)
+	state.ApiUrl = types.StringValue(data.APIURL)
 	state.Status = types.StringValue(data.Status)
 
 	diags := resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
 }

@@ -19,7 +19,7 @@ func TestTeamDataSource(t *testing.T) {
 		multiple:   "Multiple team entries found",
 		apiError:   "Error reading team: 403 Forbidden",
 		newSource: func(c *http.Client, endpoint string) datasource.DataSource {
-			return &TeamDataSource{client: c, endpoint: endpoint, token: "test-token"}
+			return &TeamDataSource{client: newTestClient(c, endpoint)}
 		},
 	})
 }

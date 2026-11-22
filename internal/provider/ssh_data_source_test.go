@@ -18,9 +18,9 @@ func TestSshDataSource(t *testing.T) {
 		notFound:   "Ssh key not found",
 		multiple:   "Multiple ssh key entries found",
 		apiError:   "Error reading ssh key: 403 Forbidden",
-		badPayload: "Unable to unmarshal payload",
+		badPayload: "Error reading ssh key",
 		newSource: func(c *http.Client, endpoint string) datasource.DataSource {
-			return &SshDataSource{client: c, endpoint: endpoint, token: "test-token"}
+			return &SshDataSource{client: newTestClient(c, endpoint)}
 		},
 	})
 }

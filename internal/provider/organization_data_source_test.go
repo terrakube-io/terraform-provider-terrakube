@@ -10,17 +10,17 @@ import (
 func TestOrganizationDataSource(t *testing.T) {
 	runLookupDataSourceTests(t, lookupDataSourceCase{
 		apiPath:    "/api/v1/organization",
-		filterKey:  "filter[organization]",
+		filterKey:  "filter",
 		entityType: "organization",
 		config:     map[string]string{},
 		matchAttrs: `"description":"Main org","executionMode":"remote"`,
 		wantState:  map[string]string{"id": "obj-1", "description": "Main org", "execution_mode": "remote"},
 		notFound:   "Organization not found",
 		multiple:   "Multiple organization entries found",
-		apiError:   "Request failed",
-		badPayload: "Unable to unmarshal payload",
+		apiError:   "Error reading organization: 403 Forbidden",
+		badPayload: "Error reading organization",
 		newSource: func(c *http.Client, endpoint string) datasource.DataSource {
-			return &OrganizationDataSource{client: c, endpoint: endpoint, token: "test-token"}
+			return &OrganizationDataSource{client: newTestClient(c, endpoint)}
 		},
 	})
 }

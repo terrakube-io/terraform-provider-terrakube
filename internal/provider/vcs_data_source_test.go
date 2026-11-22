@@ -18,9 +18,9 @@ func TestVcsDataSource(t *testing.T) {
 		notFound:   "Vcs connection not found",
 		multiple:   "Multiple vcs connection entries found",
 		apiError:   "Error reading vcs connection: 403 Forbidden",
-		badPayload: "Unable to unmarshal payload",
+		badPayload: "Error reading vcs connection",
 		newSource: func(c *http.Client, endpoint string) datasource.DataSource {
-			return &VcsDataSource{client: c, endpoint: endpoint, token: "test-token"}
+			return &VcsDataSource{client: newTestClient(c, endpoint)}
 		},
 	})
 }
