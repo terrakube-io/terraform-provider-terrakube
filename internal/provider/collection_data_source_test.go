@@ -28,9 +28,7 @@ func readCollectionDataSource(t *testing.T, name string, handler http.Handler) *
 
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	d.client = server.Client()
-	d.endpoint = server.URL
-	d.token = "test-token"
+	d.client = newTestClient(server.Client(), server.URL)
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"name":            tftypes.NewValue(tftypes.String, name),
@@ -100,9 +98,9 @@ func TestCollectionDataSource_ReadErrors(t *testing.T) {
 	}{
 		{"not found", http.StatusOK, `{"data":[]}`, "Collection not found"},
 		{"unmatched", http.StatusOK, `{"data":[{"type":"collection","id":"1","attributes":{"name":"other"}}]}`, "Collection not found"},
-		{"duplicate", http.StatusOK, `{"data":[{"type":"collection","id":"1","attributes":{"name":"shared"}},{"type":"collection","id":"2","attributes":{"name":"shared"}}]}`, "Multiple collections found"},
+		{"duplicate", http.StatusOK, `{"data":[{"type":"collection","id":"1","attributes":{"name":"shared"}},{"type":"collection","id":"2","attributes":{"name":"shared"}}]}`, "Multiple collection entries found"},
 		{"api error", http.StatusForbidden, `{"errors":[{"detail":"forbidden"}]}`, "Error reading collection: 403 Forbidden"},
-		{"invalid payload", http.StatusOK, `not json`, "Unable to unmarshal collection payload"},
+		{"invalid payload", http.StatusOK, `not json`, "Error reading collection"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

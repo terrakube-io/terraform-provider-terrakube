@@ -32,7 +32,7 @@ var variableDataSourceCases = []variableDataSourceCase{
 		filterKey:  "filter[globalvar]",
 		entityType: "globalvar",
 		newSource: func(c *http.Client, endpoint string) datasource.DataSource {
-			return &OrganizationVariableDataSource{client: c, endpoint: endpoint, token: "test-token"}
+			return &OrganizationVariableDataSource{client: newTestClient(c, endpoint)}
 		},
 	},
 	{
@@ -42,7 +42,7 @@ var variableDataSourceCases = []variableDataSourceCase{
 		entityType: "variable",
 		extraAttrs: map[string]string{"workspace_id": "ws-1"},
 		newSource: func(c *http.Client, endpoint string) datasource.DataSource {
-			return &WorkspaceVariableDataSource{client: c, endpoint: endpoint, token: "test-token"}
+			return &WorkspaceVariableDataSource{client: newTestClient(c, endpoint)}
 		},
 	},
 }
@@ -213,7 +213,7 @@ func TestVariableDataSources_ReadErrors(t *testing.T) {
 			{"not found", http.StatusOK, `{"data":[]}`, fmt.Sprintf("%s variable not found", capitalize(tc.name))},
 			{"other key", http.StatusOK, tc.body(tc.item("1", "other", "ENV", "", `,"sensitive":false`)), fmt.Sprintf("%s variable not found", capitalize(tc.name))},
 			{"api error", http.StatusForbidden, `{"errors":[{"detail":"forbidden"}]}`, fmt.Sprintf("Error reading %s variable: 403 Forbidden", tc.name)},
-			{"invalid payload", http.StatusOK, `not json`, fmt.Sprintf("Unable to unmarshal %s variable payload", tc.name)},
+			{"invalid payload", http.StatusOK, `not json`, fmt.Sprintf("Error reading %s variable", tc.name)},
 		}
 		for _, test := range tests {
 			t.Run(tc.name+"/"+test.name, func(t *testing.T) {

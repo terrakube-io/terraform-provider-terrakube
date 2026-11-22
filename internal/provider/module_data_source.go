@@ -2,20 +2,12 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -37,43 +29,15 @@ type ModuleDataSourceModel struct {
 }
 
 type ModuleDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewModuleDataSource() datasource.DataSource {
 	return &ModuleDataSource{}
 }
 
-func (d *ModuleDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Module Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-	tflog.Debug(ctx, "Configured Module data source")
+func (d *ModuleDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Module Data Source")
 }
 
 func (d *ModuleDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -137,48 +101,16 @@ func (d *ModuleDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 
 	name := state.Name.ValueString()
 	providerName := state.ProviderName.ValueString()
-	// The whole filter is escaped, including the ';' that joins the two conditions.
 	filter := fmt.Sprintf("name==%s;provider==%s", rsqlQuote(name), rsqlQuote(providerName))
-	reqURL := fmt.Sprintf("%s/api/v1/organization/%s/module?filter[module]=%s",
-		d.endpoint, url.PathEscape(state.OrganizationId.ValueString()), url.QueryEscape(filter))
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	modules, err := d.client.Modules.List(ctx, state.OrganizationId.ValueString(), &terrakube.ListOptions{Filter: filter})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating module data source request", fmt.Sprintf("Error creating request: %s", err))
-		return
-	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
-
-	response, err := d.client.Do(request)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing module request", fmt.Sprintf("Error executing request: %s", err))
-		return
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading module response body", fmt.Sprintf("Error reading response body: %s", err))
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading module", response, body) {
+		reportClientError(&resp.Diagnostics, "reading module", err)
 		return
 	}
 
-	modules, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.ModuleEntity)))
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal module payload", fmt.Sprintf("Unable to unmarshal payload: %s", err))
-		return
-	}
-
-	var found *client.ModuleEntity
-	for _, item := range modules {
-		module, ok := item.(*client.ModuleEntity)
-		if !ok || module == nil {
-			resp.Diagnostics.AddError("Unable to unmarshal module payload", "Unexpected type in module payload.")
-			return
-		}
-		if module.Name != name || module.Provider != providerName {
+	var found *terrakube.Module
+	for _, module := range modules {
+		if module == nil || module.Name != name || module.Provider != providerName {
 			continue
 		}
 		if found != nil {
@@ -202,8 +134,8 @@ func (d *ModuleDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		state.VcsId = types.StringValue(found.Vcs.ID)
 	}
 	state.SshId = types.StringNull()
-	if found.Ssh != nil {
-		state.SshId = types.StringValue(found.Ssh.ID)
+	if found.SSH != nil {
+		state.SshId = types.StringValue(found.SSH.ID)
 	}
 	state.TagPrefix = types.StringPointerValue(found.TagPrefix)
 	state.Folder = types.StringPointerValue(found.Folder)

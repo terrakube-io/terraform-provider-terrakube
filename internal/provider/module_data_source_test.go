@@ -28,9 +28,7 @@ func readModuleDataSource(t *testing.T, name, providerName string, handler http.
 
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	d.client = server.Client()
-	d.endpoint = server.URL
-	d.token = "test-token"
+	d.client = newTestClient(server.Client(), server.URL)
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"name":            tftypes.NewValue(tftypes.String, name),
@@ -110,7 +108,7 @@ func TestModuleDataSource_ReadErrors(t *testing.T) {
 		{"other provider", http.StatusOK, `{"data":[{"type":"module","id":"1","attributes":{"name":"vpc","provider":"google"}}]}`, "Module not found"},
 		{"duplicate", http.StatusOK, `{"data":[{"type":"module","id":"1","attributes":{"name":"vpc","provider":"aws"}},{"type":"module","id":"2","attributes":{"name":"vpc","provider":"aws"}}]}`, "Multiple modules found"},
 		{"api error", http.StatusForbidden, `{"errors":[{"detail":"forbidden"}]}`, "Error reading module: 403 Forbidden"},
-		{"invalid payload", http.StatusOK, `not json`, "Unable to unmarshal module payload"},
+		{"invalid payload", http.StatusOK, `not json`, "Error reading module"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
