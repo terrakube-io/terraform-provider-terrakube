@@ -1,16 +1,10 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -22,6 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var _ resource.Resource = &PolicySetResource{}
@@ -29,9 +24,7 @@ var _ resource.ResourceWithConfigure = &PolicySetResource{}
 var _ resource.ResourceWithImportState = &PolicySetResource{}
 
 type PolicySetResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type PolicySetResourceModel struct {
@@ -144,35 +137,7 @@ func (r *PolicySetResource) Schema(ctx context.Context, req resource.SchemaReque
 }
 
 func (r *PolicySetResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Policy Set Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Policy Set resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Policy Set Resource")
 }
 
 func (r *PolicySetResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -182,100 +147,26 @@ func (r *PolicySetResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	bodyRequest := &client.PolicySetEntity{
-		Name:             plan.Name.ValueString(),
-		Description:      plan.Description.ValueStringPointer(),
-		EnforcementLevel: strings.ToUpper(plan.EnforcementLevel.ValueString()),
-		Global:           plan.Global.ValueBool(),
-		Repository:       plan.Repository.ValueStringPointer(),
-		Branch:           plan.Branch.ValueString(),
-		Folder:           plan.Folder.ValueString(),
-	}
+	attributes := patchAttributes{}
+	attributes.createString("name", plan.Name)
+	attributes.createString("description", plan.Description)
+	attributes.createString("enforcementLevel", upperString(plan.EnforcementLevel))
+	attributes.createString("shadowEnforcementLevel", upperString(plan.ShadowEnforcementLevel))
+	attributes.createString("overrideTeam", plan.OverrideTeam)
+	attributes.createBool("global", plan.Global)
+	attributes.createString("repository", plan.Repository)
+	updateNonEmptyString(attributes, "branch", plan.Branch, types.StringNull())
+	updateNonEmptyString(attributes, "folder", plan.Folder, types.StringNull())
+	updateNonEmptyString(attributes, "opaVersion", plan.OpaVersion, types.StringNull())
 
-	if !plan.ShadowEnforcementLevel.IsNull() && !plan.ShadowEnforcementLevel.IsUnknown() {
-		shadow := strings.ToUpper(plan.ShadowEnforcementLevel.ValueString())
-		bodyRequest.ShadowEnforcementLevel = &shadow
-	}
-
-	if !plan.OverrideTeam.IsNull() && !plan.OverrideTeam.IsUnknown() {
-		team := plan.OverrideTeam.ValueString()
-		bodyRequest.OverrideTeam = &team
-	}
-
-	if !plan.VcsId.IsNull() && !plan.VcsId.IsUnknown() && plan.VcsId.ValueString() != "" {
-		bodyRequest.Vcs = &client.VcsEntity{ID: plan.VcsId.ValueString()}
-	}
-
-	if !plan.NotificationConfigurationId.IsNull() && !plan.NotificationConfigurationId.IsUnknown() && plan.NotificationConfigurationId.ValueString() != "" {
-		bodyRequest.NotificationConfiguration = &client.NotificationConfigurationEntity{ID: plan.NotificationConfigurationId.ValueString()}
-	}
-
-	if !plan.OpaVersion.IsNull() && !plan.OpaVersion.IsUnknown() && plan.OpaVersion.ValueString() != "" {
-		opaVer := plan.OpaVersion.ValueString()
-		bodyRequest.OpaVersion = &opaVer
-	}
-
-	var out bytes.Buffer
-	if err := jsonapi.MarshalPayload(&out, bodyRequest); err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-
-	url := fmt.Sprintf("%s/api/v1/organization/%s/policySet", r.endpoint, plan.OrganizationId.ValueString())
-	createReq, err := http.NewRequest(http.MethodPost, url, strings.NewReader(out.String()))
+	patch := terrakube.Patch{Attributes: attributes, Relationships: policySetRelationships(plan)}
+	policySet, err := r.client.PolicySets.CreateFields(ctx, plan.OrganizationId.ValueString(), patch)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy set resource request", fmt.Sprintf("Error creating policy set resource request: %s", err))
-		return
-	}
-	createReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	createReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	createResp, err := r.client.Do(createReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy set create request", fmt.Sprintf("Error executing policy set create request: %s", err))
-		return
-	}
-	defer createResp.Body.Close()
-
-	bodyResponse, err := io.ReadAll(createResp.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading policy set response body", fmt.Sprintf("Error reading policy set response body: %s", err))
+		reportClientError(&resp.Diagnostics, "creating policy set", err)
 		return
 	}
 
-	if createResp.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error creating policy set", fmt.Sprintf("status: %v, body: %v", createResp.Status, string(bodyResponse)))
-		return
-	}
-
-	newPolicySet := &client.PolicySetEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newPolicySet); err != nil {
-		resp.Diagnostics.AddError("Error unmarshalling policy set payload response", fmt.Sprintf("Error unmarshalling payload: %s", err))
-		return
-	}
-
-	plan.ID = types.StringValue(newPolicySet.ID)
-	plan.Name = types.StringValue(newPolicySet.Name)
-	plan.Description = types.StringPointerValue(newPolicySet.Description)
-	plan.EnforcementLevel = types.StringValue(strings.ToLower(newPolicySet.EnforcementLevel))
-	if newPolicySet.ShadowEnforcementLevel != nil {
-		plan.ShadowEnforcementLevel = types.StringValue(strings.ToLower(*newPolicySet.ShadowEnforcementLevel))
-	} else {
-		plan.ShadowEnforcementLevel = types.StringNull()
-	}
-	plan.OverrideTeam = types.StringPointerValue(newPolicySet.OverrideTeam)
-	plan.Global = types.BoolValue(newPolicySet.Global)
-	plan.Repository = types.StringPointerValue(newPolicySet.Repository)
-	plan.Branch = types.StringValue(newPolicySet.Branch)
-	plan.Folder = types.StringValue(newPolicySet.Folder)
-	if newPolicySet.Vcs != nil {
-		plan.VcsId = types.StringValue(newPolicySet.Vcs.ID)
-	}
-	if newPolicySet.NotificationConfiguration != nil {
-		plan.NotificationConfigurationId = types.StringValue(newPolicySet.NotificationConfiguration.ID)
-	}
-	plan.OpaVersion = types.StringPointerValue(newPolicySet.OpaVersion)
-
+	setPolicySetState(&plan, policySet)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -286,67 +177,18 @@ func (r *PolicySetResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/v1/policy_set/%s", r.endpoint, state.ID.ValueString())
-	readReq, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy set read request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	readReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	readReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	readResp, err := r.client.Do(readReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy set read request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer readResp.Body.Close()
-
-	if readResp.StatusCode == http.StatusNotFound {
+	policySet, err := r.client.PolicySets.GetByID(ctx, state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Policy set not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(readResp.Body)
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading policy set response body", fmt.Sprintf("Error: %s", err))
+		reportClientError(&resp.Diagnostics, "reading policy set", err)
 		return
 	}
 
-	if readResp.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error reading policy set", fmt.Sprintf("status: %v, body: %v", readResp.Status, string(bodyResponse)))
-		return
-	}
-
-	policySet := &client.PolicySetEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), policySet); err != nil {
-		resp.Diagnostics.AddError("Error unmarshalling policy set payload", fmt.Sprintf("Error: %s", err))
-		return
-	}
-
-	state.ID = types.StringValue(policySet.ID)
-	state.Name = types.StringValue(policySet.Name)
-	state.Description = types.StringPointerValue(policySet.Description)
-	state.EnforcementLevel = types.StringValue(strings.ToLower(policySet.EnforcementLevel))
-	if policySet.ShadowEnforcementLevel != nil {
-		state.ShadowEnforcementLevel = types.StringValue(strings.ToLower(*policySet.ShadowEnforcementLevel))
-	} else {
-		state.ShadowEnforcementLevel = types.StringNull()
-	}
-	state.OverrideTeam = types.StringPointerValue(policySet.OverrideTeam)
-	state.Global = types.BoolValue(policySet.Global)
-	state.Repository = types.StringPointerValue(policySet.Repository)
-	state.Branch = types.StringValue(policySet.Branch)
-	state.Folder = types.StringValue(policySet.Folder)
-	if policySet.Vcs != nil {
-		state.VcsId = types.StringValue(policySet.Vcs.ID)
-	}
-	if policySet.NotificationConfiguration != nil {
-		state.NotificationConfigurationId = types.StringValue(policySet.NotificationConfiguration.ID)
-	}
-	state.OpaVersion = types.StringPointerValue(policySet.OpaVersion)
-
+	setPolicySetState(&state, policySet)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -359,81 +201,59 @@ func (r *PolicySetResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	bodyRequest := &client.PolicySetEntity{
-		ID:               state.ID.ValueString(),
-		Name:             plan.Name.ValueString(),
-		Description:      plan.Description.ValueStringPointer(),
-		EnforcementLevel: strings.ToUpper(plan.EnforcementLevel.ValueString()),
-		Global:           plan.Global.ValueBool(),
-		Repository:       plan.Repository.ValueStringPointer(),
-		Branch:           plan.Branch.ValueString(),
-		Folder:           plan.Folder.ValueString(),
-	}
+	attributes := patchAttributes{}
+	attributes.updateString("name", plan.Name, state.Name)
+	attributes.updateString("description", plan.Description, state.Description)
+	attributes.updateString("enforcementLevel", upperString(plan.EnforcementLevel), state.EnforcementLevel)
+	attributes.updateString("shadowEnforcementLevel", upperString(plan.ShadowEnforcementLevel), state.ShadowEnforcementLevel)
+	attributes.updateString("overrideTeam", plan.OverrideTeam, state.OverrideTeam)
+	attributes.updateBool("global", plan.Global, state.Global)
+	attributes.updateString("repository", plan.Repository, state.Repository)
+	updateNonEmptyString(attributes, "branch", plan.Branch, state.Branch)
+	updateNonEmptyString(attributes, "folder", plan.Folder, state.Folder)
+	updateNonEmptyString(attributes, "opaVersion", plan.OpaVersion, state.OpaVersion)
 
-	if !plan.ShadowEnforcementLevel.IsNull() && !plan.ShadowEnforcementLevel.IsUnknown() {
-		shadow := strings.ToUpper(plan.ShadowEnforcementLevel.ValueString())
-		bodyRequest.ShadowEnforcementLevel = &shadow
-	}
-
-	if !plan.OverrideTeam.IsNull() && !plan.OverrideTeam.IsUnknown() {
-		team := plan.OverrideTeam.ValueString()
-		bodyRequest.OverrideTeam = &team
-	}
-
-	if !plan.VcsId.IsNull() && !plan.VcsId.IsUnknown() && plan.VcsId.ValueString() != "" {
-		bodyRequest.Vcs = &client.VcsEntity{ID: plan.VcsId.ValueString()}
-	}
-
-	if !plan.NotificationConfigurationId.IsNull() && !plan.NotificationConfigurationId.IsUnknown() && plan.NotificationConfigurationId.ValueString() != "" {
-		bodyRequest.NotificationConfiguration = &client.NotificationConfigurationEntity{ID: plan.NotificationConfigurationId.ValueString()}
-	}
-
-	if !plan.OpaVersion.IsNull() && !plan.OpaVersion.IsUnknown() && plan.OpaVersion.ValueString() != "" {
-		opaVer := plan.OpaVersion.ValueString()
-		bodyRequest.OpaVersion = &opaVer
-	}
-
-	var out bytes.Buffer
-	if err := jsonapi.MarshalPayload(&out, bodyRequest); err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-
-	url := fmt.Sprintf("%s/api/v1/policy_set/%s", r.endpoint, state.ID.ValueString())
-	updateReq, err := http.NewRequest(http.MethodPatch, url, strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy set update request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	updateReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	updateReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	updateResp, err := r.client.Do(updateReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy set update request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer updateResp.Body.Close()
-
-	bodyResponse, err := io.ReadAll(updateResp.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading policy set update response body", fmt.Sprintf("Error: %s", err))
-		return
-	}
-
-	if updateResp.StatusCode == http.StatusNotFound {
-		tflog.Warn(ctx, "Policy set not found during update, removing from state", map[string]any{"id": state.ID.ValueString()})
+	id := state.ID.ValueString()
+	patch := terrakube.Patch{Attributes: attributes, Relationships: policySetRelationships(plan)}
+	_, err := r.client.PolicySets.UpdateFieldsByID(ctx, id, patch)
+	if terrakube.IsNotFound(err) {
+		tflog.Warn(ctx, "Policy set not found during update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	if updateResp.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error updating policy set", fmt.Sprintf("status: %v, body: %v", updateResp.Status, string(bodyResponse)))
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating policy set", err)
 		return
 	}
 
-	plan.ID = types.StringValue(state.ID.ValueString())
-	plan.OrganizationId = types.StringValue(state.OrganizationId.ValueString())
+	policySet, err := r.client.PolicySets.GetByID(ctx, id)
+	if terrakube.IsNotFound(err) {
+		tflog.Warn(ctx, "Policy set not found after update, removing from state", map[string]any{"id": id})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	if err != nil {
+		reportClientError(&resp.Diagnostics, "reading policy set after update", err)
+		return
+	}
+
+	// As before, a VCS or notification link removed from the configuration is not cleared on the
+	// server, so the state keeps the planned IDs rather than the links Terrakube still has.
+	// branch, folder and opa_version set to "" are left out of the request, as before, so Terrakube
+	// keeps its value; the state keeps the planned "" too.
+	vcsID, notificationID := plan.VcsId, plan.NotificationConfigurationId
+	branch, folder, opaVersion := plan.Branch, plan.Folder, plan.OpaVersion
+	setPolicySetState(&plan, policySet)
+	plan.VcsId, plan.NotificationConfigurationId = vcsID, notificationID
+	for _, kept := range []struct {
+		planned types.String
+		target  *types.String
+	}{{branch, &plan.Branch}, {folder, &plan.Folder}, {opaVersion, &plan.OpaVersion}} {
+		if isEmptyString(kept.planned) {
+			*kept.target = kept.planned
+		}
+	}
+	plan.OrganizationId = state.OrganizationId
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -444,28 +264,100 @@ func (r *PolicySetResource) Delete(ctx context.Context, req resource.DeleteReque
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/v1/policy_set/%s", r.endpoint, state.ID.ValueString())
-	delReq, err := http.NewRequest(http.MethodDelete, url, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy set delete request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	delReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	delResp, err := r.client.Do(delReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy set delete request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer delResp.Body.Close()
-
-	if delResp.StatusCode >= http.StatusBadRequest && delResp.StatusCode != http.StatusNotFound {
-		bodyResponse, _ := io.ReadAll(delResp.Body)
-		resp.Diagnostics.AddError("Error deleting policy set", fmt.Sprintf("status: %v, body: %v", delResp.Status, string(bodyResponse)))
+	err := r.client.PolicySets.DeleteByID(ctx, state.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting policy set", err)
 		return
 	}
 
 	tflog.Info(ctx, "Policy Set deleted", map[string]any{"id": state.ID.ValueString()})
+}
+
+// policySetRelationships links the policy set to its VCS connection and notification configuration
+// when they are set. As before, a link is never cleared: an ID removed from the configuration is
+// not sent.
+func policySetRelationships(model PolicySetResourceModel) map[string]terrakube.Relationship {
+	relationships := map[string]terrakube.Relationship{}
+	if !model.VcsId.IsNull() && !model.VcsId.IsUnknown() && model.VcsId.ValueString() != "" {
+		vcsID := model.VcsId.ValueString()
+		relationships["vcs"] = terrakube.Relationship{Type: "vcs", ID: &vcsID}
+	}
+	if !model.NotificationConfigurationId.IsNull() && !model.NotificationConfigurationId.IsUnknown() && model.NotificationConfigurationId.ValueString() != "" {
+		notificationID := model.NotificationConfigurationId.ValueString()
+		relationships["notificationConfiguration"] = terrakube.Relationship{Type: "notification_configuration", ID: &notificationID}
+	}
+	return relationships
+}
+
+// setPolicySetState copies a policy set from the API into the model, which holds the plan or the
+// prior state. Terrakube stores enforcement levels in upper case; the schema uses lower case but
+// also accepts upper case, so a level that matches the model's ignoring case is kept as written.
+func setPolicySetState(model *PolicySetResourceModel, policySet *terrakube.PolicySet) {
+	model.ID = types.StringValue(policySet.ID)
+	model.Name = types.StringValue(stringOrEmpty(policySet.Name))
+	model.Description = types.StringPointerValue(policySet.Description)
+	model.EnforcementLevel = enforcementLevelState(model.EnforcementLevel, stringOrEmpty(policySet.EnforcementLevel))
+	if policySet.ShadowEnforcementLevel != nil {
+		model.ShadowEnforcementLevel = enforcementLevelState(model.ShadowEnforcementLevel, *policySet.ShadowEnforcementLevel)
+	} else {
+		model.ShadowEnforcementLevel = types.StringNull()
+	}
+	model.OverrideTeam = types.StringPointerValue(policySet.OverrideTeam)
+	model.Global = types.BoolValue(policySet.Global)
+	model.Repository = types.StringPointerValue(policySet.Repository)
+	model.Branch = types.StringValue(stringOrEmpty(policySet.Branch))
+	model.Folder = types.StringValue(stringOrEmpty(policySet.Folder))
+	if policySet.VCS != nil {
+		model.VcsId = types.StringValue(policySet.VCS.ID)
+	}
+	if policySet.NotificationConfiguration != nil {
+		model.NotificationConfigurationId = types.StringValue(policySet.NotificationConfiguration.ID)
+	}
+	// An empty opa_version stays "" while Terrakube has no version, instead of turning into null.
+	// An empty branch or folder already stays "".
+	if !isEmptyString(model.OpaVersion) || stringOrEmpty(policySet.OpaVersion) != "" {
+		model.OpaVersion = types.StringPointerValue(policySet.OpaVersion)
+	}
+}
+
+// enforcementLevelState is the state value for an enforcement level from the API: the current
+// value when it names the same level ignoring case, otherwise the API's level in lower case.
+func enforcementLevelState(current types.String, level string) types.String {
+	if !current.IsNull() && !current.IsUnknown() && strings.EqualFold(current.ValueString(), level) {
+		return current
+	}
+	return types.StringValue(strings.ToLower(level))
+}
+
+// isEmptyString reports whether value is known and "".
+func isEmptyString(value types.String) bool {
+	return !value.IsNull() && !value.IsUnknown() && value.ValueString() == ""
+}
+
+// updateNonEmptyString is updateString, except that an empty value is left out, as the old
+// request bodies left out an empty branch, folder or OPA version.
+func updateNonEmptyString(attributes patchAttributes, name string, value, prior types.String) {
+	if isEmptyString(value) {
+		return
+	}
+	attributes.updateString(name, value, prior)
+}
+
+// upperString is value in upper case. A null or unknown value is returned as it is.
+func upperString(value types.String) types.String {
+	if value.IsNull() || value.IsUnknown() {
+		return value
+	}
+	return types.StringValue(strings.ToUpper(value.ValueString()))
+}
+
+// stringOrEmpty is the string value points to, or "" when it is nil, as the old string fields
+// of the API entities decoded a missing attribute.
+func stringOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (r *PolicySetResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

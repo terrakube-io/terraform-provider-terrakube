@@ -77,11 +77,7 @@ func TestPolicyExemptionResource_Create(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &PolicyExemptionResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &PolicyExemptionResource{client: newTestClient(server.Client(), server.URL)}
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id":  tftypes.NewValue(tftypes.String, orgID),
@@ -138,11 +134,7 @@ func TestPolicyExemptionResource_Delete(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &PolicyExemptionResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &PolicyExemptionResource{client: newTestClient(server.Client(), server.URL)}
 
 	stateValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"id":              tftypes.NewValue(tftypes.String, "ex-555"),

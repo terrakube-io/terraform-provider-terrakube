@@ -1,16 +1,11 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
+	"time"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -18,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var _ resource.Resource = &PolicyExemptionResource{}
@@ -25,9 +21,7 @@ var _ resource.ResourceWithConfigure = &PolicyExemptionResource{}
 var _ resource.ResourceWithImportState = &PolicyExemptionResource{}
 
 type PolicyExemptionResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type PolicyExemptionResourceModel struct {
@@ -101,35 +95,7 @@ func (r *PolicyExemptionResource) Schema(ctx context.Context, req resource.Schem
 }
 
 func (r *PolicyExemptionResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Policy Exemption Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Policy Exemption resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Policy Exemption Resource")
 }
 
 func (r *PolicyExemptionResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -139,76 +105,20 @@ func (r *PolicyExemptionResource) Create(ctx context.Context, req resource.Creat
 		return
 	}
 
-	bodyRequest := &client.PolicyExemptionEntity{
-		PolicySet:       &client.PolicySetEntity{ID: plan.PolicySetId.ValueString()},
-		RuleId:          plan.RuleId.ValueString(),
-		TicketReference: plan.TicketReference.ValueString(),
-		Justification:   plan.Justification.ValueString(),
-		ExpiresAt:       plan.ExpiresAt.ValueStringPointer(),
-	}
+	attributes := patchAttributes{}
+	attributes.createString("ruleId", plan.RuleId)
+	attributes.createString("ticketReference", plan.TicketReference)
+	attributes.createString("justification", plan.Justification)
+	attributes.createString("expiresAt", plan.ExpiresAt)
 
-	if !plan.WorkspaceId.IsNull() && !plan.WorkspaceId.IsUnknown() && plan.WorkspaceId.ValueString() != "" {
-		bodyRequest.Workspace = &client.WorkspaceEntity{ID: plan.WorkspaceId.ValueString()}
-	}
-
-	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() && plan.ProjectId.ValueString() != "" {
-		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
-	}
-
-	var out bytes.Buffer
-	if err := jsonapi.MarshalPayload(&out, bodyRequest); err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-
-	url := fmt.Sprintf("%s/api/v1/organization/%s/policyExemption", r.endpoint, plan.OrganizationId.ValueString())
-	createReq, err := http.NewRequest(http.MethodPost, url, strings.NewReader(out.String()))
+	patch := terrakube.Patch{Attributes: attributes, Relationships: policyExemptionRelationships(plan)}
+	exemption, err := r.client.PolicyExemptions.CreateFields(ctx, plan.OrganizationId.ValueString(), patch)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy exemption request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	createReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	createReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	createResp, err := r.client.Do(createReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy exemption create request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer createResp.Body.Close()
-
-	bodyResponse, err := io.ReadAll(createResp.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading policy exemption response body", fmt.Sprintf("Error: %s", err))
+		reportClientError(&resp.Diagnostics, "creating policy exemption", err)
 		return
 	}
 
-	if createResp.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error creating policy exemption", fmt.Sprintf("status: %v, body: %v", createResp.Status, string(bodyResponse)))
-		return
-	}
-
-	newExemption := &client.PolicyExemptionEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newExemption); err != nil {
-		resp.Diagnostics.AddError("Error unmarshalling policy exemption payload", fmt.Sprintf("Error: %s", err))
-		return
-	}
-
-	plan.ID = types.StringValue(newExemption.ID)
-	plan.RuleId = types.StringValue(newExemption.RuleId)
-	plan.TicketReference = types.StringValue(newExemption.TicketReference)
-	plan.Justification = types.StringValue(newExemption.Justification)
-	plan.ExpiresAt = types.StringPointerValue(newExemption.ExpiresAt)
-	if newExemption.PolicySet != nil {
-		plan.PolicySetId = types.StringValue(newExemption.PolicySet.ID)
-	}
-	if newExemption.Workspace != nil {
-		plan.WorkspaceId = types.StringValue(newExemption.Workspace.ID)
-	}
-	if newExemption.Project != nil {
-		plan.ProjectId = types.StringValue(newExemption.Project.ID)
-	}
-
+	setPolicyExemptionState(&plan, exemption)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -219,60 +129,18 @@ func (r *PolicyExemptionResource) Read(ctx context.Context, req resource.ReadReq
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/v1/policy_exemption/%s", r.endpoint, state.ID.ValueString())
-	readReq, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy exemption read request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	readReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	readReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	readResp, err := r.client.Do(readReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy exemption read request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer readResp.Body.Close()
-
-	if readResp.StatusCode == http.StatusNotFound {
+	exemption, err := r.client.PolicyExemptions.GetByID(ctx, state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Policy exemption not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(readResp.Body)
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading policy exemption response body", fmt.Sprintf("Error: %s", err))
+		reportClientError(&resp.Diagnostics, "reading policy exemption", err)
 		return
 	}
 
-	if readResp.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error reading policy exemption", fmt.Sprintf("status: %v, body: %v", readResp.Status, string(bodyResponse)))
-		return
-	}
-
-	exemption := &client.PolicyExemptionEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), exemption); err != nil {
-		resp.Diagnostics.AddError("Error unmarshalling policy exemption payload", fmt.Sprintf("Error: %s", err))
-		return
-	}
-
-	state.ID = types.StringValue(exemption.ID)
-	state.RuleId = types.StringValue(exemption.RuleId)
-	state.TicketReference = types.StringValue(exemption.TicketReference)
-	state.Justification = types.StringValue(exemption.Justification)
-	state.ExpiresAt = types.StringPointerValue(exemption.ExpiresAt)
-	if exemption.PolicySet != nil {
-		state.PolicySetId = types.StringValue(exemption.PolicySet.ID)
-	}
-	if exemption.Workspace != nil {
-		state.WorkspaceId = types.StringValue(exemption.Workspace.ID)
-	}
-	if exemption.Project != nil {
-		state.ProjectId = types.StringValue(exemption.Project.ID)
-	}
-
+	setPolicyExemptionState(&state, exemption)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -285,64 +153,42 @@ func (r *PolicyExemptionResource) Update(ctx context.Context, req resource.Updat
 		return
 	}
 
-	bodyRequest := &client.PolicyExemptionEntity{
-		ID:              state.ID.ValueString(),
-		PolicySet:       &client.PolicySetEntity{ID: plan.PolicySetId.ValueString()},
-		RuleId:          plan.RuleId.ValueString(),
-		TicketReference: plan.TicketReference.ValueString(),
-		Justification:   plan.Justification.ValueString(),
-		ExpiresAt:       plan.ExpiresAt.ValueStringPointer(),
-	}
+	attributes := patchAttributes{}
+	attributes.updateString("ruleId", plan.RuleId, state.RuleId)
+	attributes.updateString("ticketReference", plan.TicketReference, state.TicketReference)
+	attributes.updateString("justification", plan.Justification, state.Justification)
+	attributes.updateString("expiresAt", plan.ExpiresAt, state.ExpiresAt)
 
-	if !plan.WorkspaceId.IsNull() && !plan.WorkspaceId.IsUnknown() && plan.WorkspaceId.ValueString() != "" {
-		bodyRequest.Workspace = &client.WorkspaceEntity{ID: plan.WorkspaceId.ValueString()}
-	}
-
-	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() && plan.ProjectId.ValueString() != "" {
-		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
-	}
-
-	var out bytes.Buffer
-	if err := jsonapi.MarshalPayload(&out, bodyRequest); err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-
-	url := fmt.Sprintf("%s/api/v1/policy_exemption/%s", r.endpoint, state.ID.ValueString())
-	updateReq, err := http.NewRequest(http.MethodPatch, url, strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy exemption update request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	updateReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	updateReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	updateResp, err := r.client.Do(updateReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy exemption update request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer updateResp.Body.Close()
-
-	bodyResponse, err := io.ReadAll(updateResp.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading policy exemption update response body", fmt.Sprintf("Error: %s", err))
-		return
-	}
-
-	if updateResp.StatusCode == http.StatusNotFound {
-		tflog.Warn(ctx, "Policy exemption not found during update, removing from state", map[string]any{"id": state.ID.ValueString()})
+	id := state.ID.ValueString()
+	patch := terrakube.Patch{Attributes: attributes, Relationships: policyExemptionRelationships(plan)}
+	_, err := r.client.PolicyExemptions.UpdateFieldsByID(ctx, id, patch)
+	if terrakube.IsNotFound(err) {
+		tflog.Warn(ctx, "Policy exemption not found during update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	if updateResp.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error updating policy exemption", fmt.Sprintf("status: %v, body: %v", updateResp.Status, string(bodyResponse)))
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating policy exemption", err)
 		return
 	}
 
-	plan.ID = types.StringValue(state.ID.ValueString())
-	plan.OrganizationId = types.StringValue(state.OrganizationId.ValueString())
+	exemption, err := r.client.PolicyExemptions.GetByID(ctx, id)
+	if terrakube.IsNotFound(err) {
+		tflog.Warn(ctx, "Policy exemption not found after update, removing from state", map[string]any{"id": id})
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	if err != nil {
+		reportClientError(&resp.Diagnostics, "reading policy exemption after update", err)
+		return
+	}
+
+	// As before, a workspace or project link removed from the configuration is not cleared on the
+	// server, so the state keeps the planned IDs rather than the links Terrakube still has.
+	workspaceID, projectID := plan.WorkspaceId, plan.ProjectId
+	setPolicyExemptionState(&plan, exemption)
+	plan.WorkspaceId, plan.ProjectId = workspaceID, projectID
+	plan.OrganizationId = state.OrganizationId
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -353,28 +199,62 @@ func (r *PolicyExemptionResource) Delete(ctx context.Context, req resource.Delet
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/v1/policy_exemption/%s", r.endpoint, state.ID.ValueString())
-	delReq, err := http.NewRequest(http.MethodDelete, url, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy exemption delete request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	delReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	delResp, err := r.client.Do(delReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy exemption delete request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer delResp.Body.Close()
-
-	if delResp.StatusCode >= http.StatusBadRequest && delResp.StatusCode != http.StatusNotFound {
-		bodyResponse, _ := io.ReadAll(delResp.Body)
-		resp.Diagnostics.AddError("Error deleting policy exemption", fmt.Sprintf("status: %v, body: %v", delResp.Status, string(bodyResponse)))
+	err := r.client.PolicyExemptions.DeleteByID(ctx, state.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting policy exemption", err)
 		return
 	}
 
 	tflog.Info(ctx, "Policy exemption deleted", map[string]any{"id": state.ID.ValueString()})
+}
+
+// policyExemptionRelationships links the exemption to its policy set, and to its workspace and
+// project when they are set. As before, a workspace or project link is never cleared.
+func policyExemptionRelationships(model PolicyExemptionResourceModel) map[string]terrakube.Relationship {
+	policySetID := model.PolicySetId.ValueString()
+	relationships := map[string]terrakube.Relationship{"policySet": {Type: "policy_set", ID: &policySetID}}
+	if !model.WorkspaceId.IsNull() && !model.WorkspaceId.IsUnknown() && model.WorkspaceId.ValueString() != "" {
+		workspaceID := model.WorkspaceId.ValueString()
+		relationships["workspace"] = terrakube.Relationship{Type: "workspace", ID: &workspaceID}
+	}
+	if !model.ProjectId.IsNull() && !model.ProjectId.IsUnknown() && model.ProjectId.ValueString() != "" {
+		projectID := model.ProjectId.ValueString()
+		relationships["project"] = terrakube.Relationship{Type: "project", ID: &projectID}
+	}
+	return relationships
+}
+
+func setPolicyExemptionState(model *PolicyExemptionResourceModel, exemption *terrakube.PolicyExemption) {
+	model.ID = types.StringValue(exemption.ID)
+	model.RuleId = types.StringValue(stringOrEmpty(exemption.RuleID))
+	model.TicketReference = types.StringValue(stringOrEmpty(exemption.TicketReference))
+	model.Justification = types.StringValue(stringOrEmpty(exemption.Justification))
+	model.ExpiresAt = expiresAtState(model.ExpiresAt, exemption.ExpiresAt)
+	if exemption.PolicySet != nil {
+		model.PolicySetId = types.StringValue(exemption.PolicySet.ID)
+	}
+	if exemption.Workspace != nil {
+		model.WorkspaceId = types.StringValue(exemption.Workspace.ID)
+	}
+	if exemption.Project != nil {
+		model.ProjectId = types.StringValue(exemption.Project.ID)
+	}
+}
+
+// expiresAtState is the expires_at value for an expiry time from the API. expires_at is sent to
+// Terrakube exactly as written, but terrakube-go decodes the answer into a time, so the text the
+// server returned is gone. The current text is kept when it names the same instant, so a value
+// written as 2026-12-31T23:59:59Z stays that way; otherwise the time is written in RFC 3339.
+func expiresAtState(current types.String, expiresAt *time.Time) types.String {
+	if expiresAt == nil {
+		return types.StringNull()
+	}
+	if !current.IsNull() && !current.IsUnknown() {
+		if written, err := time.Parse(time.RFC3339, current.ValueString()); err == nil && written.Equal(*expiresAt) {
+			return current
+		}
+	}
+	return types.StringValue(expiresAt.Format(time.RFC3339Nano))
 }
 
 func (r *PolicyExemptionResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

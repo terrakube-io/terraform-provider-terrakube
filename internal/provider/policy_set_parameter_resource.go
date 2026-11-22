@@ -1,16 +1,10 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -18,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var _ resource.Resource = &PolicySetParameterResource{}
@@ -25,9 +20,7 @@ var _ resource.ResourceWithConfigure = &PolicySetParameterResource{}
 var _ resource.ResourceWithImportState = &PolicySetParameterResource{}
 
 type PolicySetParameterResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type PolicySetParameterResourceModel struct {
@@ -81,35 +74,7 @@ func (r *PolicySetParameterResource) Schema(ctx context.Context, req resource.Sc
 }
 
 func (r *PolicySetParameterResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Policy Set Parameter Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Policy Set Parameter resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Policy Set Parameter Resource")
 }
 
 func (r *PolicySetParameterResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -119,65 +84,23 @@ func (r *PolicySetParameterResource) Create(ctx context.Context, req resource.Cr
 		return
 	}
 
-	bodyRequest := &client.PolicySetParameterEntity{
-		Key:       plan.Key.ValueString(),
-		Value:     plan.Value.ValueString(),
-		PolicySet: &client.PolicySetEntity{ID: plan.PolicySetId.ValueString()},
-	}
+	attributes := patchAttributes{}
+	attributes.createString("key", plan.Key)
+	attributes.createString("value", plan.Value)
+	attributes.createString("description", plan.Description)
 
-	if !plan.Description.IsNull() && !plan.Description.IsUnknown() {
-		desc := plan.Description.ValueString()
-		bodyRequest.Description = &desc
+	policySetID := plan.PolicySetId.ValueString()
+	patch := terrakube.Patch{
+		Attributes:    attributes,
+		Relationships: map[string]terrakube.Relationship{"policySet": {Type: "policy_set", ID: &policySetID}},
 	}
-
-	var out bytes.Buffer
-	if err := jsonapi.MarshalPayload(&out, bodyRequest); err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-
-	url := fmt.Sprintf("%s/api/v1/policy_set/%s/parameters", r.endpoint, plan.PolicySetId.ValueString())
-	createReq, err := http.NewRequest(http.MethodPost, url, strings.NewReader(out.String()))
+	parameter, err := r.client.PolicySetParameters.CreateFieldsByPolicySet(ctx, policySetID, patch)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy set parameter request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	createReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	createReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	createResp, err := r.client.Do(createReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy set parameter create request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer createResp.Body.Close()
-
-	bodyResponse, err := io.ReadAll(createResp.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading policy set parameter response body", fmt.Sprintf("Error: %s", err))
+		reportClientError(&resp.Diagnostics, "creating policy set parameter", err)
 		return
 	}
 
-	if createResp.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error creating policy set parameter", fmt.Sprintf("status: %v, body: %v", createResp.Status, string(bodyResponse)))
-		return
-	}
-
-	newParameter := &client.PolicySetParameterEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newParameter); err != nil {
-		resp.Diagnostics.AddError("Error unmarshalling policy set parameter payload", fmt.Sprintf("Error: %s", err))
-		return
-	}
-
-	plan.ID = types.StringValue(newParameter.ID)
-	plan.Key = types.StringValue(newParameter.Key)
-	plan.Value = types.StringValue(newParameter.Value)
-	if newParameter.Description != nil {
-		plan.Description = types.StringValue(*newParameter.Description)
-	} else {
-		plan.Description = types.StringNull()
-	}
-
+	setPolicySetParameterState(&plan, parameter)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -188,56 +111,25 @@ func (r *PolicySetParameterResource) Read(ctx context.Context, req resource.Read
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/v1/policy_set/%s/parameters/%s", r.endpoint, state.PolicySetId.ValueString(), state.ID.ValueString())
-	readReq, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy set parameter read request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	readReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	readReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	readResp, err := r.client.Do(readReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy set parameter read request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer readResp.Body.Close()
-
-	if readResp.StatusCode == http.StatusNotFound {
+	parameter, err := r.client.PolicySetParameters.GetByPolicySet(ctx, state.PolicySetId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(readResp.Body)
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading policy set parameter response body", fmt.Sprintf("Error: %s", err))
+		reportClientError(&resp.Diagnostics, "reading policy set parameter", err)
 		return
 	}
 
-	if readResp.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error reading policy set parameter", fmt.Sprintf("status: %v, body: %v", readResp.Status, string(bodyResponse)))
-		return
-	}
-
-	param := &client.PolicySetParameterEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), param); err != nil {
-		resp.Diagnostics.AddError("Error unmarshalling policy set parameter payload", fmt.Sprintf("Error: %s", err))
-		return
-	}
-
-	state.ID = types.StringValue(param.ID)
-	state.Key = types.StringValue(param.Key)
-	state.Value = types.StringValue(param.Value)
-	if param.Description != nil {
-		state.Description = types.StringValue(*param.Description)
-	} else {
-		state.Description = types.StringNull()
-	}
-
+	setPolicySetParameterState(&state, parameter)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
+// Update works from the plan, as it always has: key and value are always sent. Of the prior state
+// only the description is read, so a description removed from the configuration is cleared with
+// null; with no readable prior state it counts as null and nothing is cleared. The state is taken
+// from the PATCH result, which UpdateFieldsByPolicySet reads back when Terrakube answers 204; when
+// that read-back fails the update still stands and the plan is kept.
 func (r *PolicySetParameterResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var plan PolicySetParameterResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -245,59 +137,26 @@ func (r *PolicySetParameterResource) Update(ctx context.Context, req resource.Up
 		return
 	}
 
-	bodyRequest := &client.PolicySetParameterEntity{
-		ID:    plan.ID.ValueString(),
-		Key:   plan.Key.ValueString(),
-		Value: plan.Value.ValueString(),
-	}
-
-	if !plan.Description.IsNull() && !plan.Description.IsUnknown() {
-		desc := plan.Description.ValueString()
-		bodyRequest.Description = &desc
-	}
-
-	var out bytes.Buffer
-	if err := jsonapi.MarshalPayload(&out, bodyRequest); err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-
-	url := fmt.Sprintf("%s/api/v1/policy_set/%s/parameters/%s", r.endpoint, plan.PolicySetId.ValueString(), plan.ID.ValueString())
-	updateReq, err := http.NewRequest(http.MethodPatch, url, strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy set parameter update request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	updateReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	updateReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	updateResp, err := r.client.Do(updateReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy set parameter update request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer updateResp.Body.Close()
-
-	bodyResponse, err := io.ReadAll(updateResp.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading policy set parameter response body", fmt.Sprintf("Error: %s", err))
-		return
-	}
-
-	if updateResp.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error updating policy set parameter", fmt.Sprintf("status: %v, body: %v", updateResp.Status, string(bodyResponse)))
-		return
-	}
-
-	updated := &client.PolicySetParameterEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), updated); err == nil && updated.ID != "" {
-		plan.Key = types.StringValue(updated.Key)
-		plan.Value = types.StringValue(updated.Value)
-		if updated.Description != nil {
-			plan.Description = types.StringValue(*updated.Description)
-		} else {
-			plan.Description = types.StringNull()
+	priorDescription := types.StringNull()
+	if !req.State.Raw.IsNull() {
+		var prior types.String
+		if diags := req.State.GetAttribute(ctx, path.Root("description"), &prior); !diags.HasError() {
+			priorDescription = prior
 		}
+	}
+
+	attributes := patchAttributes{}
+	attributes.createString("key", plan.Key)
+	attributes.createString("value", plan.Value)
+	attributes.updateString("description", plan.Description, priorDescription)
+
+	parameter, err := r.client.PolicySetParameters.UpdateFieldsByPolicySet(ctx, plan.PolicySetId.ValueString(), plan.ID.ValueString(), terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating policy set parameter", err)
+		return
+	}
+	if err == nil && parameter.ID != "" {
+		setPolicySetParameterState(&plan, parameter)
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -310,28 +169,20 @@ func (r *PolicySetParameterResource) Delete(ctx context.Context, req resource.De
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/v1/policy_set/%s/parameters/%s", r.endpoint, state.PolicySetId.ValueString(), state.ID.ValueString())
-	delReq, err := http.NewRequest(http.MethodDelete, url, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy set parameter delete request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	delReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	delResp, err := r.client.Do(delReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy set parameter delete request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer delResp.Body.Close()
-
-	if delResp.StatusCode >= http.StatusBadRequest && delResp.StatusCode != http.StatusNotFound {
-		bodyResponse, _ := io.ReadAll(delResp.Body)
-		resp.Diagnostics.AddError("Error deleting policy set parameter", fmt.Sprintf("status: %v, body: %v", delResp.Status, string(bodyResponse)))
+	err := r.client.PolicySetParameters.DeleteByPolicySet(ctx, state.PolicySetId.ValueString(), state.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting policy set parameter", err)
 		return
 	}
 
 	tflog.Info(ctx, "Policy set parameter deleted", map[string]any{"id": state.ID.ValueString()})
+}
+
+func setPolicySetParameterState(model *PolicySetParameterResourceModel, parameter *terrakube.PolicySetParameter) {
+	model.ID = types.StringValue(parameter.ID)
+	model.Key = types.StringValue(stringOrEmpty(parameter.Key))
+	model.Value = types.StringValue(stringOrEmpty(parameter.Value))
+	model.Description = types.StringPointerValue(parameter.Description)
 }
 
 func (r *PolicySetParameterResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
