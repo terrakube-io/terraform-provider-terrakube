@@ -54,7 +54,7 @@ func TestResourceDelete_ReportsFailures(t *testing.T) {
 			return &CollectionReferenceResource{client: newTestClient(c, e)}
 		}},
 		{"workspace_schedule", "/api/v1/workspace/ws-1/schedule/item-1", func(c *http.Client, e string) resource.Resource {
-			return &WorkspaceScheduleResource{client: c, endpoint: e, token: "test-token"}
+			return &WorkspaceScheduleResource{client: newTestClient(c, e)}
 		}},
 		{"federated_credential", "/api/v1/federated/item-1", func(c *http.Client, e string) resource.Resource {
 			return &FederatedCredentialResource{client: newTestClient(c, e)}
@@ -64,7 +64,7 @@ func TestResourceDelete_ReportsFailures(t *testing.T) {
 		}},
 		// Already handled its own errors before; kept as the control for the others.
 		{"workspace_run_trigger", "/api/v1/runTrigger/item-1", func(c *http.Client, e string) resource.Resource {
-			return &WorkspaceRunTriggerResource{client: c, endpoint: e, token: "test-token"}
+			return &WorkspaceRunTriggerResource{client: newTestClient(c, e)}
 		}},
 	}
 

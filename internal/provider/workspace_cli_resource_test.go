@@ -78,11 +78,7 @@ func TestWorkspaceCliResource_Create_OmitsRelationshipWhenFieldUnset(t *testing.
 			server := httptest.NewServer(mux)
 			defer server.Close()
 
-			r := &WorkspaceCliResource{
-				client:   server.Client(),
-				endpoint: server.URL,
-				token:    "test-token",
-			}
+			r := &WorkspaceCliResource{client: newTestClient(server.Client(), server.URL)}
 
 			planValue := buildObjectValue(objType, map[string]tftypes.Value{
 				"organization_id": tftypes.NewValue(tftypes.String, orgID),

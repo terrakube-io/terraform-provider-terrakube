@@ -1,16 +1,7 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
-	"fmt"
-	"io"
-	"net/http"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
-
-	"github.com/google/jsonapi"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -20,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -27,9 +19,7 @@ var _ resource.Resource = &WorkspaceTagResource{}
 var _ resource.ResourceWithImportState = &WorkspaceTagResource{}
 
 type WorkspaceTagResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type WorkspaceTagResourceModel struct {
@@ -93,95 +83,33 @@ func (r *WorkspaceTagResource) Schema(ctx context.Context, req resource.SchemaRe
 }
 
 func (r *WorkspaceTagResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Workspace Tag Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Workspace Tag resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Workspace Tag Resource")
 }
 
 func (r *WorkspaceTagResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan WorkspaceTagResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	body, err := workspaceTagCreateRequestBody(plan)
+	// value is left out for a key-only tag, so key-only tags can still be created on Terrakube
+	// versions without key/value tags, whose API rejects the unknown attribute.
+	attributes := patchAttributes{}
+	attributes.createString("tagId", plan.TagID)
+	attributes.createString("value", plan.Value)
+
+	workspaceTag, err := r.client.WorkspaceTags.CreateFields(ctx, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString(), terrakube.Patch{Attributes: attributes})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating workspace tag", err)
 		return
 	}
 
-	workspaceTagRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/workspaceTag", r.endpoint, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString()), bytes.NewReader(body))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace tag resource request", fmt.Sprintf("Error creating workspace tag resource request: %s", err))
-		return
-	}
-	workspaceTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceTagResponse, err := r.client.Do(workspaceTagRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace tag resource request", fmt.Sprintf("Error executing workspace tag resource request: %s", err))
-		return
-	}
-
-	defer workspaceTagResponse.Body.Close()
-
-	bodyResponse, err := io.ReadAll(workspaceTagResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading workspace tag resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating workspace tag", workspaceTagResponse, bodyResponse) {
-		return
-	}
-
-	newWorkspaceTag := &client.WorkspaceTagEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newWorkspaceTag)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	plan.ID = types.StringValue(newWorkspaceTag.ID)
-	plan.TagID = types.StringValue(newWorkspaceTag.TagID)
-	plan.Value = workspaceTagValue(newWorkspaceTag.Value)
+	plan.ID = types.StringValue(workspaceTag.ID)
+	plan.TagID = types.StringValue(workspaceTag.TagID)
+	plan.Value = workspaceTagValue(workspaceTag.Value)
 
 	tflog.Info(ctx, "Workspace Tag Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -194,65 +122,30 @@ func (r *WorkspaceTagResource) Update(ctx context.Context, req resource.UpdateRe
 		return
 	}
 
-	// Only the value can change in place; every other attribute requires replacement.
-	body, err := workspaceTagUpdateRequestBody(plan, state.ID.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	// Only the value can change in place; every other attribute requires replacement. The value
+	// is always sent, so removing it from the configuration turns the tag back into a key-only
+	// tag (null) instead of leaving the previous value in place.
+	attributes := patchAttributes{"value": plan.Value.ValueStringPointer()}
+
+	organizationID, workspaceID, id := state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()
+	_, err := r.client.WorkspaceTags.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating workspace tag", err)
 		return
 	}
 
-	workspaceTagRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/workspaceTag/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), bytes.NewReader(body))
+	workspaceTag, err := r.client.WorkspaceTags.Get(ctx, organizationID, workspaceID, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace tag resource request", fmt.Sprintf("Error creating workspace tag resource request: %s", err))
-		return
-	}
-	workspaceTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceTagResponse, err := r.client.Do(workspaceTagRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace tag resource request", fmt.Sprintf("Error executing workspace tag resource request: %s", err))
-		return
-	}
-	defer workspaceTagResponse.Body.Close()
-
-	bodyResponse, _ := io.ReadAll(workspaceTagResponse.Body)
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating workspace tag", workspaceTagResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading workspace tag after update", err)
 		return
 	}
 
 	plan.ID = state.ID
+	plan.TagID = types.StringValue(workspaceTag.TagID)
+	plan.Value = workspaceTagValue(workspaceTag.Value)
 
 	tflog.Info(ctx, "Workspace Tag Resource Updated", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-}
-
-// workspaceTagCreateRequestBody leaves value out for a key-only tag, so key-only tags can still be created on
-// Terrakube versions without key/value tags, whose API rejects the unknown attribute.
-func workspaceTagCreateRequestBody(plan WorkspaceTagResourceModel) ([]byte, error) {
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, &client.WorkspaceTagEntity{
-		TagID: plan.TagID.ValueString(),
-		Value: plan.Value.ValueStringPointer(),
-	})
-	return out.Bytes(), err
-}
-
-// workspaceTagValueUpdate always sends the value, unlike client.WorkspaceTagEntity, so removing it from the
-// configuration turns the tag back into a key-only tag (null) instead of leaving the previous value in place.
-type workspaceTagValueUpdate struct {
-	ID    string  `jsonapi:"primary,workspacetag"`
-	Value *string `jsonapi:"attr,value"`
-}
-
-func workspaceTagUpdateRequestBody(plan WorkspaceTagResourceModel, id string) ([]byte, error) {
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, &workspaceTagValueUpdate{
-		ID:    id,
-		Value: plan.Value.ValueStringPointer(),
-	})
-	return out.Bytes(), err
 }
 
 // workspaceTagValue maps the API value to state. The API stores a key-only tag as null, and the TFE API
@@ -266,100 +159,41 @@ func workspaceTagValue(value *string) types.String {
 
 func (r *WorkspaceTagResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state WorkspaceTagResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	workspaceTagRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/workspaceTag/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace tag resource request", fmt.Sprintf("Error creating workspace tag resource request: %s", err))
-		return
-	}
-	workspaceTagRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceTagRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceTagResponse, err := r.client.Do(workspaceTagRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace tag resource request", fmt.Sprintf("Error executing workspace workspace tag resource request: %s", err))
-		return
-	}
-
-	defer workspaceTagResponse.Body.Close()
-
-	if workspaceTagResponse.StatusCode == http.StatusNotFound {
+	workspaceTag, err := r.client.WorkspaceTags.Get(ctx, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Workspace tag not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(workspaceTagResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, "Error reading workspace tag resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace tag", workspaceTagResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading workspace tag", err)
 		return
 	}
-
-	workspaceTag := &client.WorkspaceTagEntity{}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspaceTag)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	state.ID = types.StringValue(workspaceTag.ID)
 	state.TagID = types.StringValue(workspaceTag.TagID)
 	state.Value = workspaceTagValue(workspaceTag.Value)
 
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	tflog.Info(ctx, "Workspace tag Resource reading", map[string]any{"success": true})
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *WorkspaceTagResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data WorkspaceTagResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	reqOrg, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/workspaceTag/%s", r.endpoint, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace tag resource request", fmt.Sprintf("Error creating workspace tag resource request: %s", err))
-		return
-	}
-	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	workspaceTagResponse, err := r.client.Do(reqOrg)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace tag resource request", fmt.Sprintf("Error executing workspace tag resource request: %s", err))
-		return
-	}
-	defer workspaceTagResponse.Body.Close()
-
 	// 404 means the tag is already gone, which is what destroy wants.
-	if workspaceTagResponse.StatusCode == http.StatusNotFound {
-		return
+	err := r.client.WorkspaceTags.Delete(ctx, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting workspace tag", err)
 	}
-
-	bodyResponse, _ := io.ReadAll(workspaceTagResponse.Body)
-	reportAPIErrorStatus(&resp.Diagnostics, "deleting workspace tag", workspaceTagResponse, bodyResponse)
 }
 
 func (r *WorkspaceTagResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

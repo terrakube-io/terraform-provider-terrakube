@@ -1,16 +1,10 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -20,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -27,9 +22,7 @@ var _ resource.Resource = &WorkspaceScheduleResource{}
 var _ resource.ResourceWithImportState = &WorkspaceScheduleResource{}
 
 type WorkspaceScheduleResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type WorkspaceScheduleResourceModel struct {
@@ -77,170 +70,60 @@ func (r *WorkspaceScheduleResource) Schema(ctx context.Context, req resource.Sch
 }
 
 func (r *WorkspaceScheduleResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Workspace Schedule Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Workspace Schedule resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Workspace Schedule Resource")
 }
 
 func (r *WorkspaceScheduleResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan WorkspaceScheduleResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	bodyRequest := &client.WorkspaceScheduleEntity{
-		Schedule:   plan.Schedule.ValueString(),
-		TemplateId: plan.TemplateId.ValueString(),
-	}
+	attributes := patchAttributes{}
+	attributes.createString("cron", plan.Schedule)
+	attributes.createString("templateReference", plan.TemplateId)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
+	workspaceSchedule, err := r.client.WorkspaceSchedules.CreateFields(ctx, plan.WorkspaceId.ValueString(), terrakube.Patch{Attributes: attributes})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating workspace schedule", err)
 		return
 	}
 
-	workspaceScheduleRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/workspace/%s/schedule", r.endpoint, plan.WorkspaceId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace schedule resource request", fmt.Sprintf("Error creating workspace schedule resource request: %s", err))
-		return
-	}
-	workspaceScheduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceScheduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceScheduleResponse, err := r.client.Do(workspaceScheduleRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace schedule  resource request", fmt.Sprintf("Error executing workspace schedule  resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(workspaceScheduleResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading workspace schedule resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating workspace schedule", workspaceScheduleResponse, bodyResponse) {
-		return
-	}
-
-	workspaceSchedule := &client.WorkspaceScheduleEntity{}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspaceSchedule)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	plan.Schedule = types.StringValue(workspaceSchedule.Schedule)
-	plan.TemplateId = types.StringValue(workspaceSchedule.TemplateId)
 	plan.ID = types.StringValue(workspaceSchedule.ID)
+	plan.Schedule = types.StringValue(workspaceSchedule.Schedule)
+	plan.TemplateId = types.StringValue(workspaceSchedule.TemplateID)
 
 	tflog.Info(ctx, "workspace schedule Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *WorkspaceScheduleResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state WorkspaceScheduleResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	workspaceScheduleRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/workspace/%s/schedule/%s", r.endpoint, state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace schedule resource request", fmt.Sprintf("Error creating workspace schedule resource request: %s", err))
-		return
-	}
-	workspaceScheduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceScheduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceScheduleResponse, err := r.client.Do(workspaceScheduleRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace schedule resource request", fmt.Sprintf("Error executing workspace schedule resource request: %s", err))
-		return
-	}
-
-	if workspaceScheduleResponse.StatusCode == http.StatusNotFound {
+	workspaceSchedule, err := r.client.WorkspaceSchedules.Get(ctx, state.WorkspaceId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Workspace schedule not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(workspaceScheduleResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, "Error reading workspace schedule resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace schedule", workspaceScheduleResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading workspace schedule", err)
 		return
 	}
 
-	workspaceSchedule := &client.WorkspaceScheduleEntity{}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspaceSchedule)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	state.Schedule = types.StringValue(workspaceSchedule.Schedule)
-	state.TemplateId = types.StringValue(workspaceSchedule.TemplateId)
 	state.ID = types.StringValue(workspaceSchedule.ID)
+	state.Schedule = types.StringValue(workspaceSchedule.Schedule)
+	state.TemplateId = types.StringValue(workspaceSchedule.TemplateID)
 
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	tflog.Info(ctx, "Workspace schedule Resource reading", map[string]any{"success": true})
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *WorkspaceScheduleResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan WorkspaceScheduleResourceModel
 	var state WorkspaceScheduleResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -249,108 +132,41 @@ func (r *WorkspaceScheduleResource) Update(ctx context.Context, req resource.Upd
 		return
 	}
 
-	bodyRequest := &client.WorkspaceScheduleEntity{
-		Schedule:   plan.Schedule.ValueString(),
-		TemplateId: plan.TemplateId.ValueString(),
-		ID:         state.ID.ValueString(),
-	}
+	attributes := patchAttributes{}
+	attributes.updateString("cron", plan.Schedule, state.Schedule)
+	attributes.updateString("templateReference", plan.TemplateId, state.TemplateId)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	workspaceID, id := state.WorkspaceId.ValueString(), state.ID.ValueString()
+	_, err := r.client.WorkspaceSchedules.UpdateFields(ctx, workspaceID, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating workspace schedule", err)
 		return
 	}
 
-	workspaceScheduleReq, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/workspace/%s/schedule/%s", r.endpoint, state.WorkspaceId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
+	workspaceSchedule, err := r.client.WorkspaceSchedules.Get(ctx, workspaceID, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating Workspace schedule resource request", fmt.Sprintf("Error creating schedule schedule resource request: %s", err))
-		return
-	}
-	workspaceScheduleReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceScheduleReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceScheduleResponse, err := r.client.Do(workspaceScheduleReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Workspace schedule resource request", fmt.Sprintf("Error executing Workspace schedule resource request: %s", err))
+		reportClientError(&resp.Diagnostics, "reading workspace schedule after update", err)
 		return
 	}
 
-	bodyResponse, err := io.ReadAll(workspaceScheduleResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading Workspace schedule resource response")
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating workspace schedule", workspaceScheduleResponse, bodyResponse) {
-		return
-	}
-
-	workspaceScheduleReq, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/workspace/%s/schedule/%s", r.endpoint, state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating Workspace schedule resource request", fmt.Sprintf("Error creating Workspace schedule resource request: %s", err))
-		return
-	}
-	workspaceScheduleReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceScheduleReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceScheduleResponse, err = r.client.Do(workspaceScheduleReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Workspace schedule resource request", fmt.Sprintf("Error executing Workspace schedule resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err = io.ReadAll(workspaceScheduleResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading Workspace schedule resource response body", fmt.Sprintf("Error reading Workspace schedule resource response body: %s", err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace schedule after update", workspaceScheduleResponse, bodyResponse) {
-		return
-	}
-
-	workspaceSchedule := &client.WorkspaceScheduleEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspaceSchedule)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	plan.ID = types.StringValue(state.ID.ValueString())
+	plan.ID = types.StringValue(id)
 	plan.Schedule = types.StringValue(workspaceSchedule.Schedule)
-	plan.TemplateId = types.StringValue(workspaceSchedule.TemplateId)
+	plan.TemplateId = types.StringValue(workspaceSchedule.TemplateID)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *WorkspaceScheduleResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data WorkspaceScheduleResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	workspaceRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/workspace/%s/schedule/%s", r.endpoint, data.WorkspaceId.ValueString(), data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating Workspace schedule resource request", fmt.Sprintf("Error creating schedule schedule resource request: %s", err))
-		return
+	err := r.client.WorkspaceSchedules.Delete(ctx, data.WorkspaceId.ValueString(), data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting workspace schedule", err)
 	}
-	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	response, err := r.client.Do(workspaceRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Workspace schedule resource request", fmt.Sprintf("Error executing Workspace schedule resource request: %s", err))
-		return
-	}
-	reportDeleteFailure(&resp.Diagnostics, "deleting workspace schedule", response)
 }
 
 func (r *WorkspaceScheduleResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

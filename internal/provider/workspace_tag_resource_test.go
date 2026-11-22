@@ -3,12 +3,16 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 func TestWorkspaceTagResourceSchema(t *testing.T) {
@@ -144,4 +148,43 @@ func TestWorkspaceTagValue(t *testing.T) {
 	if got := workspaceTagValue(&dev); got.ValueString() != "dev" {
 		t.Errorf("expected dev, got %s", got)
 	}
+}
+
+const workspaceTagTestResponse = `{"data":{"type":"workspacetag","id":"workspace-tag-1","attributes":{"tagId":"tag-1"}}}`
+
+// workspaceTagCreateRequestBody returns the body Create sends for model.
+func workspaceTagCreateRequestBody(model WorkspaceTagResourceModel) ([]byte, error) {
+	return sentRequestBody(http.MethodPost, workspaceTagTestResponse, func(client *terrakube.Client) diag.Diagnostics {
+		ctx := context.Background()
+		r := &WorkspaceTagResource{client: client}
+		model.ID = types.StringUnknown()
+		model.OrganizationId = types.StringValue("org-1")
+		model.WorkspaceId = types.StringValue("ws-1")
+		plan, diags := modelPlan(ctx, r, model)
+		if diags.HasError() {
+			return diags
+		}
+		resp := resource.CreateResponse{State: tfsdk.State{Schema: plan.Schema}}
+		r.Create(ctx, resource.CreateRequest{Plan: plan}, &resp)
+		return resp.Diagnostics
+	})
+}
+
+// workspaceTagUpdateRequestBody returns the body Update sends for model on the workspace tag id.
+func workspaceTagUpdateRequestBody(model WorkspaceTagResourceModel, id string) ([]byte, error) {
+	return sentRequestBody(http.MethodPatch, workspaceTagTestResponse, func(client *terrakube.Client) diag.Diagnostics {
+		ctx := context.Background()
+		r := &WorkspaceTagResource{client: client}
+		model.ID = types.StringValue(id)
+		model.OrganizationId = types.StringValue("org-1")
+		model.WorkspaceId = types.StringValue("ws-1")
+		plan, diags := modelPlan(ctx, r, model)
+		if diags.HasError() {
+			return diags
+		}
+		state := tfsdk.State(plan)
+		resp := resource.UpdateResponse{State: state}
+		r.Update(ctx, resource.UpdateRequest{Plan: plan, State: state, Config: tfsdk.Config(plan)}, &resp)
+		return resp.Diagnostics
+	})
 }

@@ -27,7 +27,7 @@ func TestWorkspaceScheduleResource_ImportState(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceScheduleResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &WorkspaceScheduleResource{client: newTestClient(server.Client(), server.URL)}
 
 	var schemaResp resource.SchemaResponse
 	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)

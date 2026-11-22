@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -170,24 +169,20 @@ func (r *OrganizationResource) Delete(ctx context.Context, req resource.DeleteRe
 		return
 	}
 
-	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
-	suffix := make([]byte, 4)
-	if _, err := rand.Read(suffix); err != nil {
+	name, err := randomSoftDeletedName(data.Name.ValueString(), 32)
+	if err != nil {
 		resp.Diagnostics.AddError("Error generating random string to delete organization", fmt.Sprintf("Error generating random string to delete organization: %s", err))
 		return
-	}
-	for i := range suffix {
-		suffix[i] = chars[int(suffix[i])%len(chars)]
 	}
 
 	attributes := patchAttributes{
 		"disabled":    true,
-		"name":        softDeletedName(data.Name.ValueString(), string(suffix), 32),
+		"name":        name,
 		"description": "Deleted from terraform provider",
 	}
 	attributes.createString("executionMode", data.ExecutionMode)
 
-	_, err := r.client.Organizations.UpdateFields(ctx, data.ID.ValueString(), terrakube.Patch{Attributes: attributes})
+	_, err = r.client.Organizations.UpdateFields(ctx, data.ID.ValueString(), terrakube.Patch{Attributes: attributes})
 	if patchFailed(err) && !terrakube.IsNotFound(err) {
 		reportClientError(&resp.Diagnostics, "deleting organization", err)
 	}

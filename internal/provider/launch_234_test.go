@@ -31,10 +31,10 @@ func TestLaunch234ResourcePermissions(t *testing.T) {
 			return &ProjectAccessResource{client: newTestClient(s.Client(), s.URL)}
 		}},
 		{"workspace_cli", "workspace", map[string]string{"restrict_apply_to_configured_branch": "restrictApplyToConfiguredBranch", "require_approve_to_apply": "requireApproveToApply"}, func(s *httptest.Server) resource.Resource {
-			return &WorkspaceCliResource{client: s.Client(), endpoint: s.URL}
+			return &WorkspaceCliResource{client: newTestClient(s.Client(), s.URL)}
 		}},
 		{"workspace_vcs", "workspace", map[string]string{"restrict_apply_to_configured_branch": "restrictApplyToConfiguredBranch", "require_approve_to_apply": "requireApproveToApply"}, func(s *httptest.Server) resource.Resource {
-			return &WorkspaceVcsResource{client: s.Client(), endpoint: s.URL}
+			return &WorkspaceVcsResource{client: newTestClient(s.Client(), s.URL)}
 		}},
 	}
 	for _, tc := range tests {
@@ -243,9 +243,9 @@ func TestWorkspaceUpdateProjectAssignment(t *testing.T) {
 					defer server.Close()
 					var r resource.Resource
 					if kind == "cli" {
-						r = &WorkspaceCliResource{client: server.Client(), endpoint: server.URL}
+						r = &WorkspaceCliResource{client: newTestClient(server.Client(), server.URL)}
 					} else {
-						r = &WorkspaceVcsResource{client: server.Client(), endpoint: server.URL}
+						r = &WorkspaceVcsResource{client: newTestClient(server.Client(), server.URL)}
 					}
 					var sr resource.SchemaResponse
 					r.Schema(ctx, resource.SchemaRequest{}, &sr)
@@ -286,6 +286,12 @@ func TestLaunch234DeleteReportsAPIFailure(t *testing.T) {
 		}},
 		{"project_access", func(s *httptest.Server) resource.Resource {
 			return &ProjectAccessResource{client: newTestClient(s.Client(), s.URL)}
+		}},
+		{"workspace_cli", func(s *httptest.Server) resource.Resource {
+			return &WorkspaceCliResource{client: newTestClient(s.Client(), s.URL)}
+		}},
+		{"workspace_vcs", func(s *httptest.Server) resource.Resource {
+			return &WorkspaceVcsResource{client: newTestClient(s.Client(), s.URL)}
 		}},
 	}
 	for _, tc := range tests {

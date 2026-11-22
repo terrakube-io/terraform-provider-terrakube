@@ -2,6 +2,7 @@ package provider
 
 import (
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -169,6 +170,56 @@ func TestPatchNoContent(t *testing.T) {
 			create: map[string]tftypes.Value{"name": str("platform-team"), "role": str("custom")},
 			update: map[string]tftypes.Value{"role": str("changed")},
 		}, "role"},
+		{"workspace_cli", crudResourceCase{
+			itemType: "workspace", collection: "/api/v1/organization/org-1/workspace",
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &WorkspaceCliResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{
+				"name": str("cli"), "execution_mode": str("remote"), "iac_type": str("terraform"), "iac_version": str("1.12.0"),
+			},
+			update: map[string]tftypes.Value{"name": str("changed")},
+		}, "name"},
+		{"workspace_vcs", crudResourceCase{
+			itemType: "workspace", collection: "/api/v1/organization/org-1/workspace",
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &WorkspaceVcsResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{
+				"name": str("vcs"), "repository": str("https://github.com/example/infra.git"), "template_id": str("tpl-1"),
+				"iac_version": str("1.12.0"), "iac_type": str("terraform"), "execution_mode": str("remote"),
+				"branch": str("main"), "folder": str("/"), "allow_remote_apply": tftypes.NewValue(tftypes.Bool, false),
+			},
+			update: map[string]tftypes.Value{"name": str("changed")},
+		}, "name"},
+		{"workspace_tag", crudResourceCase{
+			itemType: "workspacetag", collection: "/api/v1/organization/org-1/workspace/ws-1/workspaceTag",
+			scope: map[string]tftypes.Value{"workspace_id": str("ws-1")},
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &WorkspaceTagResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{"tag_id": str("tag-1"), "value": str("dev")},
+			update: map[string]tftypes.Value{"value": str("changed")},
+		}, "value"},
+		{"workspace_schedule", crudResourceCase{
+			itemType: "schedule", collection: "/api/v1/workspace/ws-1/schedule", noOrganization: true,
+			scope: map[string]tftypes.Value{"workspace_id": str("ws-1")},
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &WorkspaceScheduleResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{"schedule": str("0 0 2 * * ?"), "template_id": str("tpl-1")},
+			update: map[string]tftypes.Value{"template_id": str("changed")},
+		}, "template_id"},
+		{"workspace_run_trigger", crudResourceCase{
+			itemType: "runTrigger", collection: "/api/v1/runTrigger", noOrganization: true,
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &WorkspaceRunTriggerResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{
+				"source_workspace_id": str("ws-1"), "destination_workspace_id": str("ws-2"), "enabled": tftypes.NewValue(tftypes.Bool, true),
+			},
+			update: map[string]tftypes.Value{"enabled": tftypes.NewValue(tftypes.Bool, false)},
+		}, "enabled"},
 	}
 
 	// These resources use the item UpdateFields read back instead of reading it again.
@@ -183,7 +234,7 @@ func TestPatchNoContent(t *testing.T) {
 			if resp.Diagnostics.HasError() {
 				t.Fatalf("Update returned diagnostics: %v", resp.Diagnostics)
 			}
-			h.checkState(resp.State, map[string]string{c.update: "changed"})
+			h.checkState(resp.State, map[string]string{c.update: patchNoContentWant(c.tc.update[c.update])})
 			if readsBackOnce[c.name] {
 				checkOneReadAfterPatch(t, h.server)
 			}
@@ -198,7 +249,7 @@ func TestPatchNoContent(t *testing.T) {
 			if resp.Diagnostics.HasError() {
 				t.Fatalf("Update returned diagnostics: %v", resp.Diagnostics)
 			}
-			h.checkState(resp.State, map[string]string{c.update: "changed"})
+			h.checkState(resp.State, map[string]string{c.update: patchNoContentWant(c.tc.update[c.update])})
 		})
 	}
 
@@ -232,4 +283,14 @@ func checkOneReadAfterPatch(t *testing.T, s *crudServer) {
 	if reads != 1 {
 		t.Errorf("expected one GET after the PATCH, got %d", reads)
 	}
+}
+
+// patchNoContentWant is the state an update to value leaves: "changed" for a string, and the
+// flag for a boolean such as a run trigger's enabled.
+func patchNoContentWant(value tftypes.Value) string {
+	var flag bool
+	if err := value.As(&flag); err == nil {
+		return strconv.FormatBool(flag)
+	}
+	return "changed"
 }

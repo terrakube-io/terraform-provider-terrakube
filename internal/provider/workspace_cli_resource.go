@@ -1,19 +1,10 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
-	"strconv"
 	"strings"
 
-	"terraform-provider-terrakube/internal/client"
-
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -22,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -31,9 +23,7 @@ var (
 )
 
 type WorkspaceCliResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type WorkspaceCliResourceModel struct {
@@ -143,249 +133,77 @@ func (r *WorkspaceCliResource) Schema(ctx context.Context, req resource.SchemaRe
 }
 
 func (r *WorkspaceCliResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Team Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Workspace CLI resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Workspace CLI Resource")
 }
 
 func (r *WorkspaceCliResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan WorkspaceCliResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	bodyRequest := &client.WorkspaceEntity{
-		Name:          plan.Name.ValueString(),
-		Description:   plan.Description.ValueStringPointer(),
-		Source:        "empty",
-		Branch:        "remote-content",
-		IaCType:       plan.IaCType.ValueString(),
-		IaCVersion:    plan.IaCVersion.ValueString(),
-		ExecutionMode: plan.ExecutionMode.ValueString(),
+	attributes := patchAttributes{
+		"source": workspaceCliSource,
+		"branch": workspaceCliBranch,
 	}
+	attributes.createString("name", plan.Name)
+	attributes.createString("description", plan.Description)
+	attributes.createString("iacType", plan.IaCType)
+	attributes.createString("terraformVersion", plan.IaCVersion)
+	attributes.createString("executionMode", plan.ExecutionMode)
+	attributes.createString("moduleSshKey", plan.ModuleSshKey)
+	attributes.createBool("restrictApplyToConfiguredBranch", plan.RestrictApplyToConfiguredBranch)
+	attributes.createBool("requireApproveToApply", plan.RequireApproveToApply)
 
-	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() {
-		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
-	}
+	relationships := map[string]terrakube.Relationship{}
+	addWorkspaceRelationship(relationships, "project", plan.ProjectId)
+	addWorkspaceRelationship(relationships, "agent", plan.AgentId)
 
-	if !plan.AgentId.IsNull() && !plan.AgentId.IsUnknown() {
-		bodyRequest.Agent = &client.AgentEntity{ID: plan.AgentId.ValueString()}
-	}
-
-	if !plan.ModuleSshKey.IsNull() && !plan.ModuleSshKey.IsUnknown() {
-		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
-	}
-
-	bodyRequest.RestrictApplyToConfiguredBranch = optionalBoolPointer(plan.RestrictApplyToConfiguredBranch)
-	bodyRequest.RequireApproveToApply = optionalBoolPointer(plan.RequireApproveToApply)
-
-	out := new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
+	workspace, err := r.client.Workspaces.CreateFields(ctx, plan.OrganizationId.ValueString(), terrakube.Patch{Attributes: attributes, Relationships: relationships})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating workspace", err)
 		return
 	}
 
-	workspaceCliRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/workspace", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace cli resource request", fmt.Sprintf("Error creating workspace cli resource request: %s", err))
-		return
-	}
-	workspaceCliRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceCliRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceCliResponse, err := r.client.Do(workspaceCliRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace cli resource request", fmt.Sprintf("Error executing workspace cli resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(workspaceCliResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading workspace cli resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating workspace", workspaceCliResponse, bodyResponse) {
-		return
-	}
-
-	newWorkspaceCli := &client.WorkspaceEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newWorkspaceCli)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	plan.ID = types.StringValue(newWorkspaceCli.ID)
-	plan.Name = types.StringValue(newWorkspaceCli.Name)
-	plan.Description = types.StringPointerValue(newWorkspaceCli.Description)
-	plan.IaCType = types.StringValue(newWorkspaceCli.IaCType)
-	plan.IaCVersion = types.StringValue(newWorkspaceCli.IaCVersion)
-	plan.ExecutionMode = types.StringValue(newWorkspaceCli.ExecutionMode)
-	if newWorkspaceCli.Project != nil {
-		plan.ProjectId = types.StringValue(newWorkspaceCli.Project.ID)
-	} else {
-		plan.ProjectId = types.StringNull()
-	}
-	if newWorkspaceCli.Agent != nil {
-		plan.AgentId = types.StringValue(newWorkspaceCli.Agent.ID)
-	} else {
-		plan.AgentId = types.StringNull()
-	}
-	plan.ModuleSshKey = types.StringPointerValue(newWorkspaceCli.ModuleSshKey)
-	plan.PolicyComplianceStatus = types.StringValue(newWorkspaceCli.PolicyComplianceStatus)
-	plan.RestrictApplyToConfiguredBranch = types.BoolPointerValue(newWorkspaceCli.RestrictApplyToConfiguredBranch)
-	plan.RequireApproveToApply = types.BoolPointerValue(newWorkspaceCli.RequireApproveToApply)
+	plan.ID = types.StringValue(workspace.ID)
+	setWorkspaceCliState(&plan, workspace)
 
 	tflog.Info(ctx, "Workspace Cli Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *WorkspaceCliResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state WorkspaceCliResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	workspaceRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace cli resource request", fmt.Sprintf("Error creating workspace cli resource request: %s", err))
-		return
-	}
-	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceResponse, err := r.client.Do(workspaceRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace cli resource request", fmt.Sprintf("Error executing workspace cli resource request: %s", err))
-		return
-	}
-
-	if workspaceResponse.StatusCode == http.StatusNotFound {
+	workspace, err := r.client.Workspaces.Get(ctx, state.OrganizationId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Workspace CLI not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(workspaceResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, "Error reading workspace cli resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace", workspaceResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading workspace", err)
 		return
 	}
 
-	workspace := &client.WorkspaceEntity{}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspace)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	state.Name = types.StringValue(workspace.Name)
-	state.Description = types.StringPointerValue(workspace.Description)
-	state.ExecutionMode = types.StringValue(workspace.ExecutionMode)
-	state.IaCType = types.StringValue(workspace.IaCType)
-	state.IaCVersion = types.StringValue(workspace.IaCVersion)
 	state.ID = types.StringValue(workspace.ID)
-	if workspace.Project != nil {
-		state.ProjectId = types.StringValue(workspace.Project.ID)
-	} else {
-		state.ProjectId = types.StringNull()
-	}
-	if workspace.Agent != nil {
-		state.AgentId = types.StringValue(workspace.Agent.ID)
-	} else {
-		state.AgentId = types.StringNull()
-	}
-	state.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
-	state.PolicyComplianceStatus = types.StringValue(workspace.PolicyComplianceStatus)
-	state.RestrictApplyToConfiguredBranch = types.BoolPointerValue(workspace.RestrictApplyToConfiguredBranch)
-	state.RequireApproveToApply = types.BoolPointerValue(workspace.RequireApproveToApply)
+	setWorkspaceCliState(&state, workspace)
 
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	tflog.Info(ctx, "Workspace Cli Resource reading", map[string]any{"success": true})
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan WorkspaceCliResourceModel
 	var state WorkspaceCliResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
-	}
-
-	bodyRequest := &client.WorkspaceEntity{
-		IaCVersion:    plan.IaCVersion.ValueString(),
-		IaCType:       plan.IaCType.ValueString(),
-		ExecutionMode: plan.ExecutionMode.ValueString(),
-		Description:   plan.Description.ValueStringPointer(),
-		Source:        "empty",
-		Branch:        "remote-content",
-		Name:          plan.Name.ValueString(),
-		ID:            state.ID.ValueString(),
-	}
-
-	// Resending an unchanged project invokes reassignment permissions in Elide.
-	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() && !plan.ProjectId.Equal(state.ProjectId) {
-		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
-	}
-
-	if !plan.AgentId.IsNull() && !plan.AgentId.IsUnknown() {
-		bodyRequest.Agent = &client.AgentEntity{ID: plan.AgentId.ValueString()}
-	}
-
-	if !plan.ModuleSshKey.IsNull() && !plan.ModuleSshKey.IsUnknown() {
-		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
 	}
 
 	// Read config rather than refreshed state: omitted guards must not be written
@@ -395,162 +213,80 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	bodyRequest.RestrictApplyToConfiguredBranch = optionalBoolPointer(config.RestrictApplyToConfiguredBranch)
-	bodyRequest.RequireApproveToApply = optionalBoolPointer(config.RequireApproveToApply)
 
-	out := new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	attributes := patchAttributes{
+		"source": workspaceCliSource,
+		"branch": workspaceCliBranch,
+	}
+	attributes.updateString("name", plan.Name, state.Name)
+	attributes.updateString("description", plan.Description, state.Description)
+	attributes.updateString("iacType", plan.IaCType, state.IaCType)
+	attributes.updateString("terraformVersion", plan.IaCVersion, state.IaCVersion)
+	attributes.updateString("executionMode", plan.ExecutionMode, state.ExecutionMode)
+	// As before, module_ssh_key is never cleared with null; an empty string clears it.
+	attributes.createString("moduleSshKey", plan.ModuleSshKey)
+	attributes.createBool("restrictApplyToConfiguredBranch", config.RestrictApplyToConfiguredBranch)
+	attributes.createBool("requireApproveToApply", config.RequireApproveToApply)
+
+	relationships := map[string]terrakube.Relationship{}
+	// Resending an unchanged project invokes reassignment permissions in Elide.
+	if !plan.ProjectId.Equal(state.ProjectId) {
+		addWorkspaceRelationship(relationships, "project", plan.ProjectId)
+	}
+	addWorkspaceRelationship(relationships, "agent", plan.AgentId)
+
+	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
+	_, err := r.client.Workspaces.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes, Relationships: relationships})
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating workspace", err)
 		return
 	}
 
-	organizationRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
+	workspace, err := r.client.Workspaces.Get(ctx, organizationID, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace cli resource request", fmt.Sprintf("Error creating workspace cli resource request: %s", err))
-		return
-	}
-	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationResponse, err := r.client.Do(organizationRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace cli resource request", fmt.Sprintf("Error executing workspace cli resource request: %s", err))
+		reportClientError(&resp.Diagnostics, "reading workspace after update", err)
 		return
 	}
 
-	bodyResponse, err := io.ReadAll(organizationResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading workspace cli resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating workspace", organizationResponse, bodyResponse) {
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	organizationRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace cli resource request", fmt.Sprintf("Error creating workspace cli resource request: %s", err))
-		return
-	}
-	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationResponse, err = r.client.Do(organizationRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace cli resource request", fmt.Sprintf("Error executing workspace cli resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err = io.ReadAll(organizationResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading workspace cli resource response body", fmt.Sprintf("Error reading workspace cli resource response body: %s", err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace after update", organizationResponse, bodyResponse) {
-		return
-	}
-
-	workspace := &client.WorkspaceEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspace)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	plan.ID = types.StringValue(state.ID.ValueString())
-	plan.Name = types.StringValue(workspace.Name)
-	plan.Description = types.StringPointerValue(workspace.Description)
-	plan.IaCType = types.StringValue(workspace.IaCType)
-	plan.IaCVersion = types.StringValue(workspace.IaCVersion)
-	plan.ExecutionMode = types.StringValue(workspace.ExecutionMode)
-	if workspace.Project != nil {
-		plan.ProjectId = types.StringValue(workspace.Project.ID)
-	} else {
-		plan.ProjectId = types.StringNull()
-	}
-	if workspace.Agent != nil {
-		plan.AgentId = types.StringValue(workspace.Agent.ID)
-	} else {
-		plan.AgentId = types.StringNull()
-	}
-	plan.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
-	plan.PolicyComplianceStatus = types.StringValue(workspace.PolicyComplianceStatus)
-	plan.RestrictApplyToConfiguredBranch = types.BoolPointerValue(workspace.RestrictApplyToConfiguredBranch)
-	plan.RequireApproveToApply = types.BoolPointerValue(workspace.RequireApproveToApply)
+	plan.ID = types.StringValue(id)
+	setWorkspaceCliState(&plan, workspace)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
+// Delete marks the workspace as deleted, as the Terrakube UI does, and renames it so the name can
+// be used again.
 func (r *WorkspaceCliResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data WorkspaceCliResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	chars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
-
-	ll := len(chars)
-	b := make([]byte, 4)
-
-	if _, err := rand.Read(b); err != nil {
+	name, err := randomSoftDeletedName(data.Name.ValueString(), 128)
+	if err != nil {
 		resp.Diagnostics.AddError("Error generating random string to delete workspace", fmt.Sprintf("Error generating random string to delete workspace: %s", err))
 		return
 	}
 
-	for i := 0; i < 4; i++ {
-		b[i] = chars[int(b[i])%ll]
+	attributes := patchAttributes{
+		"name":    name,
+		"source":  workspaceCliSource,
+		"branch":  workspaceCliBranch,
+		"deleted": true,
 	}
+	attributes.createString("description", data.Description)
+	attributes.createString("iacType", data.IaCType)
+	attributes.createString("terraformVersion", data.IaCVersion)
+	attributes.createString("executionMode", data.ExecutionMode)
 
-	tflog.Info(ctx, "Send patch request to mark as deleted...")
-	tflog.Info(ctx, softDeletedName(data.Name.ValueString(), string(b), 128))
-
-	bodyRequest := &client.WorkspaceEntity{
-		ID:            data.ID.ValueString(),
-		Name:          softDeletedName(data.Name.ValueString(), string(b), 128), // FORCE A NAME CHANGE WITH THE SAME LOGIC THAT IN THE UI
-		Description:   data.Description.ValueStringPointer(),
-		Source:        "empty",
-		Branch:        "remote-content",
-		IaCType:       data.IaCType.ValueString(),
-		IaCVersion:    data.IaCVersion.ValueString(),
-		ExecutionMode: data.ExecutionMode.ValueString(),
-		Deleted:       true,
-	}
-
-	out := new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	tflog.Info(ctx, "Request Body...")
-	tflog.Info(ctx, out.String())
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	_, err = r.client.Workspaces.UpdateFields(ctx, data.OrganizationId.ValueString(), data.ID.ValueString(), terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting workspace", err)
 		return
 	}
 
-	workspaceCliRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating cli resource request", fmt.Sprintf("Error creating cli resource request: %s", err))
-		return
-	}
-	workspaceCliRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceCliRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceCliResponse, err := r.client.Do(workspaceCliRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing cli resource request", fmt.Sprintf("Error executing cli resource request: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Delete response code: "+strconv.Itoa(workspaceCliResponse.StatusCode))
+	tflog.Info(ctx, "Workspace Cli Resource deleted", map[string]any{"success": true})
 }
 
 func (r *WorkspaceCliResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
@@ -566,4 +302,50 @@ func (r *WorkspaceCliResource) ImportState(ctx context.Context, req resource.Imp
 
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("organization_id"), idParts[0])...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), idParts[1])...)
+}
+
+// A CLI workspace has no repository: Terrakube marks it with this source and branch.
+const (
+	workspaceCliSource = "empty"
+	workspaceCliBranch = "remote-content"
+)
+
+// setWorkspaceCliState copies the attributes Terrakube returned into the model.
+func setWorkspaceCliState(model *WorkspaceCliResourceModel, workspace *terrakube.Workspace) {
+	model.Name = types.StringValue(workspace.Name)
+	model.Description = types.StringPointerValue(workspace.Description)
+	model.IaCType = types.StringValue(workspace.IaCType)
+	model.IaCVersion = types.StringValue(workspace.IaCVersion)
+	model.ExecutionMode = types.StringValue(workspace.ExecutionMode)
+	model.ProjectId = types.StringNull()
+	if workspace.Project != nil {
+		model.ProjectId = types.StringValue(workspace.Project.ID)
+	}
+	model.AgentId = types.StringNull()
+	if workspace.Agent != nil {
+		model.AgentId = types.StringValue(workspace.Agent.ID)
+	}
+	model.ModuleSshKey = types.StringPointerValue(workspace.ModuleSSHKey)
+	model.PolicyComplianceStatus = types.StringValue(workspacePolicyComplianceStatus(workspace))
+	model.RestrictApplyToConfiguredBranch = optionalBoolState(workspace.RestrictApplyToConfiguredBranch, model.RestrictApplyToConfiguredBranch)
+	model.RequireApproveToApply = optionalBoolState(workspace.RequireApproveToApply, model.RequireApproveToApply)
+}
+
+// workspacePolicyComplianceStatus returns the workspace's policy compliance status, or "" when
+// Terrakube did not send one, as before.
+func workspacePolicyComplianceStatus(workspace *terrakube.Workspace) string {
+	if workspace.PolicyComplianceStatus == nil {
+		return ""
+	}
+	return *workspace.PolicyComplianceStatus
+}
+
+// addWorkspaceRelationship links the workspace to the object with the given id, of type name, when
+// the id is known. A null id is never sent, so an existing link is kept.
+func addWorkspaceRelationship(relationships map[string]terrakube.Relationship, name string, id types.String) {
+	if id.IsNull() || id.IsUnknown() {
+		return
+	}
+	value := id.ValueString()
+	relationships[name] = terrakube.Relationship{Type: name, ID: &value}
 }
