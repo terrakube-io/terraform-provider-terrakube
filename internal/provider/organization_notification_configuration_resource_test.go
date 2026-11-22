@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -51,13 +52,18 @@ func TestOrganizationNotificationConfigurationResource_Create_PostsConfigThenEac
 
 	const orgID = "org-1"
 	var triggerPosts []string
-	var templatesPatchBody string
+	var createBody []byte
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/organization/org-1/notificationConfiguration", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("unexpected method %s", r.Method)
 		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("reading request body: %v", err)
+		}
+		createBody = body
 		fmt.Fprint(w, `{"data":{"type":"notification_configuration","id":"cfg-1","attributes":{
 			"name":"prod-alerts","channelType":"SLACK","destinationUrl":"https://hooks.slack.com/x","active":true,"messageStyle":"SIMPLE"}}}`)
 	})
@@ -69,26 +75,11 @@ func TestOrganizationNotificationConfigurationResource_Create_PostsConfigThenEac
 		triggerPosts = append(triggerPosts, string(body))
 		w.WriteHeader(http.StatusCreated)
 	})
-	mux.HandleFunc("/api/v1/notification_configuration/cfg-1/relationships/templates", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPatch {
-			t.Fatalf("unexpected method %s on templates relationship", r.Method)
-		}
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("reading request body: %v", err)
-		}
-		templatesPatchBody = string(body)
-		w.WriteHeader(http.StatusNoContent)
-	})
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &OrganizationNotificationConfigurationResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &OrganizationNotificationConfigurationResource{client: newTestClient(server.Client(), server.URL)}
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id": tftypes.NewValue(tftypes.String, orgID),
@@ -120,8 +111,9 @@ func TestOrganizationNotificationConfigurationResource_Create_PostsConfigThenEac
 	if len(triggerPosts) != 2 {
 		t.Fatalf("expected 2 trigger POSTs, got %d: %v", len(triggerPosts), triggerPosts)
 	}
-	if !contains(templatesPatchBody, `"id":"tmpl-1"`) {
-		t.Errorf("expected templates PATCH body to contain tmpl-1, got: %s", templatesPatchBody)
+	// The templates go in the configuration POST as its templates relationship.
+	if ids, ok := sentTemplateIDs(t, createBody); !ok || !slices.Equal(ids, []string{"tmpl-1"}) {
+		t.Errorf("expected the POST body's templates relationship to be [tmpl-1], got: %s", createBody)
 	}
 
 	var result OrganizationNotificationConfigurationResourceModel

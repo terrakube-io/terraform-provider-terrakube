@@ -220,6 +220,37 @@ func TestPatchNoContent(t *testing.T) {
 			},
 			update: map[string]tftypes.Value{"enabled": tftypes.NewValue(tftypes.Bool, false)},
 		}, "enabled"},
+		{"organization_notification_configuration", crudResourceCase{
+			itemType: "notification_configuration", collection: "/api/v1/organization/org-1/notificationConfiguration",
+			item:          "/api/v1/notification_configuration/" + crudItemID,
+			emptyChildren: []string{"/triggers"},
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &OrganizationNotificationConfigurationResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{
+				"name": str("alerts"), "channel_type": str("SLACK"), "destination_url": str("https://hooks.slack.com/x"),
+				"active": tftypes.NewValue(tftypes.Bool, true), "message_style": str("DETAILED"),
+				"trigger_statuses": tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, []tftypes.Value{str("failed")}),
+				"template_ids":     tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, []tftypes.Value{}),
+			},
+			update: map[string]tftypes.Value{"name": str("changed")},
+		}, "name"},
+		{"workspace_notification_configuration", crudResourceCase{
+			itemType: "notification_configuration", collection: "/api/v1/organization/org-1/workspace/ws-1/notificationConfiguration",
+			item:          "/api/v1/notification_configuration/" + crudItemID,
+			emptyChildren: []string{"/triggers"},
+			scope:         map[string]tftypes.Value{"workspace_id": str("ws-1")},
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &WorkspaceNotificationConfigurationResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{
+				"name": str("alerts"), "channel_type": str("SLACK"), "destination_url": str("https://hooks.slack.com/x"),
+				"active": tftypes.NewValue(tftypes.Bool, true), "message_style": str("DETAILED"),
+				"trigger_statuses": tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, []tftypes.Value{str("failed")}),
+				"template_ids":     tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, []tftypes.Value{}),
+			},
+			update: map[string]tftypes.Value{"name": str("changed")},
+		}, "name"},
 	}
 
 	// These resources use the item UpdateFields read back instead of reading it again.

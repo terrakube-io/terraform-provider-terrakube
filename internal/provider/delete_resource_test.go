@@ -42,10 +42,10 @@ func TestResourceDelete_ReportsFailures(t *testing.T) {
 			return &ModuleResource{client: newTestClient(c, e)}
 		}},
 		{"organization_notification_configuration", "/api/v1/notification_configuration/item-1", func(c *http.Client, e string) resource.Resource {
-			return &OrganizationNotificationConfigurationResource{client: c, endpoint: e, token: "test-token"}
+			return &OrganizationNotificationConfigurationResource{client: newTestClient(c, e)}
 		}},
 		{"workspace_notification_configuration", "/api/v1/notification_configuration/item-1", func(c *http.Client, e string) resource.Resource {
-			return &WorkspaceNotificationConfigurationResource{client: c, endpoint: e, token: "test-token"}
+			return &WorkspaceNotificationConfigurationResource{client: newTestClient(c, e)}
 		}},
 		{"collection_item", "/api/v1/organization/org-1/collection/coll-1/item/item-1", func(c *http.Client, e string) resource.Resource {
 			return &CollectionItemResource{client: newTestClient(c, e)}
