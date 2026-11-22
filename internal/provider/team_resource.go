@@ -274,9 +274,7 @@ func (r *TeamResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 	}
 
 	err := r.client.Teams.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting team", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting team", err)
 }
 
 // teamAttributes builds the attributes sent on create and on update. The permission flags are

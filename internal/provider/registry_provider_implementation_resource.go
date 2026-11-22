@@ -236,9 +236,7 @@ func (r *RegistryProviderImplementationResource) Delete(ctx context.Context, req
 
 	err := r.client.Implementations.Delete(ctx, state.OrganizationId.ValueString(), state.ProviderId.ValueString(),
 		state.VersionId.ValueString(), state.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting registry provider implementation", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting registry provider implementation", err)
 }
 
 func (r *RegistryProviderImplementationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

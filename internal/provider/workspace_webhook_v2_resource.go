@@ -97,9 +97,8 @@ func (r *WorkspaceWebhookV2Resource) Create(ctx context.Context, req resource.Cr
 		"id": webhookID,
 	})
 
-	// The webhook is created with an atomic operation on the workspace's webhook collection, as
-	// before. The old request also carried a "relationships" member next to "data", outside the
-	// resource object, where the server ignores it; terrakube-go's Operation has no such member.
+	// The webhook is created with an atomic add on the workspace's webhook collection, with a
+	// client-generated ID.
 	migratedV2 := plan.MigratedV2.ValueBool()
 	result, err := r.client.Operations.Submit(ctx, &terrakube.AtomicRequest{Operations: []terrakube.Operation{{
 		Op:   terrakube.OperationAdd,
@@ -178,7 +177,7 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 		return
 	}
 
-	// migratedV2 is always sent, false when the plan has no value, as the old request did.
+	// migratedV2 is always sent, false when the plan has no value.
 	organizationID, workspaceID, id := state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()
 	_, err := r.client.Webhooks.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{
 		Attributes: map[string]any{"migratedV2": plan.MigratedV2.ValueBool()},
@@ -212,10 +211,7 @@ func (r *WorkspaceWebhookV2Resource) Delete(ctx context.Context, req resource.De
 	}
 
 	err := r.client.Webhooks.Delete(ctx, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting workspace webhook", err)
-		return
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting workspace webhook", err)
 }
 
 func (r *WorkspaceWebhookV2Resource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

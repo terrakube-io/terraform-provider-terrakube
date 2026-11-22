@@ -170,9 +170,7 @@ func (r *AgentResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 	}
 
 	err := r.client.Agents.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting self hosted agent", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting self hosted agent", err)
 }
 
 func (r *AgentResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

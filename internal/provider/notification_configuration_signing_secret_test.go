@@ -96,7 +96,8 @@ func notificationConfigurationServer(t *testing.T, captured *[]byte) *httptest.S
 			if captured != nil && req.Method != http.MethodGet {
 				body, err := io.ReadAll(req.Body)
 				if err != nil {
-					t.Fatalf("reading request body: %v", err)
+					t.Errorf("reading request body: %v", err)
+					return
 				}
 				*captured = body
 			}

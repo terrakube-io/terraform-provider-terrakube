@@ -172,8 +172,7 @@ func (r *PolicyAttachmentResource) Delete(ctx context.Context, req resource.Dele
 	}
 
 	err := r.client.PolicyAttachments.DeleteByPolicySet(ctx, state.PolicySetId.ValueString(), state.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting policy attachment", err)
+	if reportDeleteError(&resp.Diagnostics, "deleting policy attachment", err) {
 		return
 	}
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -259,7 +260,7 @@ func TestRegistryProviderVersionResource_Validators(t *testing.T) {
 		}
 		check := func(values ...string) bool {
 			elements := make([]types.String, len(values))
-			list := make([]attrValue, len(values))
+			list := make([]attr.Value, len(values))
 			for i, v := range values {
 				elements[i] = types.StringValue(v)
 				list[i] = elements[i]

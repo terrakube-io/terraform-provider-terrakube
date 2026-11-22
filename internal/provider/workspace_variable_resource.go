@@ -252,9 +252,7 @@ func (r *WorkspaceVariableResource) Delete(ctx context.Context, req resource.Del
 	}
 
 	err := r.client.Variables.Delete(ctx, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting workspace variable", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting workspace variable", err)
 }
 
 func (r *WorkspaceVariableResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

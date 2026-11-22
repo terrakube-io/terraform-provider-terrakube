@@ -350,9 +350,7 @@ func (r *WorkspaceNotificationConfigurationResource) Delete(ctx context.Context,
 	}
 
 	err := r.client.NotificationConfigurations.DeleteByID(ctx, state.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting workspace notification configuration", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting workspace notification configuration", err)
 }
 
 func (r *WorkspaceNotificationConfigurationResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {

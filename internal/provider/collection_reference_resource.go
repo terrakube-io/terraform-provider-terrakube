@@ -192,9 +192,7 @@ func (r *CollectionReferenceResource) Delete(ctx context.Context, req resource.D
 	}
 
 	err := r.client.CollectionReferences.Delete(ctx, data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting collection reference", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting collection reference", err)
 }
 
 func (r *CollectionReferenceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

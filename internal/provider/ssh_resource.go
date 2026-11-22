@@ -212,9 +212,7 @@ func (r *SshResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 	}
 
 	err := r.client.SSH.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting ssh key", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting ssh key", err)
 }
 
 func (r *SshResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {

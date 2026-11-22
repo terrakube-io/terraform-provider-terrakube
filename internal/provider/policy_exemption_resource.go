@@ -183,8 +183,9 @@ func (r *PolicyExemptionResource) Update(ctx context.Context, req resource.Updat
 		return
 	}
 
-	// As before, a workspace or project link removed from the configuration is not cleared on the
-	// server, so the state keeps the planned IDs rather than the links Terrakube still has.
+	// A workspace or project link removed from the configuration is not sent, and Terrakube does
+	// not clear a link that is left out, so the state keeps the planned IDs rather than the links
+	// Terrakube still has.
 	workspaceID, projectID := plan.WorkspaceId, plan.ProjectId
 	setPolicyExemptionState(&plan, exemption)
 	plan.WorkspaceId, plan.ProjectId = workspaceID, projectID
@@ -200,8 +201,7 @@ func (r *PolicyExemptionResource) Delete(ctx context.Context, req resource.Delet
 	}
 
 	err := r.client.PolicyExemptions.DeleteByID(ctx, state.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting policy exemption", err)
+	if reportDeleteError(&resp.Diagnostics, "deleting policy exemption", err) {
 		return
 	}
 
@@ -209,7 +209,7 @@ func (r *PolicyExemptionResource) Delete(ctx context.Context, req resource.Delet
 }
 
 // policyExemptionRelationships links the exemption to its policy set, and to its workspace and
-// project when they are set. As before, a workspace or project link is never cleared.
+// project when they are set. A workspace or project link is never cleared.
 func policyExemptionRelationships(model PolicyExemptionResourceModel) map[string]terrakube.Relationship {
 	policySetID := model.PolicySetId.ValueString()
 	relationships := map[string]terrakube.Relationship{"policySet": {Type: "policy_set", ID: &policySetID}}

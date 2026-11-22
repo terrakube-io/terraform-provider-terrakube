@@ -25,14 +25,17 @@ block to the Terraform CLI configuration.
 - `internal/provider/acc_<name>_resource_test.go`: acceptance tests against a real Terrakube. Their
   Terraform configuration is in `internal/provider/testdata/<TestName>/`.
 - `internal/provider/provider.go`: every resource and data source is registered here.
-- `internal/client/`: API models. The Terrakube API is JSON:API, so models use `jsonapi` tags.
+- API models and requests come from [terrakube-go](https://github.com/terrakube-io/terrakube-go);
+  resources and data sources get the shared client with `configuredClient`.
 - `examples/`: one example per resource and data source.
 - `templates/`: custom documentation. `docs/` is generated; do not edit it.
 
 ## Conventions
 
-- A new API attribute that older Terrakube versions do not have is a pointer type with
-  `json:",omitempty"`, so it is omitted from the request when unset.
+- API models come from terrakube-go. Writes build their attributes with `patchAttributes`
+  (`internal/provider/patch_attributes.go`): Elide rejects an attribute it does not know, even as
+  null, so `create*` methods leave a null or unknown value out, and `update*` methods send null
+  only when the prior state had a value, which clears it on the server.
 - Unit tests mock the Terrakube API with `httptest.NewServer`. Cover new behaviour, and old
   behaviour when it changes.
 - A secret value should not be stored in state. See `value_wo` on `terrakube_collection_item`

@@ -275,9 +275,7 @@ func (r *CollectionItemResource) Delete(ctx context.Context, req resource.Delete
 	}
 
 	err := r.client.CollectionItems.Delete(ctx, data.OrganizationId.ValueString(), data.CollectionId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting collection item", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting collection item", err)
 }
 
 func (r *CollectionItemResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

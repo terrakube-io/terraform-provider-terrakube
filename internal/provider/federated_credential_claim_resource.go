@@ -161,9 +161,7 @@ func (r *FederatedCredentialClaimResource) Delete(ctx context.Context, req resou
 	}
 
 	err := r.client.FederatedClaims.Delete(ctx, data.FederatedCredentialId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting federated credential claim", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting federated credential claim", err)
 }
 
 func (r *FederatedCredentialClaimResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

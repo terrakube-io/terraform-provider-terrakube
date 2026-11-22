@@ -9,22 +9,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
-
-type ErrorResponse struct {
-	Errors []struct {
-		Detail string `json:"detail"`
-	} `json:"errors"`
-}
-
-type AtomicOperationResponse struct {
-	AtomicResults []struct {
-		Data struct {
-			Type string `json:"type"`
-			ID   string `json:"id"`
-		} `json:"data"`
-	} `json:"atomic:results"`
-}
 
 // roleToState converts a nullable API role string to a Terraform string value.
 // nil or empty string becomes null — both represent "unset/custom" on the server.
@@ -33,6 +19,46 @@ func roleToState(r *string) types.String {
 		return types.StringNull()
 	}
 	return types.StringValue(*r)
+}
+
+// accessPermissions are the attributes that project access and workspace access share.
+type accessPermissions struct {
+	Name            types.String `tfsdk:"name"`
+	ManageState     types.Bool   `tfsdk:"manage_state"`
+	ManageWorkspace types.Bool   `tfsdk:"manage_workspace"`
+	ManageJob       types.Bool   `tfsdk:"manage_job"`
+	PlanJob         types.Bool   `tfsdk:"plan_job"`
+	ApproveJob      types.Bool   `tfsdk:"approve_job"`
+	DestroyJob      types.Bool   `tfsdk:"destroy_job"`
+	Role            types.String `tfsdk:"role"`
+}
+
+// attributes builds the attributes sent on create and on update. The permission flags are always
+// sent, plan_job and approve_job inheriting manage_job when unset. destroy_job and role are sent
+// only when known, never as null: older APIs reject destroy_job.
+func (p accessPermissions) attributes() patchAttributes {
+	attributes := patchAttributes{
+		"manageState":     p.ManageState.ValueBool(),
+		"manageWorkspace": p.ManageWorkspace.ValueBool(),
+		"manageJob":       p.ManageJob.ValueBool(),
+		"planJob":         resolveJobFlag(p.PlanJob, p.ManageJob),
+		"approveJob":      resolveJobFlag(p.ApproveJob, p.ManageJob),
+	}
+	attributes.createString("name", p.Name)
+	attributes.createBool("destroyJob", p.DestroyJob)
+	attributes.createString("role", p.Role)
+	return attributes
+}
+
+// setPermissions copies the permissions the API returned. The name is left as it is.
+func (p *accessPermissions) setPermissions(manageState, manageWorkspace, manageJob, planJob, approveJob bool, destroyJob *bool, role string) {
+	p.ManageState = types.BoolValue(manageState)
+	p.ManageWorkspace = types.BoolValue(manageWorkspace)
+	p.ManageJob = types.BoolValue(manageJob)
+	p.PlanJob = types.BoolValue(planJob)
+	p.ApproveJob = types.BoolValue(approveJob)
+	p.DestroyJob = types.BoolPointerValue(destroyJob)
+	p.Role = roleToState(&role)
 }
 
 // resolveJobFlag returns the explicit value when set; otherwise inherits from
@@ -101,4 +127,23 @@ func randomSoftDeletedName(name string, maxLength int) (string, error) {
 		suffix[i] = chars[int(suffix[i])%len(chars)]
 	}
 	return softDeletedName(name, string(suffix), maxLength), nil
+}
+
+// stringOrEmpty is the string value points to, or "" when it is nil, so a missing attribute is
+// stored as "".
+func stringOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+// addWorkspaceRelationship links the workspace to the object with the given id, of type name, when
+// the id is known. A null id is never sent, so an existing link is kept.
+func addWorkspaceRelationship(relationships map[string]terrakube.Relationship, name string, id types.String) {
+	if id.IsNull() || id.IsUnknown() {
+		return
+	}
+	value := id.ValueString()
+	relationships[name] = terrakube.Relationship{Type: name, ID: &value}
 }

@@ -172,8 +172,7 @@ func (r *ProjectResource) Delete(ctx context.Context, req resource.DeleteRequest
 	}
 
 	err := r.client.Projects.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting project", err)
+	if reportDeleteError(&resp.Diagnostics, "deleting project", err) {
 		return
 	}
 

@@ -188,9 +188,7 @@ func (r *TeamTokenResource) Delete(ctx context.Context, req resource.DeleteReque
 	}
 
 	err := r.client.TeamTokens.Delete(ctx, data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting team token", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting team token", err)
 }
 
 func (r *TeamTokenResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

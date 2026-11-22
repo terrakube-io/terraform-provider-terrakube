@@ -351,9 +351,7 @@ func (r *OrganizationNotificationConfigurationResource) Delete(ctx context.Conte
 	}
 
 	err := r.client.NotificationConfigurations.DeleteByID(ctx, state.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting organization notification configuration", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting organization notification configuration", err)
 }
 
 func (r *OrganizationNotificationConfigurationResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {

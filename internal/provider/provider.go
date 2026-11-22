@@ -37,13 +37,9 @@ type TerrakubeProviderModel struct {
 }
 
 // TerrakubeConnectionData is the provider data handed to every resource and data source.
-// Client is the shared terrakube-go client. The other fields serve resources that still
-// build their own HTTP requests, and go away once every resource uses Client.
+// Client is the shared terrakube-go client.
 type TerrakubeConnectionData struct {
-	Endpoint           string
-	Token              string
-	InsecureHttpClient bool
-	Client             *terrakube.Client
+	Client *terrakube.Client
 }
 
 // newTerrakubeClient builds the API client shared by all resources and data sources.
@@ -179,12 +175,7 @@ func (p *TerrakubeProvider) Configure(ctx context.Context, req provider.Configur
 		return
 	}
 
-	connection := new(TerrakubeConnectionData)
-
-	connection.Client = client
-	connection.Endpoint = endpoint
-	connection.Token = token
-	connection.InsecureHttpClient = insecureHttpClient
+	connection := &TerrakubeConnectionData{Client: client}
 
 	resp.DataSourceData = connection
 	resp.ResourceData = connection

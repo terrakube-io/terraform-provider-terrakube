@@ -202,7 +202,7 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 	}
 
 	// The value is always sent: a write-only value is null in both plan and state.
-	// sensitive is not sent on update, as before.
+	// sensitive is set only on create; the update leaves it out.
 	attributes := patchAttributes{"value": value}
 	attributes.updateString("key", plan.Key, state.Key)
 	attributes.updateString("description", plan.Description, state.Description)
@@ -248,9 +248,7 @@ func (r *OrganizationVariableResource) Delete(ctx context.Context, req resource.
 	}
 
 	err := r.client.OrganizationVariables.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting organization variable", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting organization variable", err)
 }
 
 func (r *OrganizationVariableResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

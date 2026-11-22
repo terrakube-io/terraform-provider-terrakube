@@ -30,17 +30,10 @@ type WorkspaceAccessResource struct {
 }
 
 type WorkspaceAccessResourceModel struct {
-	ID              types.String `tfsdk:"id"`
-	Name            types.String `tfsdk:"name"`
-	OrganizationId  types.String `tfsdk:"organization_id"`
-	WorkspaceId     types.String `tfsdk:"workspace_id"`
-	ManageState     types.Bool   `tfsdk:"manage_state"`
-	ManageWorkspace types.Bool   `tfsdk:"manage_workspace"`
-	ManageJob       types.Bool   `tfsdk:"manage_job"`
-	PlanJob         types.Bool   `tfsdk:"plan_job"`
-	ApproveJob      types.Bool   `tfsdk:"approve_job"`
-	DestroyJob      types.Bool   `tfsdk:"destroy_job"`
-	Role            types.String `tfsdk:"role"`
+	ID             types.String `tfsdk:"id"`
+	OrganizationId types.String `tfsdk:"organization_id"`
+	WorkspaceId    types.String `tfsdk:"workspace_id"`
+	accessPermissions
 }
 
 func NewWorkspaceAccessResource() resource.Resource {
@@ -148,13 +141,13 @@ func (r *WorkspaceAccessResource) Create(ctx context.Context, req resource.Creat
 		return
 	}
 
-	access, err := r.client.WorkspaceAccess.CreateFields(ctx, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString(), terrakube.Patch{Attributes: workspaceAccessAttributes(plan)})
+	access, err := r.client.WorkspaceAccess.CreateFields(ctx, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString(), terrakube.Patch{Attributes: plan.attributes()})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "creating workspace access", err)
 		return
 	}
 
-	setWorkspaceAccessState(&plan, access)
+	plan.setPermissions(access.ManageState, access.ManageWorkspace, access.ManageJob, access.PlanJob, access.ApproveJob, access.DestroyJob, access.Role)
 	plan.ID = types.StringValue(access.ID)
 
 	tflog.Info(ctx, "workspace access Created", map[string]any{"success": true})
@@ -179,7 +172,7 @@ func (r *WorkspaceAccessResource) Read(ctx context.Context, req resource.ReadReq
 		return
 	}
 
-	setWorkspaceAccessState(&state, access)
+	state.setPermissions(access.ManageState, access.ManageWorkspace, access.ManageJob, access.PlanJob, access.ApproveJob, access.DestroyJob, access.Role)
 	state.Name = types.StringValue(access.Name)
 	state.ID = types.StringValue(access.ID)
 
@@ -201,7 +194,7 @@ func (r *WorkspaceAccessResource) Update(ctx context.Context, req resource.Updat
 	}
 
 	organizationID, workspaceID, id := state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()
-	_, err := r.client.WorkspaceAccess.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{Attributes: workspaceAccessAttributes(plan)})
+	_, err := r.client.WorkspaceAccess.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{Attributes: plan.attributes()})
 	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Workspace access not found during update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
@@ -224,7 +217,7 @@ func (r *WorkspaceAccessResource) Update(ctx context.Context, req resource.Updat
 	}
 
 	plan.ID = types.StringValue(id)
-	setWorkspaceAccessState(&plan, access)
+	plan.setPermissions(access.ManageState, access.ManageWorkspace, access.ManageJob, access.PlanJob, access.ApproveJob, access.DestroyJob, access.Role)
 	plan.Name = types.StringValue(access.Name)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -238,37 +231,7 @@ func (r *WorkspaceAccessResource) Delete(ctx context.Context, req resource.Delet
 	}
 
 	err := r.client.WorkspaceAccess.Delete(ctx, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting workspace access", err)
-	}
-}
-
-// workspaceAccessAttributes builds the attributes sent on create and on update. The permission flags are
-// always sent, plan_job and approve_job inheriting manage_job when unset. destroy_job and role are
-// sent only when known, never as null: older APIs reject destroy_job.
-func workspaceAccessAttributes(plan WorkspaceAccessResourceModel) patchAttributes {
-	attributes := patchAttributes{
-		"manageState":     plan.ManageState.ValueBool(),
-		"manageWorkspace": plan.ManageWorkspace.ValueBool(),
-		"manageJob":       plan.ManageJob.ValueBool(),
-		"planJob":         resolveJobFlag(plan.PlanJob, plan.ManageJob),
-		"approveJob":      resolveJobFlag(plan.ApproveJob, plan.ManageJob),
-	}
-	attributes.createString("name", plan.Name)
-	attributes.createBool("destroyJob", plan.DestroyJob)
-	attributes.createString("role", plan.Role)
-	return attributes
-}
-
-// setWorkspaceAccessState copies the permissions the API returned into model.
-func setWorkspaceAccessState(model *WorkspaceAccessResourceModel, access *terrakube.WorkspaceAccess) {
-	model.ManageState = types.BoolValue(access.ManageState)
-	model.ManageWorkspace = types.BoolValue(access.ManageWorkspace)
-	model.ManageJob = types.BoolValue(access.ManageJob)
-	model.PlanJob = types.BoolValue(access.PlanJob)
-	model.ApproveJob = types.BoolValue(access.ApproveJob)
-	model.DestroyJob = types.BoolPointerValue(access.DestroyJob)
-	model.Role = roleToState(&access.Role)
+	reportDeleteError(&resp.Diagnostics, "deleting workspace access", err)
 }
 
 func (r *WorkspaceAccessResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

@@ -30,17 +30,10 @@ type ProjectAccessResource struct {
 }
 
 type ProjectAccessResourceModel struct {
-	ID              types.String `tfsdk:"id"`
-	Name            types.String `tfsdk:"name"`
-	OrganizationId  types.String `tfsdk:"organization_id"`
-	ProjectId       types.String `tfsdk:"project_id"`
-	ManageState     types.Bool   `tfsdk:"manage_state"`
-	ManageWorkspace types.Bool   `tfsdk:"manage_workspace"`
-	ManageJob       types.Bool   `tfsdk:"manage_job"`
-	PlanJob         types.Bool   `tfsdk:"plan_job"`
-	ApproveJob      types.Bool   `tfsdk:"approve_job"`
-	DestroyJob      types.Bool   `tfsdk:"destroy_job"`
-	Role            types.String `tfsdk:"role"`
+	ID             types.String `tfsdk:"id"`
+	OrganizationId types.String `tfsdk:"organization_id"`
+	ProjectId      types.String `tfsdk:"project_id"`
+	accessPermissions
 }
 
 func NewProjectAccessResource() resource.Resource {
@@ -148,13 +141,13 @@ func (r *ProjectAccessResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 
-	access, err := r.client.ProjectAccess.CreateFields(ctx, plan.OrganizationId.ValueString(), plan.ProjectId.ValueString(), terrakube.Patch{Attributes: projectAccessAttributes(plan)})
+	access, err := r.client.ProjectAccess.CreateFields(ctx, plan.OrganizationId.ValueString(), plan.ProjectId.ValueString(), terrakube.Patch{Attributes: plan.attributes()})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "creating project access", err)
 		return
 	}
 
-	setProjectAccessState(&plan, access)
+	plan.setPermissions(access.ManageState, access.ManageWorkspace, access.ManageJob, access.PlanJob, access.ApproveJob, access.DestroyJob, access.Role)
 	plan.ID = types.StringValue(access.ID)
 
 	tflog.Info(ctx, "project access Created", map[string]any{"success": true})
@@ -179,7 +172,7 @@ func (r *ProjectAccessResource) Read(ctx context.Context, req resource.ReadReque
 		return
 	}
 
-	setProjectAccessState(&state, access)
+	state.setPermissions(access.ManageState, access.ManageWorkspace, access.ManageJob, access.PlanJob, access.ApproveJob, access.DestroyJob, access.Role)
 	state.Name = types.StringValue(access.Name)
 	state.ID = types.StringValue(access.ID)
 
@@ -201,7 +194,7 @@ func (r *ProjectAccessResource) Update(ctx context.Context, req resource.UpdateR
 	}
 
 	organizationID, projectID, id := state.OrganizationId.ValueString(), state.ProjectId.ValueString(), state.ID.ValueString()
-	_, err := r.client.ProjectAccess.UpdateFields(ctx, organizationID, projectID, id, terrakube.Patch{Attributes: projectAccessAttributes(plan)})
+	_, err := r.client.ProjectAccess.UpdateFields(ctx, organizationID, projectID, id, terrakube.Patch{Attributes: plan.attributes()})
 	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Project access not found during update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
@@ -224,7 +217,7 @@ func (r *ProjectAccessResource) Update(ctx context.Context, req resource.UpdateR
 	}
 
 	plan.ID = types.StringValue(id)
-	setProjectAccessState(&plan, access)
+	plan.setPermissions(access.ManageState, access.ManageWorkspace, access.ManageJob, access.PlanJob, access.ApproveJob, access.DestroyJob, access.Role)
 	plan.Name = types.StringValue(access.Name)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -238,37 +231,7 @@ func (r *ProjectAccessResource) Delete(ctx context.Context, req resource.DeleteR
 	}
 
 	err := r.client.ProjectAccess.Delete(ctx, data.OrganizationId.ValueString(), data.ProjectId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting project access", err)
-	}
-}
-
-// projectAccessAttributes builds the attributes sent on create and on update. The permission flags are
-// always sent, plan_job and approve_job inheriting manage_job when unset. destroy_job and role are
-// sent only when known, never as null: older APIs reject destroy_job.
-func projectAccessAttributes(plan ProjectAccessResourceModel) patchAttributes {
-	attributes := patchAttributes{
-		"manageState":     plan.ManageState.ValueBool(),
-		"manageWorkspace": plan.ManageWorkspace.ValueBool(),
-		"manageJob":       plan.ManageJob.ValueBool(),
-		"planJob":         resolveJobFlag(plan.PlanJob, plan.ManageJob),
-		"approveJob":      resolveJobFlag(plan.ApproveJob, plan.ManageJob),
-	}
-	attributes.createString("name", plan.Name)
-	attributes.createBool("destroyJob", plan.DestroyJob)
-	attributes.createString("role", plan.Role)
-	return attributes
-}
-
-// setProjectAccessState copies the permissions the API returned into model.
-func setProjectAccessState(model *ProjectAccessResourceModel, access *terrakube.ProjectAccess) {
-	model.ManageState = types.BoolValue(access.ManageState)
-	model.ManageWorkspace = types.BoolValue(access.ManageWorkspace)
-	model.ManageJob = types.BoolValue(access.ManageJob)
-	model.PlanJob = types.BoolValue(access.PlanJob)
-	model.ApproveJob = types.BoolValue(access.ApproveJob)
-	model.DestroyJob = types.BoolPointerValue(access.DestroyJob)
-	model.Role = roleToState(&access.Role)
+	reportDeleteError(&resp.Diagnostics, "deleting project access", err)
 }
 
 func (r *ProjectAccessResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

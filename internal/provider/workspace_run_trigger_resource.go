@@ -146,9 +146,7 @@ func (r *WorkspaceRunTriggerResource) Delete(ctx context.Context, req resource.D
 		return
 	}
 	err := r.client.RunTriggers.DeleteByID(ctx, state.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting workspace run trigger", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting workspace run trigger", err)
 }
 
 func (r *WorkspaceRunTriggerResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

@@ -164,9 +164,7 @@ func (r *WorkspaceScheduleResource) Delete(ctx context.Context, req resource.Del
 	}
 
 	err := r.client.WorkspaceSchedules.Delete(ctx, data.WorkspaceId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting workspace schedule", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting workspace schedule", err)
 }
 
 func (r *WorkspaceScheduleResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

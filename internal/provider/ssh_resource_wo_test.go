@@ -32,7 +32,8 @@ func sshServer(t *testing.T, captured *[]byte) *httptest.Server {
 	handler := func(w http.ResponseWriter, req *http.Request) {
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
-			t.Fatalf("reading request body: %v", err)
+			t.Errorf("reading request body: %v", err)
+			return
 		}
 		if len(body) > 0 {
 			*captured = body

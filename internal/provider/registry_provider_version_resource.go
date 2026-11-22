@@ -3,12 +3,14 @@ package provider
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf16"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -25,6 +27,9 @@ var (
 	_ resource.ResourceWithConfigure   = &RegistryProviderVersionResource{}
 	_ resource.ResourceWithImportState = &RegistryProviderVersionResource{}
 )
+
+// protocolPattern is a plugin protocol version such as 5.0 or 6.0.
+var protocolPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
 
 type RegistryProviderVersionResource struct {
 	client *terrakube.Client
@@ -211,7 +216,7 @@ func (m *RegistryProviderVersionResourceModel) setFromAPI(version *terrakube.Pro
 			}
 		}
 	}
-	values := make([]attrValue, len(elements))
+	values := make([]attr.Value, len(elements))
 	for i, e := range elements {
 		values[i] = e
 	}
@@ -308,9 +313,7 @@ func (r *RegistryProviderVersionResource) Delete(ctx context.Context, req resour
 	}
 
 	err := r.client.ProviderVersions.Delete(ctx, state.OrganizationId.ValueString(), state.ProviderId.ValueString(), state.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting registry provider version", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting registry provider version", err)
 }
 
 func (r *RegistryProviderVersionResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

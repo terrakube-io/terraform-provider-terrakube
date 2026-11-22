@@ -191,9 +191,7 @@ func (r *WorkspaceTagResource) Delete(ctx context.Context, req resource.DeleteRe
 
 	// 404 means the tag is already gone, which is what destroy wants.
 	err := r.client.WorkspaceTags.Delete(ctx, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting workspace tag", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting workspace tag", err)
 }
 
 func (r *WorkspaceTagResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

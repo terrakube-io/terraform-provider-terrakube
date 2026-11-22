@@ -223,7 +223,7 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 	attributes.updateString("iacType", plan.IaCType, state.IaCType)
 	attributes.updateString("terraformVersion", plan.IaCVersion, state.IaCVersion)
 	attributes.updateString("executionMode", plan.ExecutionMode, state.ExecutionMode)
-	// As before, module_ssh_key is never cleared with null; an empty string clears it.
+	// module_ssh_key is sent only when set: null leaves it unchanged, an empty string clears it.
 	attributes.createString("moduleSshKey", plan.ModuleSshKey)
 	attributes.createBool("restrictApplyToConfiguredBranch", config.RestrictApplyToConfiguredBranch)
 	attributes.createBool("requireApproveToApply", config.RequireApproveToApply)
@@ -332,20 +332,10 @@ func setWorkspaceCliState(model *WorkspaceCliResourceModel, workspace *terrakube
 }
 
 // workspacePolicyComplianceStatus returns the workspace's policy compliance status, or "" when
-// Terrakube did not send one, as before.
+// Terrakube did not send one.
 func workspacePolicyComplianceStatus(workspace *terrakube.Workspace) string {
 	if workspace.PolicyComplianceStatus == nil {
 		return ""
 	}
 	return *workspace.PolicyComplianceStatus
-}
-
-// addWorkspaceRelationship links the workspace to the object with the given id, of type name, when
-// the id is known. A null id is never sent, so an existing link is kept.
-func addWorkspaceRelationship(relationships map[string]terrakube.Relationship, name string, id types.String) {
-	if id.IsNull() || id.IsUnknown() {
-		return
-	}
-	value := id.ValueString()
-	relationships[name] = terrakube.Relationship{Type: name, ID: &value}
 }

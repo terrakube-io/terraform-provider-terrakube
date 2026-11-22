@@ -272,8 +272,7 @@ func (r *WorkspaceWebhookEventResource) Delete(ctx context.Context, req resource
 		Op:   terrakube.OperationRemove,
 		Href: fmt.Sprintf("/webhook/%s/events/%s", data.WebhookId.ValueString(), data.ID.ValueString()),
 	}}})
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting workspace webhook event", err)
+	if reportDeleteError(&resp.Diagnostics, "deleting workspace webhook event", err) {
 		return
 	}
 

@@ -152,9 +152,7 @@ func (r *OrganizationTagResource) Delete(ctx context.Context, req resource.Delet
 	}
 
 	err := r.client.Tags.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting organization tag", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting organization tag", err)
 }
 
 func (r *OrganizationTagResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

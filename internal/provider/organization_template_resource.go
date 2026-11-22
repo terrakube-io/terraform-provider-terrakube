@@ -182,9 +182,7 @@ func (r *OrganizationTemplateResource) Delete(ctx context.Context, req resource.
 	}
 
 	err := r.client.Templates.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting organization template", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting organization template", err)
 }
 
 func (r *OrganizationTemplateResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

@@ -55,7 +55,8 @@ func collectionItemServer(t *testing.T, captured *[]byte) *httptest.Server {
 		if req.Body != nil {
 			body, err := io.ReadAll(req.Body)
 			if err != nil {
-				t.Fatalf("reading request body: %v", err)
+				t.Errorf("reading request body: %v", err)
+				return
 			}
 			if len(body) > 0 {
 				*captured = body
