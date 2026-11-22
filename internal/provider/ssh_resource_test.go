@@ -94,11 +94,7 @@ func TestSshResource_Create_Success(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &SshResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &SshResource{client: newTestClient(server.Client(), server.URL)}
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id": tftypes.NewValue(tftypes.String, orgID),

@@ -14,7 +14,7 @@ func TestFederatedCredentialClaimResource(t *testing.T) {
 		itemType:   "federated_claim",
 		collection: "/api/v1/federated/fc-1/claims",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
-			return &FederatedCredentialClaimResource{client: c, endpoint: endpoint, token: "test-token"}
+			return &FederatedCredentialClaimResource{client: newTestClient(c, endpoint)}
 		},
 		noOrganization: true,
 		scope:          map[string]tftypes.Value{"federated_credential_id": str("fc-1")},

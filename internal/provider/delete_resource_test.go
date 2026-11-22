@@ -33,13 +33,13 @@ func TestResourceDelete_ReportsFailures(t *testing.T) {
 			return &WorkspaceVariableResource{client: newTestClient(c, e)}
 		}},
 		{"self_hosted_agent", "/api/v1/organization/org-1/agent/item-1", func(c *http.Client, e string) resource.Resource {
-			return &AgentResource{client: c, endpoint: e, token: "test-token"}
+			return &AgentResource{client: newTestClient(c, e)}
 		}},
 		{"ssh", "/api/v1/organization/org-1/ssh/item-1", func(c *http.Client, e string) resource.Resource {
-			return &SshResource{client: c, endpoint: e, token: "test-token"}
+			return &SshResource{client: newTestClient(c, e)}
 		}},
 		{"module", "/api/v1/organization/org-1/module/item-1", func(c *http.Client, e string) resource.Resource {
-			return &ModuleResource{client: c, endpoint: e, token: "test-token"}
+			return &ModuleResource{client: newTestClient(c, e)}
 		}},
 		{"organization_notification_configuration", "/api/v1/notification_configuration/item-1", func(c *http.Client, e string) resource.Resource {
 			return &OrganizationNotificationConfigurationResource{client: c, endpoint: e, token: "test-token"}
@@ -57,10 +57,10 @@ func TestResourceDelete_ReportsFailures(t *testing.T) {
 			return &WorkspaceScheduleResource{client: c, endpoint: e, token: "test-token"}
 		}},
 		{"federated_credential", "/api/v1/federated/item-1", func(c *http.Client, e string) resource.Resource {
-			return &FederatedCredentialResource{client: c, endpoint: e, token: "test-token"}
+			return &FederatedCredentialResource{client: newTestClient(c, e)}
 		}},
 		{"federated_credential_claim", "/api/v1/federated/fc-1/claims/item-1", func(c *http.Client, e string) resource.Resource {
-			return &FederatedCredentialClaimResource{client: c, endpoint: e, token: "test-token"}
+			return &FederatedCredentialClaimResource{client: newTestClient(c, e)}
 		}},
 		// Already handled its own errors before; kept as the control for the others.
 		{"workspace_run_trigger", "/api/v1/runTrigger/item-1", func(c *http.Client, e string) resource.Resource {

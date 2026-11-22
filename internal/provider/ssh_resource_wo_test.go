@@ -66,7 +66,7 @@ func TestSshResource_Create_PrivateKeyWo(t *testing.T) {
 	server := sshServer(t, &captured)
 	defer server.Close()
 
-	r := &SshResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &SshResource{client: newTestClient(server.Client(), server.URL)}
 
 	// Write-only values are null in the plan; only the configuration has them.
 	planValue := sshValues(objType, map[string]tftypes.Value{
@@ -112,7 +112,7 @@ func sshUpdate(t *testing.T, ctx context.Context, s schema.Schema, state, plan, 
 	server := sshServer(t, &captured)
 	defer server.Close()
 
-	r := &SshResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &SshResource{client: newTestClient(server.Client(), server.URL)}
 
 	req := resource.UpdateRequest{
 		State:  tfsdk.State{Schema: s, Raw: state},
@@ -209,7 +209,7 @@ func TestSshResource_Read_KeepsPrivateKey(t *testing.T) {
 	server := sshServer(t, &captured)
 	defer server.Close()
 
-	r := &SshResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &SshResource{client: newTestClient(server.Client(), server.URL)}
 
 	for name, key := range map[string]tftypes.Value{
 		"null":  tftypes.NewValue(tftypes.String, nil),

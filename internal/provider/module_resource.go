@@ -1,23 +1,18 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"github.com/google/jsonapi"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -25,9 +20,7 @@ var _ resource.Resource = &ModuleResource{}
 var _ resource.ResourceWithImportState = &ModuleResource{}
 
 type ModuleResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type ModuleResourceModel struct {
@@ -105,187 +98,66 @@ func (r *ModuleResource) Schema(ctx context.Context, req resource.SchemaRequest,
 }
 
 func (r *ModuleResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Module Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Module resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Module Resource")
 }
 
 func (r *ModuleResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan ModuleResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	bodyRequest := &client.ModuleEntity{
-		Name:        plan.Name.ValueString(),
-		Description: plan.Description.ValueString(),
-		Provider:    plan.ProviderName.ValueString(),
-		Source:      plan.Source.ValueString(),
-	}
+	attributes := patchAttributes{}
+	attributes.createString("name", plan.Name)
+	attributes.createString("description", plan.Description)
+	attributes.createString("provider", plan.ProviderName)
+	attributes.createString("source", plan.Source)
+	attributes.createString("folder", plan.Folder)
+	attributes.createString("tagPrefix", plan.TagPrefix)
 
-	if !plan.Folder.IsNull() {
-		tflog.Info(ctx, fmt.Sprintf("Module using folder path: %s", plan.VcsId.ValueString()))
-		bodyRequest.Folder = plan.Folder.ValueStringPointer()
-	}
-
-	if !plan.TagPrefix.IsNull() {
-		tflog.Info(ctx, fmt.Sprintf("Module using Tag Prefix: %s", *plan.TagPrefix.ValueStringPointer()))
-		bodyRequest.TagPrefix = plan.TagPrefix.ValueStringPointer()
-	}
-
-	if !plan.VcsId.IsNull() {
-		tflog.Info(ctx, fmt.Sprintf("Module using Vcs connection id: %s", plan.VcsId.ValueString()))
-		bodyRequest.Vcs = &client.VcsEntity{ID: plan.VcsId.ValueString()}
-	}
-
-	if !plan.SshId.IsNull() {
-		tflog.Info(ctx, fmt.Sprintf("Module using Ssh connection id: %s", plan.SshId.ValueString()))
-		bodyRequest.Ssh = &client.SshEntity{ID: plan.SshId.ValueString()}
-	}
-
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
+	patch := terrakube.Patch{Attributes: attributes, Relationships: moduleRelationships(plan)}
+	module, err := r.client.Modules.CreateFields(ctx, plan.OrganizationId.ValueString(), patch)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating module", err)
 		return
 	}
 
-	tflog.Info(ctx, fmt.Sprintf("Body Request: %s", out.String()))
+	plan.ID = types.StringValue(module.ID)
+	plan.Name = types.StringValue(module.Name)
+	plan.Description = types.StringValue(module.Description)
+	plan.ProviderName = types.StringValue(module.Provider)
+	plan.Source = types.StringValue(module.Source)
 
-	moduleRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/module", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating module resource request", fmt.Sprintf("Error creating team resource request: %s", err))
-		return
-	}
-	moduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	moduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	moduleResponse, err := r.client.Do(moduleRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing module resource request", fmt.Sprintf("Error executing team resource request: %s", err))
-		return
+	if module.Folder != nil {
+		plan.Folder = types.StringPointerValue(module.Folder)
 	}
 
-	bodyResponse, err := io.ReadAll(moduleResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading module resource response")
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating module", moduleResponse, bodyResponse) {
-		return
-	}
-
-	newModule := &client.ModuleEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newModule)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	plan.ID = types.StringValue(newModule.ID)
-	plan.Name = types.StringValue(newModule.Name)
-	plan.Description = types.StringValue(newModule.Description)
-	plan.ProviderName = types.StringValue(newModule.Provider)
-	plan.Source = types.StringValue(newModule.Source)
-
-	if newModule.Folder != nil {
-		plan.Folder = types.StringPointerValue(newModule.Folder)
-	}
-
-	if newModule.TagPrefix != nil {
-		plan.TagPrefix = types.StringPointerValue(newModule.TagPrefix)
+	if module.TagPrefix != nil {
+		plan.TagPrefix = types.StringPointerValue(module.TagPrefix)
 	}
 
 	tflog.Info(ctx, "Module Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *ModuleResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state ModuleResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	moduleRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/module/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating module resource request", fmt.Sprintf("Error creating team resource request: %s", err))
-		return
-	}
-	moduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	moduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	moduleResponse, err := r.client.Do(moduleRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing module resource request", fmt.Sprintf("Error executing team resource request: %s", err))
-		return
-	}
-
-	if moduleResponse.StatusCode == http.StatusNotFound {
+	module, err := r.client.Modules.Get(ctx, state.OrganizationId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Module not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(moduleResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, "Error reading module resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading module", moduleResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading module", err)
 		return
 	}
-
-	module := &client.ModuleEntity{}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), module)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	state.Name = types.StringValue(module.Name)
 	state.Description = types.StringValue(module.Description)
@@ -304,22 +176,14 @@ func (r *ModuleResource) Read(ctx context.Context, req resource.ReadRequest, res
 		state.VcsId = types.StringValue(module.Vcs.ID)
 	}
 
-	if module.Ssh != nil {
-		state.SshId = types.StringValue(module.Ssh.ID)
+	if module.SSH != nil {
+		state.SshId = types.StringValue(module.SSH.ID)
 	}
 
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	tflog.Info(ctx, "Module Resource reading", map[string]any{"success": true})
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *ModuleResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan ModuleResourceModel
 	var state ModuleResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -328,101 +192,28 @@ func (r *ModuleResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
-	bodyRequest := &client.ModuleEntity{
-		ID:          state.ID.ValueString(),
-		Name:        plan.Name.ValueString(),
-		Description: plan.Description.ValueString(),
-		Provider:    plan.ProviderName.ValueString(),
-		Source:      plan.Source.ValueString(),
-	}
+	attributes := patchAttributes{}
+	attributes.updateString("name", plan.Name, state.Name)
+	attributes.updateString("description", plan.Description, state.Description)
+	attributes.updateString("provider", plan.ProviderName, state.ProviderName)
+	attributes.updateString("source", plan.Source, state.Source)
+	attributes.updateString("folder", plan.Folder, state.Folder)
+	attributes.updateString("tagPrefix", plan.TagPrefix, state.TagPrefix)
 
-	if !plan.Folder.IsNull() {
-		tflog.Info(ctx, fmt.Sprintf("Module using folder: %s", plan.VcsId.ValueString()))
-		bodyRequest.Folder = plan.Folder.ValueStringPointer()
-	}
-
-	if !plan.TagPrefix.IsNull() {
-		tflog.Info(ctx, fmt.Sprintf("Module using Tag Prefix: %s", *plan.TagPrefix.ValueStringPointer()))
-		bodyRequest.TagPrefix = plan.TagPrefix.ValueStringPointer()
-	}
-
-	if !plan.VcsId.IsNull() {
-		tflog.Info(ctx, fmt.Sprintf("Module using Vcs connection id: %s", plan.VcsId.ValueString()))
-		bodyRequest.Vcs = &client.VcsEntity{ID: plan.VcsId.ValueString()}
-	}
-
-	if !plan.SshId.IsNull() {
-		tflog.Info(ctx, fmt.Sprintf("Module using Ssh connection id: %s", plan.SshId.ValueString()))
-		bodyRequest.Ssh = &client.SshEntity{ID: plan.SshId.ValueString()}
-	}
-
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
+	patch := terrakube.Patch{Attributes: attributes, Relationships: moduleRelationships(plan)}
+	if _, err := r.client.Modules.UpdateFields(ctx, organizationID, id, patch); patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating module", err)
 		return
 	}
 
-	moduleRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/module/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
+	module, err := r.client.Modules.Get(ctx, organizationID, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating module resource request", fmt.Sprintf("Error creating team resource request: %s", err))
-		return
-	}
-	moduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	moduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	teamResponse, err := r.client.Do(moduleRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing module resource request", fmt.Sprintf("Error executing team resource request: %s", err))
+		reportClientError(&resp.Diagnostics, "reading module after update", err)
 		return
 	}
 
-	bodyResponse, err := io.ReadAll(teamResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading module resource response")
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating module", teamResponse, bodyResponse) {
-		return
-	}
-
-	moduleRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/module/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating module resource request", fmt.Sprintf("Error creating team resource request: %s", err))
-		return
-	}
-	moduleRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	moduleRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	teamResponse, err = r.client.Do(moduleRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing module resource request", fmt.Sprintf("Error executing team resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err = io.ReadAll(teamResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading module resource response body", fmt.Sprintf("Error reading team resource response body: %s", err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading module after update", teamResponse, bodyResponse) {
-		return
-	}
-
-	module := &client.ModuleEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), module)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	plan.ID = types.StringValue(state.ID.ValueString())
+	plan.ID = types.StringValue(id)
 	plan.Name = types.StringValue(module.Name)
 	plan.Description = types.StringValue(module.Description)
 	plan.ProviderName = types.StringValue(module.Provider)
@@ -438,26 +229,30 @@ func (r *ModuleResource) Update(ctx context.Context, req resource.UpdateRequest,
 
 func (r *ModuleResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data ModuleResourceModel
-
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	reqOrg, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/module/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating module resource request", fmt.Sprintf("Error creating team resource request: %s", err))
-		return
+	err := r.client.Modules.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting module", err)
 	}
-	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+}
 
-	response, err := r.client.Do(reqOrg)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing module resource request", fmt.Sprintf("Error executing module resource request: %s", err))
-		return
+// moduleRelationships links the module to its VCS connection and SSH key when they are set.
+// As before, a link is never cleared: a vcs_id or ssh_id removed from the configuration is not sent.
+func moduleRelationships(model ModuleResourceModel) map[string]terrakube.Relationship {
+	relationships := map[string]terrakube.Relationship{}
+	if !model.VcsId.IsNull() && !model.VcsId.IsUnknown() {
+		vcsID := model.VcsId.ValueString()
+		relationships["vcs"] = terrakube.Relationship{Type: "vcs", ID: &vcsID}
 	}
-	reportDeleteFailure(&resp.Diagnostics, "deleting module", response)
+	if !model.SshId.IsNull() && !model.SshId.IsUnknown() {
+		sshID := model.SshId.ValueString()
+		relationships["ssh"] = terrakube.Relationship{Type: "ssh", ID: &sshID}
+	}
+	return relationships
 }
 
 // ImportState accepts "organization_id,id": Read needs the organization ID to

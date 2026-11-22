@@ -1,16 +1,10 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -23,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var _ resource.Resource = &SshResource{}
@@ -30,9 +25,7 @@ var _ resource.ResourceWithImportState = &SshResource{}
 var _ resource.ResourceWithConfigValidators = &SshResource{}
 
 type SshResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type SshResourceModel struct {
@@ -101,36 +94,7 @@ func (r *SshResource) Schema(ctx context.Context, req resource.SchemaRequest, re
 }
 
 func (r *SshResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Ssh Key Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Ssh Key resource", map[string]any{"success": true})
-
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Ssh Key Resource")
 }
 
 func (r *SshResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -146,131 +110,58 @@ func (r *SshResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 
-	bodyRequest := &client.SshEntity{
-		Name:        plan.Name.ValueString(),
-		Description: plan.Description.ValueStringPointer(),
-		PrivateKey:  privateKey,
-		SshType:     plan.SshType.ValueString(),
-	}
+	// The key comes from private_key or private_key_wo, exactly one of which is set, so it is always sent.
+	attributes := patchAttributes{"privateKey": privateKey}
+	attributes.createString("name", plan.Name)
+	attributes.createString("description", plan.Description)
+	attributes.createString("sshType", plan.SshType)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
+	sshKey, err := r.client.SSH.CreateFields(ctx, plan.OrganizationId.ValueString(), terrakube.Patch{Attributes: attributes})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-	sshRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/ssh", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating ssh key resource request", fmt.Sprintf("Error creating ssh key resource request: %s", err))
-		return
-	}
-	sshRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	sshRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	sshResponse, err := r.client.Do(sshRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing ssh key resource request", fmt.Sprintf("Error executing ssh key resource request: %s", err))
-		return
-	}
-	bodyResponse, err := io.ReadAll(sshResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading ssh key resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating ssh key", sshResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "creating ssh key", err)
 		return
 	}
 
-	newSshKey := &client.SshEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newSshKey)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	plan.ID = types.StringValue(newSshKey.ID)
-	plan.Name = types.StringValue(newSshKey.Name)
+	plan.ID = types.StringValue(sshKey.ID)
+	plan.Name = types.StringValue(sshKey.Name)
 	// private_key stays as planned (null with private_key_wo): Terrakube never returns it.
 	plan.PrivateKeyWo = types.StringNull()
-	plan.SshType = types.StringValue(newSshKey.SshType)
-	plan.Description = types.StringPointerValue(newSshKey.Description)
+	plan.SshType = types.StringValue(sshKey.SSHType)
+	plan.Description = types.StringPointerValue(sshKey.Description)
+
 	tflog.Info(ctx, "Ssh Key Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-
 }
 
 func (r *SshResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state SshResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	sshRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/ssh/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating ssh key resource request", fmt.Sprintf("Error creating ssh key resource request: %s", err))
-		return
-	}
-	sshRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	sshRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	sshResponse, err := r.client.Do(sshRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing ssh key resource request", fmt.Sprintf("Error executing ssh key resource request: %s", err))
-		return
-	}
-
-	if sshResponse.StatusCode == http.StatusNotFound {
+	sshKey, err := r.client.SSH.Get(ctx, state.OrganizationId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "SSH key not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(sshResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, "Error reading ssh key resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading ssh key", sshResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading ssh key", err)
 		return
 	}
 
-	sshKey := &client.SshEntity{}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), sshKey)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 	state.Name = types.StringValue(sshKey.Name)
 	// private_key is kept from the state: Terrakube never returns it ("read
 	// private key" permission). Null stays null, so private_key_wo shows no diff.
-	state.SshType = types.StringValue(sshKey.SshType)
+	state.SshType = types.StringValue(sshKey.SSHType)
 	state.Description = types.StringPointerValue(sshKey.Description)
 	state.ID = types.StringValue(sshKey.ID)
 
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	tflog.Info(ctx, "Ssh Key Resource reading", map[string]any{"success": true})
-
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *SshResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan SshResourceModel
 	var state SshResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -279,119 +170,51 @@ func (r *SshResource) Update(ctx context.Context, req resource.UpdateRequest, re
 		return
 	}
 
-	// The PATCH carries every attribute, so the key is always sent: from
-	// private_key, or from private_key_wo in the configuration. Sending an empty
-	// key on an unrelated change would clear it in Terrakube.
+	// The key is always sent: from private_key, or from private_key_wo in the
+	// configuration, which is null in both plan and state.
 	privateKey, _, diags := writeOnlyValue(ctx, req.Config, plan.PrivateKey, "private_key")
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	bodyRequest := &client.SshEntity{
-		ID:          plan.ID.ValueString(),
-		Name:        plan.Name.ValueString(),
-		Description: plan.Description.ValueStringPointer(),
-		PrivateKey:  privateKey,
-		SshType:     plan.SshType.ValueString(),
-	}
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
+	attributes := patchAttributes{"privateKey": privateKey}
+	attributes.updateString("name", plan.Name, state.Name)
+	attributes.updateString("description", plan.Description, state.Description)
+	attributes.updateString("sshType", plan.SshType, state.SshType)
 
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
+	if _, err := r.client.SSH.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating ssh key", err)
 		return
 	}
 
-	sshRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/ssh/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
+	sshKey, err := r.client.SSH.Get(ctx, organizationID, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating ssh key resource request", fmt.Sprintf("Error creating ssh key resource request: %s", err))
-		return
-	}
-	sshRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	sshRequest.Header.Add("Content-Type", "application/vnd.api+json")
-	sshResponse, err := r.client.Do(sshRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing ssh key resource request", fmt.Sprintf("Error executing ssh key resource request: %s", err))
+		reportClientError(&resp.Diagnostics, "reading ssh key after update", err)
 		return
 	}
 
-	bodyResponse, err := io.ReadAll(sshResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading ssh key resource response")
-	}
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating ssh key", sshResponse, bodyResponse) {
-		return
-	}
-
-	sshRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/ssh/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating ssh key resource request", fmt.Sprintf("Error creating ssh key resource request: %s", err))
-		return
-	}
-	sshRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	sshRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	sshResponse, err = r.client.Do(sshRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing ssh key resource request", fmt.Sprintf("Error executing ssh key resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err = io.ReadAll(sshResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading ssh key resource response body", fmt.Sprintf("Error reading ssh key resource response body: %s", err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading ssh key after update", sshResponse, bodyResponse) {
-		return
-	}
-
-	ssh := &client.SshEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), ssh)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	plan.ID = types.StringValue(state.ID.ValueString())
-	plan.Name = types.StringValue(ssh.Name)
-	plan.Description = types.StringPointerValue(ssh.Description)
+	plan.ID = types.StringValue(id)
+	plan.Name = types.StringValue(sshKey.Name)
+	plan.Description = types.StringPointerValue(sshKey.Description)
 	plan.PrivateKeyWo = types.StringNull()
-	plan.SshType = types.StringValue(ssh.SshType)
+	plan.SshType = types.StringValue(sshKey.SSHType)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-
 }
 
 func (r *SshResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data SshResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	reqOrg, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/ssh/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating ssh key resource request", fmt.Sprintf("Error creating ssh key resource request: %s", err))
-		return
+	err := r.client.SSH.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting ssh key", err)
 	}
-	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	response, err := r.client.Do(reqOrg)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing ssh key resource request", fmt.Sprintf("Error executing ssh key resource request: %s", err))
-		return
-	}
-	reportDeleteFailure(&resp.Diagnostics, "deleting ssh key", response)
 }
 
 func (r *SshResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {

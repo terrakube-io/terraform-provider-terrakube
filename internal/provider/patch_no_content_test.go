@@ -91,6 +91,60 @@ func TestPatchNoContent(t *testing.T) {
 			create:    map[string]tftypes.Value{"name": str("platform")},
 			update:    map[string]tftypes.Value{"name": str("changed")},
 		}, "name"},
+		{"ssh", crudResourceCase{
+			itemType: "ssh", collection: "/api/v1/organization/org-1/ssh",
+			newSource: func(c *http.Client, e string) resource.Resource { return &SshResource{client: newTestClient(c, e)} },
+			create: map[string]tftypes.Value{
+				"name": str("deploy-key"), "private_key": str("-----BEGIN OPENSSH PRIVATE KEY-----"), "ssh_type": str("rsa"),
+			},
+			update: map[string]tftypes.Value{"description": str("changed")},
+		}, "description"},
+		{"vcs", crudResourceCase{
+			itemType: "vcs", collection: "/api/v1/organization/org-1/vcs",
+			newSource: func(c *http.Client, e string) resource.Resource { return &VcsResource{client: newTestClient(c, e)} },
+			create: map[string]tftypes.Value{
+				"name": str("github"), "description": str("GitHub"), "vcs_type": str("GITHUB"), "connection_type": str("OAUTH"),
+				"client_id": str("client-1"), "client_secret": str("secret"), "endpoint": str("https://github.com"),
+				"api_url": str("https://api.github.com"), "status": str("PENDING"),
+			},
+			update: map[string]tftypes.Value{"description": str("changed")},
+		}, "description"},
+		{"self_hosted_agent", crudResourceCase{
+			itemType: "agent", collection: "/api/v1/organization/org-1/agent",
+			newSource: func(c *http.Client, e string) resource.Resource { return &AgentResource{client: newTestClient(c, e)} },
+			create: map[string]tftypes.Value{
+				"name": str("build-agent"), "description": str("Runs builds"), "url": str("https://agent.example.com"),
+			},
+			update: map[string]tftypes.Value{"url": str("changed")},
+		}, "url"},
+		{"module", crudResourceCase{
+			itemType: "module", collection: "/api/v1/organization/org-1/module",
+			newSource: func(c *http.Client, e string) resource.Resource { return &ModuleResource{client: newTestClient(c, e)} },
+			create: map[string]tftypes.Value{
+				"name": str("vpc"), "description": str("VPC module"), "provider_name": str("aws"),
+				"source": str("https://github.com/example/terraform-aws-vpc.git"),
+			},
+			update: map[string]tftypes.Value{"description": str("changed")},
+		}, "description"},
+		{"federated_credential", crudResourceCase{
+			itemType: "federated", collection: "/api/v1/federated", noOrganization: true,
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &FederatedCredentialResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{
+				"name": str("github-actions"), "issuer_url": str("https://token.actions.githubusercontent.com"), "audience": str("terrakube"),
+			},
+			update: map[string]tftypes.Value{"audience": str("changed")},
+		}, "audience"},
+		{"federated_credential_claim", crudResourceCase{
+			itemType: "federated_claim", collection: "/api/v1/federated/fc-1/claims", noOrganization: true,
+			scope: map[string]tftypes.Value{"federated_credential_id": str("fc-1")},
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &FederatedCredentialClaimResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{"claim_key": str("repository"), "claim_value": str("terrakube-io/terrakube")},
+			update: map[string]tftypes.Value{"claim_value": str("changed")},
+		}, "claim_value"},
 	}
 
 	// These resources use the item UpdateFields read back instead of reading it again.
