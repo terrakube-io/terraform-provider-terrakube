@@ -76,17 +76,6 @@ func (v rbacRoleConflictValidator) ValidateResource(ctx context.Context, req res
 	}
 }
 
-// optionalBoolState converts a flag that older APIs omit (destroyJob, managePolicies) to a
-// Terraform value. terrakube-go decodes an omitted flag as false, so a false is kept only when
-// prior, the planned or stored value, is known; otherwise it stays null, as an omitted flag did
-// before. A null state keeps the flag unknown in later plans, so it stays out of the request.
-func optionalBoolState(value bool, prior types.Bool) types.Bool {
-	if value || (!prior.IsNull() && !prior.IsUnknown()) {
-		return types.BoolValue(value)
-	}
-	return types.BoolNull()
-}
-
 // softDeletedName leaves room for the deletion suffix within API name limits.
 func softDeletedName(name, randomSuffix string, maxLength int) string {
 	suffix := "_DEL_" + randomSuffix

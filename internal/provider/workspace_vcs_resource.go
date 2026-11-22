@@ -414,8 +414,8 @@ func setWorkspaceVcsState(model *WorkspaceVcsResourceModel, workspace *terrakube
 	}
 	model.ModuleSshKey = types.StringPointerValue(workspace.ModuleSSHKey)
 	model.PolicyComplianceStatus = types.StringValue(workspacePolicyComplianceStatus(workspace))
-	model.RestrictApplyToConfiguredBranch = optionalBoolState(workspace.RestrictApplyToConfiguredBranch, model.RestrictApplyToConfiguredBranch)
-	model.RequireApproveToApply = optionalBoolState(workspace.RequireApproveToApply, model.RequireApproveToApply)
+	model.RestrictApplyToConfiguredBranch = types.BoolPointerValue(workspace.RestrictApplyToConfiguredBranch)
+	model.RequireApproveToApply = types.BoolPointerValue(workspace.RequireApproveToApply)
 }
 
 // setWorkspaceVcsRefreshedState sets folder and vcs_id after a read. A missing vcs relationship

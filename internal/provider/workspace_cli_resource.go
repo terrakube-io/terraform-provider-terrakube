@@ -327,8 +327,8 @@ func setWorkspaceCliState(model *WorkspaceCliResourceModel, workspace *terrakube
 	}
 	model.ModuleSshKey = types.StringPointerValue(workspace.ModuleSSHKey)
 	model.PolicyComplianceStatus = types.StringValue(workspacePolicyComplianceStatus(workspace))
-	model.RestrictApplyToConfiguredBranch = optionalBoolState(workspace.RestrictApplyToConfiguredBranch, model.RestrictApplyToConfiguredBranch)
-	model.RequireApproveToApply = optionalBoolState(workspace.RequireApproveToApply, model.RequireApproveToApply)
+	model.RestrictApplyToConfiguredBranch = types.BoolPointerValue(workspace.RestrictApplyToConfiguredBranch)
+	model.RequireApproveToApply = types.BoolPointerValue(workspace.RequireApproveToApply)
 }
 
 // workspacePolicyComplianceStatus returns the workspace's policy compliance status, or "" when
