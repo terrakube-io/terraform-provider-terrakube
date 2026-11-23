@@ -17,7 +17,7 @@ services:
       retries: 30
 
   redis:
-    image: valkey/valkey:8.1.11-alpine
+    image: valkey/valkey:8.1.12-alpine
 
   api:
     image: azbuilder/api-server:${TERRAKUBE_VERSION:?set by scripts/acceptance.sh}
