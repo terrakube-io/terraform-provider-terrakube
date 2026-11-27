@@ -128,13 +128,15 @@ func (r *WorkspaceTagResource) Update(ctx context.Context, req resource.UpdateRe
 	attributes := patchAttributes{"value": plan.Value.ValueStringPointer()}
 
 	organizationID, workspaceID, id := state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()
-	_, err := r.client.WorkspaceTags.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{Attributes: attributes})
+	workspaceTag, err := r.client.WorkspaceTags.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{Attributes: attributes})
 	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating workspace tag", err)
 		return
 	}
 
-	workspaceTag, err := r.client.WorkspaceTags.Get(ctx, organizationID, workspaceID, id)
+	workspaceTag, err = readAfterPatch(workspaceTag, func() (*terrakube.WorkspaceTag, error) {
+		return r.client.WorkspaceTags.Get(ctx, organizationID, workspaceID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading workspace tag after update", err)
 		return

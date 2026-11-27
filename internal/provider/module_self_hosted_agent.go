@@ -143,12 +143,15 @@ func (r *AgentResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	attributes.updateString("url", plan.Url, state.Url)
 
 	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
-	if _, err := r.client.Agents.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+	agent, err := r.client.Agents.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating self hosted agent", err)
 		return
 	}
 
-	agent, err := r.client.Agents.Get(ctx, organizationID, id)
+	agent, err = readAfterPatch(agent, func() (*terrakube.Agent, error) {
+		return r.client.Agents.Get(ctx, organizationID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading self hosted agent after update", err)
 		return

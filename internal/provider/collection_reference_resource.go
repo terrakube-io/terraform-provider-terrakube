@@ -157,12 +157,15 @@ func (r *CollectionReferenceResource) Update(ctx context.Context, req resource.U
 
 	id := state.ID.ValueString()
 	patch := terrakube.Patch{Attributes: attributes, Relationships: collectionReferenceRelationships(plan)}
-	if _, err := r.client.CollectionReferences.UpdateFields(ctx, id, patch); patchFailed(err) {
+	collectionReference, err := r.client.CollectionReferences.UpdateFields(ctx, id, patch)
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating collection reference", err)
 		return
 	}
 
-	collectionReference, err := r.client.CollectionReferences.Get(ctx, id)
+	collectionReference, err = readAfterPatch(collectionReference, func() (*terrakube.CollectionReference, error) {
+		return r.client.CollectionReferences.Get(ctx, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading collection reference after update", err)
 		return

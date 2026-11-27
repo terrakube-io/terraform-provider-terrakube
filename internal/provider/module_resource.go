@@ -202,12 +202,15 @@ func (r *ModuleResource) Update(ctx context.Context, req resource.UpdateRequest,
 
 	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
 	patch := terrakube.Patch{Attributes: attributes, Relationships: moduleRelationships(plan)}
-	if _, err := r.client.Modules.UpdateFields(ctx, organizationID, id, patch); patchFailed(err) {
+	module, err := r.client.Modules.UpdateFields(ctx, organizationID, id, patch)
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating module", err)
 		return
 	}
 
-	module, err := r.client.Modules.Get(ctx, organizationID, id)
+	module, err = readAfterPatch(module, func() (*terrakube.Module, error) {
+		return r.client.Modules.Get(ctx, organizationID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading module after update", err)
 		return

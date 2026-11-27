@@ -137,13 +137,15 @@ func (r *WorkspaceScheduleResource) Update(ctx context.Context, req resource.Upd
 	attributes.updateString("templateReference", plan.TemplateId, state.TemplateId)
 
 	workspaceID, id := state.WorkspaceId.ValueString(), state.ID.ValueString()
-	_, err := r.client.WorkspaceSchedules.UpdateFields(ctx, workspaceID, id, terrakube.Patch{Attributes: attributes})
+	workspaceSchedule, err := r.client.WorkspaceSchedules.UpdateFields(ctx, workspaceID, id, terrakube.Patch{Attributes: attributes})
 	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating workspace schedule", err)
 		return
 	}
 
-	workspaceSchedule, err := r.client.WorkspaceSchedules.Get(ctx, workspaceID, id)
+	workspaceSchedule, err = readAfterPatch(workspaceSchedule, func() (*terrakube.WorkspaceSchedule, error) {
+		return r.client.WorkspaceSchedules.Get(ctx, workspaceID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading workspace schedule after update", err)
 		return

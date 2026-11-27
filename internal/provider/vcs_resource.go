@@ -333,12 +333,15 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	attributes.updateString("status", plan.Status, state.Status)
 
 	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
-	if _, err := r.client.VCS.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+	vcs, err := r.client.VCS.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating vcs connection", err)
 		return
 	}
 
-	vcs, err := r.client.VCS.Get(ctx, organizationID, id)
+	vcs, err = readAfterPatch(vcs, func() (*terrakube.VCS, error) {
+		return r.client.VCS.Get(ctx, organizationID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading vcs connection after update", err)
 		return

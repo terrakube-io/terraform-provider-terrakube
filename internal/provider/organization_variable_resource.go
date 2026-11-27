@@ -210,12 +210,15 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 	attributes.updateBool("hcl", plan.Hcl, state.Hcl)
 
 	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
-	if _, err := r.client.OrganizationVariables.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+	organizationVariable, err := r.client.OrganizationVariables.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating organization variable", err)
 		return
 	}
 
-	organizationVariable, err := r.client.OrganizationVariables.Get(ctx, organizationID, id)
+	organizationVariable, err = readAfterPatch(organizationVariable, func() (*terrakube.OrganizationVariable, error) {
+		return r.client.OrganizationVariables.Get(ctx, organizationID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading organization variable after update", err)
 		return
@@ -224,6 +227,12 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 	plan.ID = types.StringValue(id)
 	plan.Key = types.StringValue(organizationVariable.Key)
 
+	// The update does not send sensitive, so the item UpdateFields returns when the read-back answers
+	// 404 has none: keep the planned value then.
+	if organizationVariable.Sensitive == nil {
+		sensitive := plan.Sensitive.ValueBool()
+		organizationVariable.Sensitive = &sensitive
+	}
 	if *organizationVariable.Sensitive {
 		tflog.Info(ctx, "Variable value is not included in response, keeping the planned value for sensitive=true...")
 	} else {

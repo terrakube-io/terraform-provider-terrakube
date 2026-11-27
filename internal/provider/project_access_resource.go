@@ -194,7 +194,7 @@ func (r *ProjectAccessResource) Update(ctx context.Context, req resource.UpdateR
 	}
 
 	organizationID, projectID, id := state.OrganizationId.ValueString(), state.ProjectId.ValueString(), state.ID.ValueString()
-	_, err := r.client.ProjectAccess.UpdateFields(ctx, organizationID, projectID, id, terrakube.Patch{Attributes: plan.attributes()})
+	access, err := r.client.ProjectAccess.UpdateFields(ctx, organizationID, projectID, id, terrakube.Patch{Attributes: plan.attributes()})
 	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Project access not found during update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
@@ -205,7 +205,9 @@ func (r *ProjectAccessResource) Update(ctx context.Context, req resource.UpdateR
 		return
 	}
 
-	access, err := r.client.ProjectAccess.Get(ctx, organizationID, projectID, id)
+	access, err = readAfterPatch(access, func() (*terrakube.ProjectAccess, error) {
+		return r.client.ProjectAccess.Get(ctx, organizationID, projectID, id)
+	})
 	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Project access not found after update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)

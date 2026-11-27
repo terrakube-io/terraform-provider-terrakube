@@ -215,12 +215,15 @@ func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.Upd
 	attributes.updateBool("hcl", plan.Hcl, state.Hcl)
 
 	organizationID, workspaceID, id := state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()
-	if _, err := r.client.Variables.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+	workspaceVariable, err := r.client.Variables.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating workspace variable", err)
 		return
 	}
 
-	workspaceVariable, err := r.client.Variables.Get(ctx, organizationID, workspaceID, id)
+	workspaceVariable, err = readAfterPatch(workspaceVariable, func() (*terrakube.Variable, error) {
+		return r.client.Variables.Get(ctx, organizationID, workspaceID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading workspace variable after update", err)
 		return

@@ -289,13 +289,15 @@ func (r *RegistryProviderVersionResource) Update(ctx context.Context, req resour
 		return
 	}
 	organizationID, providerID, id := state.OrganizationId.ValueString(), state.ProviderId.ValueString(), state.ID.ValueString()
-	_, err = r.client.ProviderVersions.UpdateFields(ctx, organizationID, providerID, id, terrakube.Patch{Attributes: attributes})
+	updated, err := r.client.ProviderVersions.UpdateFields(ctx, organizationID, providerID, id, terrakube.Patch{Attributes: attributes})
 	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating registry provider version", err)
 		return
 	}
 
-	updated, err := r.client.ProviderVersions.Get(ctx, organizationID, providerID, id)
+	updated, err = readAfterPatch(updated, func() (*terrakube.ProviderVersion, error) {
+		return r.client.ProviderVersions.Get(ctx, organizationID, providerID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading registry provider version after update", err)
 		return

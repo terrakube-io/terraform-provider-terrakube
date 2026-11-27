@@ -184,12 +184,15 @@ func (r *SshResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	attributes.updateString("sshType", plan.SshType, state.SshType)
 
 	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
-	if _, err := r.client.SSH.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+	sshKey, err := r.client.SSH.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating ssh key", err)
 		return
 	}
 
-	sshKey, err := r.client.SSH.Get(ctx, organizationID, id)
+	sshKey, err = readAfterPatch(sshKey, func() (*terrakube.SSH, error) {
+		return r.client.SSH.Get(ctx, organizationID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading ssh key after update", err)
 		return

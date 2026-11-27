@@ -144,12 +144,15 @@ func (r *CollectionResource) Update(ctx context.Context, req resource.UpdateRequ
 	attributes.updateString("description", plan.Description, state.Description)
 
 	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
-	if _, err := r.client.Collections.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+	collection, err := r.client.Collections.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating collection", err)
 		return
 	}
 
-	collection, err := r.client.Collections.Get(ctx, organizationID, id)
+	collection, err = readAfterPatch(collection, func() (*terrakube.Collection, error) {
+		return r.client.Collections.Get(ctx, organizationID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading collection after update", err)
 		return

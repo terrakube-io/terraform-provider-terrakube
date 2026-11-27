@@ -161,7 +161,7 @@ func (r *PolicyExemptionResource) Update(ctx context.Context, req resource.Updat
 
 	id := state.ID.ValueString()
 	patch := terrakube.Patch{Attributes: attributes, Relationships: policyExemptionRelationships(plan)}
-	_, err := r.client.PolicyExemptions.UpdateFieldsByID(ctx, id, patch)
+	exemption, err := r.client.PolicyExemptions.UpdateFieldsByID(ctx, id, patch)
 	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Policy exemption not found during update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
@@ -172,7 +172,9 @@ func (r *PolicyExemptionResource) Update(ctx context.Context, req resource.Updat
 		return
 	}
 
-	exemption, err := r.client.PolicyExemptions.GetByID(ctx, id)
+	exemption, err = readAfterPatch(exemption, func() (*terrakube.PolicyExemption, error) {
+		return r.client.PolicyExemptions.GetByID(ctx, id)
+	})
 	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Policy exemption not found after update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)

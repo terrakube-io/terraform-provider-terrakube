@@ -116,7 +116,7 @@ func (r *WorkspaceRunTriggerResource) Update(ctx context.Context, req resource.U
 		Relationships: map[string]terrakube.Relationship{"template": workspaceRunTriggerTemplate(plan)},
 	}
 	id := state.ID.ValueString()
-	_, err := r.client.RunTriggers.UpdateFieldsByID(ctx, id, patch)
+	trigger, err := r.client.RunTriggers.UpdateFieldsByID(ctx, id, patch)
 	if terrakube.IsNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
@@ -126,7 +126,9 @@ func (r *WorkspaceRunTriggerResource) Update(ctx context.Context, req resource.U
 		return
 	}
 	// Read after a successful update so state reflects any server-side normalization.
-	trigger, err := r.client.RunTriggers.GetByID(ctx, id)
+	trigger, err = readAfterPatch(trigger, func() (*terrakube.RunTrigger, error) {
+		return r.client.RunTriggers.GetByID(ctx, id)
+	})
 	if terrakube.IsNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return

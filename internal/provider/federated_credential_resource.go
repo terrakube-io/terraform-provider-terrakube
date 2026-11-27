@@ -134,12 +134,15 @@ func (r *FederatedCredentialResource) Update(ctx context.Context, req resource.U
 	attributes.updateString("audience", plan.Audience, state.Audience)
 
 	id := state.ID.ValueString()
-	if _, err := r.client.Federated.UpdateFields(ctx, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+	federated, err := r.client.Federated.UpdateFields(ctx, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating federated credential", err)
 		return
 	}
 
-	federated, err := r.client.Federated.Get(ctx, id)
+	federated, err = readAfterPatch(federated, func() (*terrakube.Federated, error) {
+		return r.client.Federated.Get(ctx, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading federated credential after update", err)
 		return

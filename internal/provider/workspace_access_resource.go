@@ -194,7 +194,7 @@ func (r *WorkspaceAccessResource) Update(ctx context.Context, req resource.Updat
 	}
 
 	organizationID, workspaceID, id := state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()
-	_, err := r.client.WorkspaceAccess.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{Attributes: plan.attributes()})
+	access, err := r.client.WorkspaceAccess.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{Attributes: plan.attributes()})
 	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Workspace access not found during update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
@@ -205,7 +205,9 @@ func (r *WorkspaceAccessResource) Update(ctx context.Context, req resource.Updat
 		return
 	}
 
-	access, err := r.client.WorkspaceAccess.Get(ctx, organizationID, workspaceID, id)
+	access, err = readAfterPatch(access, func() (*terrakube.WorkspaceAccess, error) {
+		return r.client.WorkspaceAccess.Get(ctx, organizationID, workspaceID, id)
+	})
 	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Workspace access not found after update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)

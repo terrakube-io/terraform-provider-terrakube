@@ -179,7 +179,7 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 
 	// migratedV2 is always sent, false when the plan has no value.
 	organizationID, workspaceID, id := state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()
-	_, err := r.client.Webhooks.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{
+	webhook, err := r.client.Webhooks.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{
 		Attributes: map[string]any{"migratedV2": plan.MigratedV2.ValueBool()},
 	})
 	if patchFailed(err) {
@@ -187,7 +187,9 @@ func (r *WorkspaceWebhookV2Resource) Update(ctx context.Context, req resource.Up
 		return
 	}
 
-	webhook, err := r.client.Webhooks.Get(ctx, organizationID, workspaceID, id)
+	webhook, err = readAfterPatch(webhook, func() (*terrakube.Webhook, error) {
+		return r.client.Webhooks.Get(ctx, organizationID, workspaceID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading workspace webhook after update", err)
 		return

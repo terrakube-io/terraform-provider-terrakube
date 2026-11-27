@@ -206,7 +206,7 @@ func (r *WorkspaceWebhookResource) Update(ctx context.Context, req resource.Upda
 	}
 
 	organizationID, workspaceID, id := state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()
-	_, err := r.client.Webhooks.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{
+	webhook, err := r.client.Webhooks.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{
 		Attributes: webhookV1Attributes(ctx, plan, state.RemoteHookId.ValueString()),
 	})
 	if patchFailed(err) {
@@ -214,7 +214,9 @@ func (r *WorkspaceWebhookResource) Update(ctx context.Context, req resource.Upda
 		return
 	}
 
-	webhook, err := r.client.Webhooks.Get(ctx, organizationID, workspaceID, id)
+	webhook, err = readAfterPatch(webhook, func() (*terrakube.Webhook, error) {
+		return r.client.Webhooks.Get(ctx, organizationID, workspaceID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading workspace webhook after update", err)
 		return

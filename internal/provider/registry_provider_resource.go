@@ -250,12 +250,15 @@ func (r *RegistryProviderResource) Update(ctx context.Context, req resource.Upda
 
 	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
 	patch := terrakube.Patch{Attributes: registryProviderAttributes(&plan, &state)}
-	if _, err := r.client.Providers.UpdateFields(ctx, organizationID, id, patch); patchFailed(err) {
+	updated, err := r.client.Providers.UpdateFields(ctx, organizationID, id, patch)
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating registry provider", err)
 		return
 	}
 
-	updated, err := r.client.Providers.Get(ctx, organizationID, id)
+	updated, err = readAfterPatch(updated, func() (*terrakube.Provider, error) {
+		return r.client.Providers.Get(ctx, organizationID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading registry provider after update", err)
 		return

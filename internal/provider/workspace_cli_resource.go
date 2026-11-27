@@ -236,13 +236,15 @@ func (r *WorkspaceCliResource) Update(ctx context.Context, req resource.UpdateRe
 	addWorkspaceRelationship(relationships, "agent", plan.AgentId)
 
 	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
-	_, err := r.client.Workspaces.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes, Relationships: relationships})
+	workspace, err := r.client.Workspaces.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes, Relationships: relationships})
 	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating workspace", err)
 		return
 	}
 
-	workspace, err := r.client.Workspaces.Get(ctx, organizationID, id)
+	workspace, err = readAfterPatch(workspace, func() (*terrakube.Workspace, error) {
+		return r.client.Workspaces.Get(ctx, organizationID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading workspace after update", err)
 		return

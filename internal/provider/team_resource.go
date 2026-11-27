@@ -238,7 +238,7 @@ func (r *TeamResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	}
 
 	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
-	_, err := r.client.Teams.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: teamAttributes(plan)})
+	team, err := r.client.Teams.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: teamAttributes(plan)})
 	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Team not found during update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
@@ -249,7 +249,9 @@ func (r *TeamResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		return
 	}
 
-	team, err := r.client.Teams.Get(ctx, organizationID, id)
+	team, err = readAfterPatch(team, func() (*terrakube.Team, error) {
+		return r.client.Teams.Get(ctx, organizationID, id)
+	})
 	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Team not found after update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)

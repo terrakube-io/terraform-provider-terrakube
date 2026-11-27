@@ -135,12 +135,15 @@ func (r *FederatedCredentialClaimResource) Update(ctx context.Context, req resou
 	attributes.updateString("claimValue", plan.ClaimValue, state.ClaimValue)
 
 	federatedID, id := state.FederatedCredentialId.ValueString(), state.ID.ValueString()
-	if _, err := r.client.FederatedClaims.UpdateFields(ctx, federatedID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+	claim, err := r.client.FederatedClaims.UpdateFields(ctx, federatedID, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating federated credential claim", err)
 		return
 	}
 
-	claim, err := r.client.FederatedClaims.Get(ctx, federatedID, id)
+	claim, err = readAfterPatch(claim, func() (*terrakube.FederatedClaim, error) {
+		return r.client.FederatedClaims.Get(ctx, federatedID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading federated credential claim after update", err)
 		return
