@@ -43,7 +43,7 @@ func variableTestCases() []variableTestCase {
 		{
 			name: "workspace_variable",
 			newResource: func(c *http.Client, endpoint string) variableResource {
-				return &WorkspaceVariableResource{client: c, endpoint: endpoint, token: "test-token"}
+				return &WorkspaceVariableResource{client: newTestClient(c, endpoint)}
 			},
 			basePath: "/api/v1/organization/org-1/workspace/ws-1/variable",
 			jsonType: "variable",
@@ -55,7 +55,7 @@ func variableTestCases() []variableTestCase {
 		{
 			name: "organization_variable",
 			newResource: func(c *http.Client, endpoint string) variableResource {
-				return &OrganizationVariableResource{client: c, endpoint: endpoint, token: "test-token"}
+				return &OrganizationVariableResource{client: newTestClient(c, endpoint)}
 			},
 			basePath: "/api/v1/organization/org-1/globalvar",
 			jsonType: "globalvar",

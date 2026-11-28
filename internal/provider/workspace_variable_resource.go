@@ -1,24 +1,18 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
-
-	"github.com/google/jsonapi"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -28,9 +22,7 @@ var _ resource.ResourceWithConfigValidators = &WorkspaceVariableResource{}
 var _ resource.ResourceWithValidateConfig = &WorkspaceVariableResource{}
 
 type WorkspaceVariableResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type WorkspaceVariableResourceModel struct {
@@ -115,43 +107,12 @@ func (r *WorkspaceVariableResource) ValidateConfig(ctx context.Context, req reso
 }
 
 func (r *WorkspaceVariableResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Workspace Variable Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Workspace Variable resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Workspace Variable Resource")
 }
 
 func (r *WorkspaceVariableResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan WorkspaceVariableResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -162,56 +123,19 @@ func (r *WorkspaceVariableResource) Create(ctx context.Context, req resource.Cre
 		return
 	}
 
-	bodyRequest := &client.WorkspaceVariableEntity{
-		Key:         plan.Key.ValueString(),
-		Value:       value,
-		Description: plan.Description.ValueString(),
-		Sensitive:   plan.Sensitive.ValueBool(),
-		Category:    plan.Category.ValueString(),
-		Hcl:         plan.Hcl.ValueBool(),
-	}
+	// value comes from value or value_wo, exactly one of which is set, so it is always sent.
+	attributes := patchAttributes{"value": value}
+	attributes.createString("key", plan.Key)
+	attributes.createString("description", plan.Description)
+	attributes.createString("category", plan.Category)
+	attributes.createBool("sensitive", plan.Sensitive)
+	attributes.createBool("hcl", plan.Hcl)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
+	workspaceVariable, err := r.client.Variables.CreateFields(ctx, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString(), terrakube.Patch{Attributes: attributes})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating workspace variable", err)
 		return
 	}
-
-	workspaceVarRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/variable", r.endpoint, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace variable resource request", fmt.Sprintf("Error creating workspace variable resource request: %s", err))
-		return
-	}
-	workspaceVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceVarResponse, err := r.client.Do(workspaceVarRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace variable  resource request", fmt.Sprintf("Error executing workspace variable  resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(workspaceVarResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading workspace variable  resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating workspace variable", workspaceVarResponse, bodyResponse) {
-		return
-	}
-
-	workspaceVariable := &client.WorkspaceVariableEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspaceVariable)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	if workspaceVariable.Sensitive {
 		tflog.Info(ctx, "Variable value is not included in response, keeping the planned value for sensitive=true...")
@@ -229,58 +153,26 @@ func (r *WorkspaceVariableResource) Create(ctx context.Context, req resource.Cre
 	plan.ID = types.StringValue(workspaceVariable.ID)
 
 	tflog.Info(ctx, "workspace variable Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *WorkspaceVariableResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state WorkspaceVariableResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	workspaceVariableRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/variable/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace variable resource request", fmt.Sprintf("Error creating workspace variable resource request: %s", err))
-		return
-	}
-	workspaceVariableRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceVariableRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceVariableResponse, err := r.client.Do(workspaceVariableRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace variable resource request", fmt.Sprintf("Error executing workspace variable resource request: %s", err))
-		return
-	}
-
-	if workspaceVariableResponse.StatusCode == http.StatusNotFound {
+	workspaceVariable, err := r.client.Variables.Get(ctx, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Workspace variable not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(workspaceVariableResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, "Error reading workspace variable resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace variable", workspaceVariableResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading workspace variable", err)
 		return
 	}
-
-	workspaceVariable := &client.WorkspaceVariableEntity{}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspaceVariable)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	if workspaceVariable.Sensitive {
 		tflog.Info(ctx, "Variable value is not included in response, keeping the current state value")
@@ -296,18 +188,10 @@ func (r *WorkspaceVariableResource) Read(ctx context.Context, req resource.ReadR
 	state.Hcl = types.BoolValue(workspaceVariable.Hcl)
 	state.ID = types.StringValue(workspaceVariable.ID)
 
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	tflog.Info(ctx, "Workspace variable Resource reading", map[string]any{"success": true})
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan WorkspaceVariableResourceModel
 	var state WorkspaceVariableResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -322,79 +206,23 @@ func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.Upd
 		return
 	}
 
-	bodyRequest := &client.WorkspaceVariableEntity{
-		Key:         plan.Key.ValueString(),
-		Value:       value,
-		Description: plan.Description.ValueString(),
-		Category:    plan.Category.ValueString(),
-		Sensitive:   plan.Sensitive.ValueBool(),
-		Hcl:         plan.Hcl.ValueBool(),
-		ID:          state.ID.ValueString(),
-	}
+	// The value is always sent: a write-only value is null in both plan and state.
+	attributes := patchAttributes{"value": value}
+	attributes.updateString("key", plan.Key, state.Key)
+	attributes.updateString("description", plan.Description, state.Description)
+	attributes.updateString("category", plan.Category, state.Category)
+	attributes.updateBool("sensitive", plan.Sensitive, state.Sensitive)
+	attributes.updateBool("hcl", plan.Hcl, state.Hcl)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	organizationID, workspaceID, id := state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()
+	if _, err := r.client.Variables.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating workspace variable", err)
 		return
 	}
 
-	workspaceVariableReq, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/variable/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
+	workspaceVariable, err := r.client.Variables.Get(ctx, organizationID, workspaceID, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating Workspace variable resource request", fmt.Sprintf("Error creating Workspace variable resource request: %s", err))
-		return
-	}
-	workspaceVariableReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceVariableReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceVariableResponse, err := r.client.Do(workspaceVariableReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Workspace variable resource request", fmt.Sprintf("Error executing Workspace variable resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(workspaceVariableResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading Workspace variable resource response")
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating workspace variable", workspaceVariableResponse, bodyResponse) {
-		return
-	}
-
-	workspaceVariableReq, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/variable/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating Workspace variable resource request", fmt.Sprintf("Error creating Workspace variable resource request: %s", err))
-		return
-	}
-	workspaceVariableReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceVariableReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceVariableResponse, err = r.client.Do(workspaceVariableReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Workspace variable resource request", fmt.Sprintf("Error executing Workspace variable resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err = io.ReadAll(workspaceVariableResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading Workspace variable resource response body", fmt.Sprintf("Error reading Workspace variable resource response body: %s", err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace variable after update", workspaceVariableResponse, bodyResponse) {
-		return
-	}
-
-	workspaceVariable := &client.WorkspaceVariableEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspaceVariable)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
+		reportClientError(&resp.Diagnostics, "reading workspace variable after update", err)
 		return
 	}
 
@@ -406,7 +234,7 @@ func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.Upd
 	}
 	plan.ValueWo = types.StringNull()
 
-	plan.ID = types.StringValue(state.ID.ValueString())
+	plan.ID = types.StringValue(id)
 	plan.Key = types.StringValue(workspaceVariable.Key)
 	plan.Description = types.StringValue(workspaceVariable.Description)
 	plan.Category = types.StringValue(workspaceVariable.Category)
@@ -418,27 +246,15 @@ func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.Upd
 
 func (r *WorkspaceVariableResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data WorkspaceVariableResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	workspaceRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/variable/%s", r.endpoint, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating Workspace variable resource request", fmt.Sprintf("Error creating Workspace variable resource request: %s", err))
-		return
+	err := r.client.Variables.Delete(ctx, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting workspace variable", err)
 	}
-	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	response, err := r.client.Do(workspaceRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Workspace variable resource request", fmt.Sprintf("Error executing Workspace variable resource request: %s", err))
-		return
-	}
-	reportDeleteFailure(&resp.Diagnostics, "deleting workspace variable", response)
 }
 
 func (r *WorkspaceVariableResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

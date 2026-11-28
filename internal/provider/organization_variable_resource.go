@@ -1,25 +1,18 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
-	"strconv"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
-
-	"github.com/google/jsonapi"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -29,9 +22,7 @@ var _ resource.ResourceWithConfigValidators = &OrganizationVariableResource{}
 var _ resource.ResourceWithValidateConfig = &OrganizationVariableResource{}
 
 type OrganizationVariableResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type OrganizationVariableResourceModel struct {
@@ -111,43 +102,12 @@ func (r *OrganizationVariableResource) ValidateConfig(ctx context.Context, req r
 }
 
 func (r *OrganizationVariableResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Organization Variable Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Organization Variable resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Organization Variable Resource")
 }
 
 func (r *OrganizationVariableResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan OrganizationVariableResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -158,56 +118,19 @@ func (r *OrganizationVariableResource) Create(ctx context.Context, req resource.
 		return
 	}
 
-	bodyRequest := &client.OrganizationVariableEntity{
-		Key:         plan.Key.ValueString(),
-		Value:       value,
-		Description: plan.Description.ValueString(),
-		Sensitive:   plan.Sensitive.ValueBoolPointer(),
-		Category:    plan.Category.ValueString(),
-		Hcl:         plan.Hcl.ValueBool(),
-	}
+	// value comes from value or value_wo, exactly one of which is set, so it is always sent.
+	attributes := patchAttributes{"value": value}
+	attributes.createString("key", plan.Key)
+	attributes.createString("description", plan.Description)
+	attributes.createString("category", plan.Category)
+	attributes.createBool("sensitive", plan.Sensitive)
+	attributes.createBool("hcl", plan.Hcl)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
+	organizationVariable, err := r.client.OrganizationVariables.CreateFields(ctx, plan.OrganizationId.ValueString(), terrakube.Patch{Attributes: attributes})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating organization variable", err)
 		return
 	}
-
-	organizationVarRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/globalvar", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization variable resource request", fmt.Sprintf("Error creating organization variable resource request: %s", err))
-		return
-	}
-	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationVarResponse, err := r.client.Do(organizationVarRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization variable  resource request", fmt.Sprintf("Error executing organization variable  resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(organizationVarResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading organization variable  resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating organization variable", organizationVarResponse, bodyResponse) {
-		return
-	}
-
-	organizationVariable := &client.OrganizationVariableEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organizationVariable)
-	tflog.Info(ctx, string(bodyResponse))
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	if *organizationVariable.Sensitive {
 		tflog.Info(ctx, "Variable value is not included in response, keeping the planned value for sensitive=true...")
@@ -225,58 +148,26 @@ func (r *OrganizationVariableResource) Create(ctx context.Context, req resource.
 	plan.ID = types.StringValue(organizationVariable.ID)
 
 	tflog.Info(ctx, "organization variable Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *OrganizationVariableResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state OrganizationVariableResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	organizationVarRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/globalvar/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization variable resource request", fmt.Sprintf("Error creating organization variable resource request: %s", err))
-		return
-	}
-	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationVariableResponse, err := r.client.Do(organizationVarRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization variable resource request", fmt.Sprintf("Error executing organization variable resource request: %s", err))
-		return
-	}
-
-	if organizationVariableResponse.StatusCode == http.StatusNotFound {
+	organizationVariable, err := r.client.OrganizationVariables.Get(ctx, state.OrganizationId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Organization variable not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(organizationVariableResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, "Error reading organization variable resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization variable", organizationVariableResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading organization variable", err)
 		return
 	}
-
-	organizationVariable := &client.OrganizationVariableEntity{}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organizationVariable)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	if *organizationVariable.Sensitive {
 		tflog.Info(ctx, "Variable value is not included in response, keeping the current state value")
@@ -292,18 +183,10 @@ func (r *OrganizationVariableResource) Read(ctx context.Context, req resource.Re
 	state.Hcl = types.BoolValue(organizationVariable.Hcl)
 	state.ID = types.StringValue(organizationVariable.ID)
 
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	tflog.Info(ctx, "organization variable Resource reading", map[string]any{"success": true})
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan OrganizationVariableResourceModel
 	var state OrganizationVariableResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -318,85 +201,27 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 		return
 	}
 
-	bodyRequest := &client.OrganizationVariableEntity{
-		Key:         plan.Key.ValueString(),
-		Value:       value,
-		Description: plan.Description.ValueString(),
-		Category:    plan.Category.ValueString(),
-		Hcl:         plan.Hcl.ValueBool(),
-		ID:          state.ID.ValueString(),
-	}
+	// The value is always sent: a write-only value is null in both plan and state.
+	// sensitive is not sent on update, as before.
+	attributes := patchAttributes{"value": value}
+	attributes.updateString("key", plan.Key, state.Key)
+	attributes.updateString("description", plan.Description, state.Description)
+	attributes.updateString("category", plan.Category, state.Category)
+	attributes.updateBool("hcl", plan.Hcl, state.Hcl)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
+	if _, err := r.client.OrganizationVariables.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating organization variable", err)
 		return
 	}
 
-	tflog.Info(ctx, "Body Update Request: "+out.String())
-
-	organizationVarRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/globalvar/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
+	organizationVariable, err := r.client.OrganizationVariables.Get(ctx, organizationID, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization variable resource request", fmt.Sprintf("Error creating organization variable resource request: %s", err))
-		return
-	}
-	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationVarResponse, err := r.client.Do(organizationVarRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization variable resource request", fmt.Sprintf("Error executing organization variable resource request: %s", err))
+		reportClientError(&resp.Diagnostics, "reading organization variable after update", err)
 		return
 	}
 
-	bodyResponse, err := io.ReadAll(organizationVarResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading organization variable resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating organization variable", organizationVarResponse, bodyResponse) {
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	organizationVarRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/globalvar/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization variable resource request", fmt.Sprintf("Error creating organization variable resource request: %s", err))
-		return
-	}
-	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationVarRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationVarResponse, err = r.client.Do(organizationVarRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization variable resource request", fmt.Sprintf("Error executing organization variable resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err = io.ReadAll(organizationVarResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading organization variable resource response body", fmt.Sprintf("Error reading organization variable resource response body: %s", err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	tflog.Info(ctx, "Status"+strconv.Itoa(organizationVarResponse.StatusCode))
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization variable after update", organizationVarResponse, bodyResponse) {
-		return
-	}
-
-	organizationVariable := &client.OrganizationVariableEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organizationVariable)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	plan.ID = types.StringValue(state.ID.ValueString())
+	plan.ID = types.StringValue(id)
 	plan.Key = types.StringValue(organizationVariable.Key)
 
 	if *organizationVariable.Sensitive {
@@ -417,27 +242,15 @@ func (r *OrganizationVariableResource) Update(ctx context.Context, req resource.
 
 func (r *OrganizationVariableResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data OrganizationVariableResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	organizationVarRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/globalvar/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization variable resource request", fmt.Sprintf("Error creating organization variable resource request: %s", err))
-		return
+	err := r.client.OrganizationVariables.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting organization variable", err)
 	}
-	organizationVarRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	response, err := r.client.Do(organizationVarRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization variable resource request", fmt.Sprintf("Error executing organization variable resource request: %s", err))
-		return
-	}
-	reportDeleteFailure(&resp.Diagnostics, "deleting organization variable", response)
 }
 
 func (r *OrganizationVariableResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

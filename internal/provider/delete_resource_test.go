@@ -27,10 +27,10 @@ func TestResourceDelete_ReportsFailures(t *testing.T) {
 			return &CollectionResource{client: newTestClient(c, e)}
 		}},
 		{"organization_variable", "/api/v1/organization/org-1/globalvar/item-1", func(c *http.Client, e string) resource.Resource {
-			return &OrganizationVariableResource{client: c, endpoint: e, token: "test-token"}
+			return &OrganizationVariableResource{client: newTestClient(c, e)}
 		}},
 		{"workspace_variable", "/api/v1/organization/org-1/workspace/ws-1/variable/item-1", func(c *http.Client, e string) resource.Resource {
-			return &WorkspaceVariableResource{client: c, endpoint: e, token: "test-token"}
+			return &WorkspaceVariableResource{client: newTestClient(c, e)}
 		}},
 		{"self_hosted_agent", "/api/v1/organization/org-1/agent/item-1", func(c *http.Client, e string) resource.Resource {
 			return &AgentResource{client: c, endpoint: e, token: "test-token"}

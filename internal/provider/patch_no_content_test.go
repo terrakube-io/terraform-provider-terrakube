@@ -62,6 +62,29 @@ func TestPatchNoContent(t *testing.T) {
 			},
 			update: map[string]tftypes.Value{"key": str("changed")},
 		}, "key"},
+		{"organization_variable", crudResourceCase{
+			itemType: "globalvar", collection: "/api/v1/organization/org-1/globalvar",
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &OrganizationVariableResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{
+				"key": str("AWS_REGION"), "value": str("eu-west-1"), "description": str("Default region"), "category": str("ENV"),
+				"sensitive": tftypes.NewValue(tftypes.Bool, false), "hcl": tftypes.NewValue(tftypes.Bool, false),
+			},
+			update: map[string]tftypes.Value{"key": str("changed")},
+		}, "key"},
+		{"workspace_variable", crudResourceCase{
+			itemType: "variable", collection: "/api/v1/organization/org-1/workspace/ws-1/variable",
+			scope: map[string]tftypes.Value{"workspace_id": str("ws-1")},
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &WorkspaceVariableResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{
+				"key": str("AWS_REGION"), "value": str("eu-west-1"), "description": str("Default region"), "category": str("ENV"),
+				"sensitive": tftypes.NewValue(tftypes.Bool, false), "hcl": tftypes.NewValue(tftypes.Bool, false),
+			},
+			update: map[string]tftypes.Value{"key": str("changed")},
+		}, "key"},
 		{"project", crudResourceCase{
 			itemType: "project", collection: "/api/v1/organization/org-1/project",
 			newSource: func(c *http.Client, e string) resource.Resource { return &ProjectResource{client: newTestClient(c, e)} },

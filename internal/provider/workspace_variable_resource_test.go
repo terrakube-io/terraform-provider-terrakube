@@ -15,7 +15,7 @@ func TestWorkspaceVariableResource(t *testing.T) {
 		itemType:   "variable",
 		collection: "/api/v1/organization/org-1/workspace/ws-1/variable",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
-			return &WorkspaceVariableResource{client: c, endpoint: endpoint, token: "test-token"}
+			return &WorkspaceVariableResource{client: newTestClient(c, endpoint)}
 		},
 		scope: map[string]tftypes.Value{"workspace_id": str("ws-1")},
 		create: map[string]tftypes.Value{
