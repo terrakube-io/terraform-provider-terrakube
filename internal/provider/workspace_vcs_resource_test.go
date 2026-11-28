@@ -81,11 +81,7 @@ func TestWorkspaceVcsResource_Create_OmitsRelationshipWhenFieldUnset(t *testing.
 			server := httptest.NewServer(mux)
 			defer server.Close()
 
-			r := &WorkspaceVcsResource{
-				client:   server.Client(),
-				endpoint: server.URL,
-				token:    "test-token",
-			}
+			r := &WorkspaceVcsResource{client: newTestClient(server.Client(), server.URL)}
 
 			planValue := buildObjectValue(objType, map[string]tftypes.Value{
 				"organization_id":    tftypes.NewValue(tftypes.String, orgID),
@@ -158,11 +154,7 @@ func TestWorkspaceVcsResource_Update_ResolvesProjectIdToNullWhenApiReturnsNoProj
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceVcsResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceVcsResource{client: newTestClient(server.Client(), server.URL)}
 
 	base := map[string]tftypes.Value{
 		"id":                 tftypes.NewValue(tftypes.String, wsID),

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"unicode/utf16"
 
@@ -75,25 +76,6 @@ func (v rbacRoleConflictValidator) ValidateResource(ctx context.Context, req res
 	}
 }
 
-// optionalBoolPointer preserves omission for attributes unsupported by older APIs.
-func optionalBoolPointer(value types.Bool) *bool {
-	if value.IsNull() || value.IsUnknown() {
-		return nil
-	}
-	return value.ValueBoolPointer()
-}
-
-// optionalBoolState converts a flag that older APIs omit (destroyJob, managePolicies) to a
-// Terraform value. terrakube-go decodes an omitted flag as false, so a false is kept only when
-// prior, the planned or stored value, is known; otherwise it stays null, as an omitted flag did
-// before. A null state keeps the flag unknown in later plans, so it stays out of the request.
-func optionalBoolState(value bool, prior types.Bool) types.Bool {
-	if value || (!prior.IsNull() && !prior.IsUnknown()) {
-		return types.BoolValue(value)
-	}
-	return types.BoolNull()
-}
-
 // softDeletedName leaves room for the deletion suffix within API name limits.
 func softDeletedName(name, randomSuffix string, maxLength int) string {
 	suffix := "_DEL_" + randomSuffix
@@ -105,4 +87,18 @@ func softDeletedName(name, randomSuffix string, maxLength int) string {
 		}
 	}
 	return name + suffix
+}
+
+// randomSoftDeletedName renames a soft-deleted object the way the Terrakube UI does: softDeletedName
+// with a random four-character suffix, so the original name can be used again.
+func randomSoftDeletedName(name string, maxLength int) (string, error) {
+	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+	suffix := make([]byte, 4)
+	if _, err := rand.Read(suffix); err != nil {
+		return "", err
+	}
+	for i := range suffix {
+		suffix[i] = chars[int(suffix[i])%len(chars)]
+	}
+	return softDeletedName(name, string(suffix), maxLength), nil
 }

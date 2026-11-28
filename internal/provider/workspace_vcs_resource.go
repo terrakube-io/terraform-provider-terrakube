@@ -1,19 +1,10 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
-	"strconv"
 	"strings"
 
-	"terraform-provider-terrakube/internal/client"
-
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -26,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -35,9 +27,7 @@ var (
 )
 
 type WorkspaceVcsResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type WorkspaceVcsResourceModel struct {
@@ -207,317 +197,88 @@ func (r *WorkspaceVcsResource) Schema(ctx context.Context, req resource.SchemaRe
 }
 
 func (r *WorkspaceVcsResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Team Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Workspace VCS resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Workspace VCS Resource")
 }
 
 func (r *WorkspaceVcsResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan WorkspaceVcsResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	bodyRequest := &client.WorkspaceEntity{
-		Name:             plan.Name.ValueString(),
-		Description:      plan.Description.ValueStringPointer(),
-		Source:           plan.Repository.ValueString(),
-		Branch:           plan.Branch.ValueString(),
-		IaCType:          plan.IaCType.ValueString(),
-		IaCVersion:       plan.IaCVersion.ValueString(),
-		Folder:           plan.Folder.ValueString(),
-		TemplateId:       plan.TemplateId.ValueString(),
-		ExecutionMode:    plan.ExecutionMode.ValueString(),
-		AllowRemoteApply: plan.AllowRemoteApply.ValueBool(),
-	}
+	attributes := patchAttributes{}
+	attributes.createString("name", plan.Name)
+	attributes.createString("description", plan.Description)
+	attributes.createString("source", plan.Repository)
+	attributes.createString("branch", plan.Branch)
+	attributes.createString("folder", plan.Folder)
+	attributes.createString("defaultTemplate", plan.TemplateId)
+	attributes.createString("iacType", plan.IaCType)
+	attributes.createString("terraformVersion", plan.IaCVersion)
+	attributes.createString("executionMode", plan.ExecutionMode)
+	attributes.createBool("allowRemoteApply", plan.AllowRemoteApply)
+	attributes.createString("moduleSshKey", plan.ModuleSshKey)
+	attributes.createBool("restrictApplyToConfiguredBranch", plan.RestrictApplyToConfiguredBranch)
+	attributes.createBool("requireApproveToApply", plan.RequireApproveToApply)
 
-	if !plan.VcsId.IsNull() {
-		tflog.Info(ctx, fmt.Sprintf("Workspace using Vcs connection id: %s", plan.VcsId.ValueString()))
-		bodyRequest.Vcs = &client.VcsEntity{ID: plan.VcsId.ValueString()}
-	}
+	relationships := map[string]terrakube.Relationship{}
+	addWorkspaceRelationship(relationships, "vcs", plan.VcsId)
+	addWorkspaceRelationship(relationships, "ssh", plan.SshId)
+	addWorkspaceRelationship(relationships, "agent", plan.AgentId)
+	addWorkspaceRelationship(relationships, "project", plan.ProjectId)
 
-	if !plan.SshId.IsNull() {
-		tflog.Info(ctx, fmt.Sprintf("Workspace using Ssh key id: %s", plan.SshId.ValueString()))
-		bodyRequest.Ssh = &client.SshEntity{ID: plan.SshId.ValueString()}
-	}
-
-	if !plan.AgentId.IsNull() && !plan.AgentId.IsUnknown() {
-		tflog.Info(ctx, fmt.Sprintf("Workspace using Agent id: %s", plan.AgentId.ValueString()))
-		bodyRequest.Agent = &client.AgentEntity{ID: plan.AgentId.ValueString()}
-	}
-
-	if !plan.ModuleSshKey.IsNull() && !plan.ModuleSshKey.IsUnknown() {
-		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
-	}
-
-	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() {
-		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
-	}
-
-	bodyRequest.RestrictApplyToConfiguredBranch = optionalBoolPointer(plan.RestrictApplyToConfiguredBranch)
-	bodyRequest.RequireApproveToApply = optionalBoolPointer(plan.RequireApproveToApply)
-
-	out := new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
+	workspace, err := r.client.Workspaces.CreateFields(ctx, plan.OrganizationId.ValueString(), terrakube.Patch{Attributes: attributes, Relationships: relationships})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating workspace vcs", err)
 		return
 	}
 
-	workspaceVcsRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/workspace", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace vcs resource request", fmt.Sprintf("Error creating workspace vcs resource request: %s", err))
-		return
+	plan.ID = types.StringValue(workspace.ID)
+	setWorkspaceVcsState(&plan, workspace)
+	if !plan.VcsId.IsNull() && workspace.Vcs != nil {
+		plan.VcsId = types.StringValue(workspace.Vcs.ID)
 	}
-	workspaceVcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceVcsRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceVcsResponse, err := r.client.Do(workspaceVcsRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace vcs resource request", fmt.Sprintf("Error executing workspace vcs resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(workspaceVcsResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading workspace vcs resource response, response status: %s, error: %s", workspaceVcsResponse.Status, err))
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating workspace vcs", workspaceVcsResponse, bodyResponse) {
-		return
-	}
-
-	newWorkspaceVcs := &client.WorkspaceEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newWorkspaceVcs)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", workspaceVcsResponse.Status, string(bodyResponse), err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	plan.ID = types.StringValue(newWorkspaceVcs.ID)
-	plan.Name = types.StringValue(newWorkspaceVcs.Name)
-	plan.Description = types.StringPointerValue(newWorkspaceVcs.Description)
-	plan.Repository = types.StringValue(newWorkspaceVcs.Source)
-	plan.Branch = types.StringValue(newWorkspaceVcs.Branch)
-	plan.IaCType = types.StringValue(newWorkspaceVcs.IaCType)
-	plan.IaCVersion = types.StringValue(newWorkspaceVcs.IaCVersion)
-
-	plan.TemplateId = types.StringValue(newWorkspaceVcs.TemplateId)
-	plan.ExecutionMode = types.StringValue(newWorkspaceVcs.ExecutionMode)
-	plan.AllowRemoteApply = types.BoolValue(newWorkspaceVcs.AllowRemoteApply)
-
-	if newWorkspaceVcs.Project != nil {
-		plan.ProjectId = types.StringValue(newWorkspaceVcs.Project.ID)
-	} else {
-		plan.ProjectId = types.StringNull()
-	}
-
-	if !plan.VcsId.IsNull() {
-		plan.VcsId = types.StringValue(newWorkspaceVcs.Vcs.ID)
-	}
-
-	if newWorkspaceVcs.Agent != nil {
-		plan.AgentId = types.StringValue(newWorkspaceVcs.Agent.ID)
-	} else {
-		plan.AgentId = types.StringNull()
-	}
-
-	if newWorkspaceVcs.Ssh != nil {
-		plan.SshId = types.StringValue(newWorkspaceVcs.Ssh.ID)
-	} else {
-		plan.SshId = types.StringNull()
-	}
-
-	plan.ModuleSshKey = types.StringPointerValue(newWorkspaceVcs.ModuleSshKey)
-	plan.PolicyComplianceStatus = types.StringValue(newWorkspaceVcs.PolicyComplianceStatus)
-	plan.RestrictApplyToConfiguredBranch = types.BoolPointerValue(newWorkspaceVcs.RestrictApplyToConfiguredBranch)
-	plan.RequireApproveToApply = types.BoolPointerValue(newWorkspaceVcs.RequireApproveToApply)
-
 	if !plan.Folder.IsNull() {
-		plan.Folder = types.StringValue(newWorkspaceVcs.Folder)
+		plan.Folder = types.StringValue(workspace.Folder)
 	}
 
 	tflog.Info(ctx, "Workspace VCS Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *WorkspaceVcsResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state WorkspaceVcsResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	workspaceRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace vcs resource request", fmt.Sprintf("Error creating workspace cli resource request: %s", err))
-		return
-	}
-	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceResponse, err := r.client.Do(workspaceRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace vcs resource request", fmt.Sprintf("Error executing workspace cli resource request: %s", err))
-		return
-	}
-
-	if workspaceResponse.StatusCode == http.StatusNotFound {
+	workspace, err := r.client.Workspaces.Get(ctx, state.OrganizationId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Workspace VCS not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(workspaceResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading workspace vcs resource response, response status: %s, error: %s", workspaceResponse.Status, err))
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace vcs", workspaceResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading workspace vcs", err)
 		return
 	}
 
-	workspace := &client.WorkspaceEntity{}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspace)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", workspaceResponse.Status, string(bodyResponse), err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	state.Name = types.StringValue(workspace.Name)
-	state.Description = types.StringPointerValue(workspace.Description)
-	state.ExecutionMode = types.StringValue(workspace.ExecutionMode)
-	state.Repository = types.StringValue(workspace.Source)
-	state.Branch = types.StringValue(workspace.Branch)
-	state.IaCType = types.StringValue(workspace.IaCType)
-	state.Folder = types.StringValue(workspace.Folder)
-	state.TemplateId = types.StringValue(workspace.TemplateId)
-	state.IaCVersion = types.StringValue(workspace.IaCVersion)
 	state.ID = types.StringValue(workspace.ID)
-	state.AllowRemoteApply = types.BoolValue(workspace.AllowRemoteApply)
+	setWorkspaceVcsState(&state, workspace)
+	setWorkspaceVcsRefreshedState(&state, workspace)
 
-	if workspace.Vcs != nil {
-		state.VcsId = types.StringValue(workspace.Vcs.ID)
-	}
-
-	if workspace.Ssh != nil {
-		state.SshId = types.StringValue(workspace.Ssh.ID)
-	} else {
-		state.SshId = types.StringNull()
-	}
-
-	if workspace.Agent != nil {
-		state.AgentId = types.StringValue(workspace.Agent.ID)
-	} else {
-		state.AgentId = types.StringNull()
-	}
-
-	state.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
-	state.PolicyComplianceStatus = types.StringValue(workspace.PolicyComplianceStatus)
-	state.RestrictApplyToConfiguredBranch = types.BoolPointerValue(workspace.RestrictApplyToConfiguredBranch)
-	state.RequireApproveToApply = types.BoolPointerValue(workspace.RequireApproveToApply)
-
-	if workspace.Project != nil {
-		state.ProjectId = types.StringValue(workspace.Project.ID)
-	} else {
-		state.ProjectId = types.StringNull()
-	}
-
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	tflog.Info(ctx, "Workspace vcs Resource reading", map[string]any{"success": true})
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan WorkspaceVcsResourceModel
 	var state WorkspaceVcsResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
-	}
-
-	bodyRequest := &client.WorkspaceEntity{
-		IaCVersion:       plan.IaCVersion.ValueString(),
-		IaCType:          plan.IaCType.ValueString(),
-		ExecutionMode:    plan.ExecutionMode.ValueString(),
-		Description:      plan.Description.ValueStringPointer(),
-		Source:           plan.Repository.ValueString(),
-		Branch:           plan.Branch.ValueString(),
-		Folder:           plan.Folder.ValueString(),
-		TemplateId:       plan.TemplateId.ValueString(),
-		Name:             plan.Name.ValueString(),
-		ID:               state.ID.ValueString(),
-		AllowRemoteApply: plan.AllowRemoteApply.ValueBool(),
-	}
-
-	if !plan.VcsId.IsNull() {
-		tflog.Info(ctx, fmt.Sprintf("Workspace using Vcs connection id: %s", plan.VcsId.ValueString()))
-		bodyRequest.Vcs = &client.VcsEntity{ID: plan.VcsId.ValueString()}
-	}
-
-	if !plan.SshId.IsNull() {
-		tflog.Info(ctx, fmt.Sprintf("Workspace using Ssh key id: %s", plan.SshId.ValueString()))
-		bodyRequest.Ssh = &client.SshEntity{ID: plan.SshId.ValueString()}
-	}
-
-	if !plan.AgentId.IsNull() && !plan.AgentId.IsUnknown() {
-		tflog.Info(ctx, fmt.Sprintf("Workspace using Agent id: %s", plan.AgentId.ValueString()))
-		bodyRequest.Agent = &client.AgentEntity{ID: plan.AgentId.ValueString()}
-	}
-
-	if !plan.ModuleSshKey.IsNull() && !plan.ModuleSshKey.IsUnknown() {
-		bodyRequest.ModuleSshKey = plan.ModuleSshKey.ValueStringPointer()
-	}
-
-	// Resending an unchanged project invokes reassignment permissions in Elide.
-	if !plan.ProjectId.IsNull() && !plan.ProjectId.IsUnknown() && !plan.ProjectId.Equal(state.ProjectId) {
-		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
 	}
 
 	// Read config rather than refreshed state: omitted guards must not be written
@@ -527,182 +288,89 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	bodyRequest.RestrictApplyToConfiguredBranch = optionalBoolPointer(config.RestrictApplyToConfiguredBranch)
-	bodyRequest.RequireApproveToApply = optionalBoolPointer(config.RequireApproveToApply)
 
-	out := new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	attributes := patchAttributes{}
+	attributes.updateString("name", plan.Name, state.Name)
+	attributes.updateString("description", plan.Description, state.Description)
+	attributes.updateString("source", plan.Repository, state.Repository)
+	attributes.updateString("branch", plan.Branch, state.Branch)
+	attributes.updateString("folder", plan.Folder, state.Folder)
+	attributes.updateString("defaultTemplate", plan.TemplateId, state.TemplateId)
+	attributes.updateString("iacType", plan.IaCType, state.IaCType)
+	attributes.updateString("terraformVersion", plan.IaCVersion, state.IaCVersion)
+	attributes.updateString("executionMode", plan.ExecutionMode, state.ExecutionMode)
+	attributes.updateBool("allowRemoteApply", plan.AllowRemoteApply, state.AllowRemoteApply)
+	// As before, module_ssh_key is never cleared with null; an empty string clears it.
+	attributes.createString("moduleSshKey", plan.ModuleSshKey)
+	attributes.createBool("restrictApplyToConfiguredBranch", config.RestrictApplyToConfiguredBranch)
+	attributes.createBool("requireApproveToApply", config.RequireApproveToApply)
+
+	// As before, a vcs_id, ssh_id or agent_id removed from the configuration is not sent, so the
+	// link stays on the server.
+	relationships := map[string]terrakube.Relationship{}
+	addWorkspaceRelationship(relationships, "vcs", plan.VcsId)
+	addWorkspaceRelationship(relationships, "ssh", plan.SshId)
+	addWorkspaceRelationship(relationships, "agent", plan.AgentId)
+	// Resending an unchanged project invokes reassignment permissions in Elide.
+	if !plan.ProjectId.Equal(state.ProjectId) {
+		addWorkspaceRelationship(relationships, "project", plan.ProjectId)
+	}
+
+	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
+	_, err := r.client.Workspaces.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes, Relationships: relationships})
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating workspace vcs", err)
 		return
 	}
 
-	organizationRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
+	workspace, err := r.client.Workspaces.Get(ctx, organizationID, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace vcs resource request", fmt.Sprintf("Error creating workspace vcs resource request: %s", err))
-		return
-	}
-	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationResponse, err := r.client.Do(organizationRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace vcs resource request", fmt.Sprintf("Error executing workspace vcs resource request: %s", err))
+		reportClientError(&resp.Diagnostics, "reading workspace vcs after update", err)
 		return
 	}
 
-	bodyResponse, err := io.ReadAll(organizationResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading workspace vcs resource response, response status: %s, error: %s", organizationResponse.Status, err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating workspace vcs", organizationResponse, bodyResponse) {
-		return
-	}
-
-	organizationRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace vcs resource request", fmt.Sprintf("Error creating workspace vcs resource request: %s", err))
-		return
-	}
-	organizationRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationResponse, err = r.client.Do(organizationRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace vcs resource request", fmt.Sprintf("Error executing workspace vcs resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err = io.ReadAll(organizationResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading workspace vcs resource response body", fmt.Sprintf("Error reading workspace vcs resource response body, response status: %s, error: %s", organizationResponse.Status, err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace vcs after update", organizationResponse, bodyResponse) {
-		return
-	}
-
-	workspace := &client.WorkspaceEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspace)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", organizationResponse.Status, string(bodyResponse), err))
-		return
-	}
-
-	plan.ID = types.StringValue(state.ID.ValueString())
-	plan.Name = types.StringValue(workspace.Name)
-	plan.Description = types.StringPointerValue(workspace.Description)
-	plan.Repository = types.StringValue(workspace.Source)
-	plan.Branch = types.StringValue(workspace.Branch)
-	plan.IaCType = types.StringValue(workspace.IaCType)
-	plan.IaCVersion = types.StringValue(workspace.IaCVersion)
-	plan.ExecutionMode = types.StringValue(workspace.ExecutionMode)
-	plan.Folder = types.StringValue(workspace.Folder)
-	plan.TemplateId = types.StringValue(workspace.TemplateId)
-	plan.AllowRemoteApply = types.BoolValue(workspace.AllowRemoteApply)
-	if workspace.Vcs != nil {
-		plan.VcsId = types.StringValue(workspace.Vcs.ID)
-	}
-	if workspace.Ssh != nil {
-		plan.SshId = types.StringValue(workspace.Ssh.ID)
-	} else {
-		plan.SshId = types.StringNull()
-	}
-	if workspace.Agent != nil {
-		plan.AgentId = types.StringValue(workspace.Agent.ID)
-	} else {
-		plan.AgentId = types.StringNull()
-	}
-	plan.ModuleSshKey = types.StringPointerValue(workspace.ModuleSshKey)
-	plan.PolicyComplianceStatus = types.StringValue(workspace.PolicyComplianceStatus)
-	plan.RestrictApplyToConfiguredBranch = types.BoolPointerValue(workspace.RestrictApplyToConfiguredBranch)
-	plan.RequireApproveToApply = types.BoolPointerValue(workspace.RequireApproveToApply)
-	if workspace.Project != nil {
-		plan.ProjectId = types.StringValue(workspace.Project.ID)
-	} else {
-		plan.ProjectId = types.StringNull()
-	}
+	plan.ID = types.StringValue(id)
+	setWorkspaceVcsState(&plan, workspace)
+	setWorkspaceVcsRefreshedState(&plan, workspace)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
+// Delete marks the workspace as deleted, as the Terrakube UI does, and renames it so the name can
+// be used again.
 func (r *WorkspaceVcsResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data WorkspaceVcsResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	chars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
-
-	ll := len(chars)
-	b := make([]byte, 4)
-
-	if _, err := rand.Read(b); err != nil {
+	name, err := randomSoftDeletedName(data.Name.ValueString(), 128)
+	if err != nil {
 		resp.Diagnostics.AddError("Error generating random string to delete workspace", fmt.Sprintf("Error generating random string to delete workspace: %s", err))
 		return
 	}
 
-	for i := range 4 {
-		b[i] = chars[int(b[i])%ll]
+	attributes := patchAttributes{
+		"name":    name,
+		"deleted": true,
 	}
+	attributes.createString("description", data.Description)
+	attributes.createString("source", data.Repository)
+	attributes.createString("branch", data.Branch)
+	attributes.createString("iacType", data.IaCType)
+	attributes.createString("defaultTemplate", data.TemplateId)
+	attributes.createString("terraformVersion", data.IaCVersion)
+	attributes.createString("executionMode", data.ExecutionMode)
+	attributes.createBool("allowRemoteApply", data.AllowRemoteApply)
 
-	tflog.Info(ctx, "Send patch request to mark as deleted...")
-	tflog.Info(ctx, softDeletedName(data.Name.ValueString(), string(b), 128))
-
-	bodyRequest := &client.WorkspaceEntity{
-		ID:               data.ID.ValueString(),
-		Name:             softDeletedName(data.Name.ValueString(), string(b), 128), // FORCE A NAME CHANGE WITH THE SAME LOGIC THAT IN THE UI
-		Description:      data.Description.ValueStringPointer(),
-		Source:           data.Repository.ValueString(),
-		Branch:           data.Branch.ValueString(),
-		IaCType:          data.IaCType.ValueString(),
-		TemplateId:       data.TemplateId.ValueString(),
-		IaCVersion:       data.IaCVersion.ValueString(),
-		ExecutionMode:    data.ExecutionMode.ValueString(),
-		AllowRemoteApply: data.AllowRemoteApply.ValueBool(),
-		Deleted:          true,
-	}
-
-	out := new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	tflog.Info(ctx, "Request Body...")
-	tflog.Info(ctx, out.String())
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	_, err = r.client.Workspaces.UpdateFields(ctx, data.OrganizationId.ValueString(), data.ID.ValueString(), terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting workspace vcs", err)
 		return
 	}
 
-	workspaceVcsRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating vcs resource request", fmt.Sprintf("Error creating vcs resource request: %s", err))
-		return
-	}
-	workspaceVcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceVcsRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceVcsResponse, err := r.client.Do(workspaceVcsRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing vcs resource request", fmt.Sprintf("Error executing vcs resource request: %s", err))
-		return
-	}
-	if workspaceVcsResponse.StatusCode != http.StatusNoContent {
-		deleteBody, _ := io.ReadAll(workspaceVcsResponse.Body)
-		resp.Diagnostics.AddError("Error executing vcs resource request", fmt.Sprintf("Error executing vcs resource request, response status: %s, response body: %s", workspaceVcsResponse.Status, string(deleteBody)))
-		return
-	}
-
-	tflog.Info(ctx, "Delete response code: "+strconv.Itoa(workspaceVcsResponse.StatusCode))
+	tflog.Info(ctx, "Workspace VCS Resource deleted", map[string]any{"success": true})
 }
 
 func (r *WorkspaceVcsResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
@@ -718,4 +386,43 @@ func (r *WorkspaceVcsResource) ImportState(ctx context.Context, req resource.Imp
 
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("organization_id"), idParts[0])...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), idParts[1])...)
+}
+
+// setWorkspaceVcsState copies the attributes Terrakube returned into the model, except vcs_id and
+// folder: Create, Read and Update each set those their own way.
+func setWorkspaceVcsState(model *WorkspaceVcsResourceModel, workspace *terrakube.Workspace) {
+	model.Name = types.StringValue(workspace.Name)
+	model.Description = types.StringPointerValue(workspace.Description)
+	model.Repository = types.StringValue(workspace.Source)
+	model.Branch = types.StringValue(workspace.Branch)
+	model.IaCType = types.StringValue(workspace.IaCType)
+	model.IaCVersion = types.StringValue(workspace.IaCVersion)
+	model.TemplateId = types.StringValue(workspace.TemplateID)
+	model.ExecutionMode = types.StringValue(workspace.ExecutionMode)
+	model.AllowRemoteApply = types.BoolValue(workspace.AllowRemoteApply)
+	model.ProjectId = types.StringNull()
+	if workspace.Project != nil {
+		model.ProjectId = types.StringValue(workspace.Project.ID)
+	}
+	model.AgentId = types.StringNull()
+	if workspace.Agent != nil {
+		model.AgentId = types.StringValue(workspace.Agent.ID)
+	}
+	model.SshId = types.StringNull()
+	if workspace.SSH != nil {
+		model.SshId = types.StringValue(workspace.SSH.ID)
+	}
+	model.ModuleSshKey = types.StringPointerValue(workspace.ModuleSSHKey)
+	model.PolicyComplianceStatus = types.StringValue(workspacePolicyComplianceStatus(workspace))
+	model.RestrictApplyToConfiguredBranch = types.BoolPointerValue(workspace.RestrictApplyToConfiguredBranch)
+	model.RequireApproveToApply = types.BoolPointerValue(workspace.RequireApproveToApply)
+}
+
+// setWorkspaceVcsRefreshedState sets folder and vcs_id after a read. A missing vcs relationship
+// keeps the previous vcs_id.
+func setWorkspaceVcsRefreshedState(model *WorkspaceVcsResourceModel, workspace *terrakube.Workspace) {
+	model.Folder = types.StringValue(workspace.Folder)
+	if workspace.Vcs != nil {
+		model.VcsId = types.StringValue(workspace.Vcs.ID)
+	}
 }

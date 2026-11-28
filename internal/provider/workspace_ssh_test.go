@@ -47,11 +47,7 @@ func TestWorkspaceVcsResource_Create_SendsSshRelationship(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceVcsResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceVcsResource{client: newTestClient(server.Client(), server.URL)}
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id":    tftypes.NewValue(tftypes.String, orgID),
@@ -120,11 +116,7 @@ func TestWorkspaceVcsResource_Update_ResolvesSshIdToNullWhenApiReturnsNoSsh(t *t
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceVcsResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceVcsResource{client: newTestClient(server.Client(), server.URL)}
 
 	base := map[string]tftypes.Value{
 		"id":                 tftypes.NewValue(tftypes.String, wsID),
@@ -208,11 +200,7 @@ func TestWorkspaceVcsResource_Create_SendsModuleSshKeyAttribute(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceVcsResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceVcsResource{client: newTestClient(server.Client(), server.URL)}
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id":    tftypes.NewValue(tftypes.String, orgID),
@@ -290,9 +278,7 @@ func TestWorkspaceCliResource_Create_SendsModuleSshKeyAttribute(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r.client = server.Client()
-	r.endpoint = server.URL
-	r.token = "test-token"
+	r.client = newTestClient(server.Client(), server.URL)
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id": tftypes.NewValue(tftypes.String, orgID),
@@ -383,11 +369,7 @@ func TestWorkspaceVcsResource_Create_ResolvesModuleSshKeyWhenApiEchoesEmptyStrin
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceVcsResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceVcsResource{client: newTestClient(server.Client(), server.URL)}
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id":    tftypes.NewValue(tftypes.String, orgID),
