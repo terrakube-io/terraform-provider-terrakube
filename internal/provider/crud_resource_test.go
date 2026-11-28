@@ -202,10 +202,10 @@ func (s *crudServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // serveChildren answers the version and implementation endpoints under the item.
 func (s *crudServer) serveChildren(w http.ResponseWriter, r *http.Request, item string) bool {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, item+"/version"), "/")
-	list := func(ids []string) {
+	list := func(itemType string, ids []string) {
 		data := make([]map[string]any, len(ids))
 		for i, id := range ids {
-			data[i] = map[string]any{"type": "x", "id": id}
+			data[i] = map[string]any{"type": itemType, "id": id}
 		}
 		w.Header().Set("Content-Type", "application/vnd.api+json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
@@ -221,7 +221,7 @@ func (s *crudServer) serveChildren(w http.ResponseWriter, r *http.Request, item 
 	}
 	switch {
 	case len(parts) == 1 && r.Method == http.MethodGet:
-		list(s.versions)
+		list("version", s.versions)
 	case len(parts) == 2 && r.Method == http.MethodDelete:
 		if len(s.implementations[parts[1]]) > 0 {
 			w.WriteHeader(http.StatusConflict)
@@ -230,7 +230,7 @@ func (s *crudServer) serveChildren(w http.ResponseWriter, r *http.Request, item 
 		s.versions = remove(s.versions, parts[1])
 		w.WriteHeader(http.StatusNoContent)
 	case len(parts) == 3 && parts[2] == "implementation" && r.Method == http.MethodGet:
-		list(s.implementations[parts[1]])
+		list("implementation", s.implementations[parts[1]])
 	case len(parts) == 4 && parts[2] == "implementation" && r.Method == http.MethodDelete:
 		s.implementations[parts[1]] = remove(s.implementations[parts[1]], parts[3])
 		w.WriteHeader(http.StatusNoContent)

@@ -3,11 +3,8 @@ package provider
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -15,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -24,9 +22,7 @@ var (
 )
 
 type RegistryProviderImplementationResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type RegistryProviderImplementationResourceModel struct {
@@ -107,82 +103,60 @@ func (r *RegistryProviderImplementationResource) Schema(_ context.Context, _ res
 }
 
 func (r *RegistryProviderImplementationResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Registry Provider Implementation Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-	r.client = newTerrakubeHTTPClient(providerData)
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-}
-
-func (r *RegistryProviderImplementationResource) implementationURL(m *RegistryProviderImplementationResourceModel) string {
-	url := fmt.Sprintf("%s/api/v1/organization/%s/provider/%s/version/%s/implementation",
-		r.endpoint, m.OrganizationId.ValueString(), m.ProviderId.ValueString(), m.VersionId.ValueString())
-	if !m.ID.IsNull() && !m.ID.IsUnknown() && m.ID.ValueString() != "" {
-		url += "/" + m.ID.ValueString()
-	}
-	return url
-}
-
-// optionalString sends an unset attribute as null, which clears it on an update.
-func optionalString(value types.String) *string {
-	if value.IsNull() || value.IsUnknown() {
-		return nil
-	}
-	return value.ValueStringPointer()
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Registry Provider Implementation Resource")
 }
 
 // notNullString sends an unset attribute as an empty string. These columns are NOT NULL in
 // Terrakube's database, so a null fails the insert. stringFromAPI maps the echoed "" back to
 // null when the configuration leaves the attribute out.
-func notNullString(value types.String) *string {
+func notNullString(value types.String) string {
 	if value.IsNull() || value.IsUnknown() {
-		empty := ""
-		return &empty
+		return ""
 	}
-	return value.ValueStringPointer()
+	return value.ValueString()
 }
 
-func (m *RegistryProviderImplementationResourceModel) entity(id string) *client.ProviderImplementationEntity {
-	return &client.ProviderImplementationEntity{
-		ID:                  id,
-		Os:                  m.Os.ValueString(),
-		Arch:                m.Arch.ValueString(),
-		Filename:            m.Filename.ValueString(),
-		DownloadUrl:         notNullString(m.DownloadUrl),
-		ShasumsUrl:          notNullString(m.ShasumsUrl),
-		ShasumsSignatureUrl: notNullString(m.ShasumsSignatureUrl),
-		Shasum:              notNullString(m.Shasum),
-		KeyId:               notNullString(m.KeyId),
-		AsciiArmor:          optionalString(m.AsciiArmor),
-		TrustSignature:      notNullString(m.TrustSignature),
-		Source:              notNullString(m.Source),
-		SourceUrl:           notNullString(m.SourceUrl),
+// attributes builds the attributes of a create or an update. Every attribute is sent, as a full
+// write: one removed from the configuration is sent empty, which clears it, since a PATCH that
+// left it out would keep the old value. ascii_armor is nullable: a create leaves an unset one out,
+// and an update sends it as null.
+func (m *RegistryProviderImplementationResourceModel) attributes(create bool) patchAttributes {
+	attributes := patchAttributes{
+		"os":                  m.Os.ValueString(),
+		"arch":                m.Arch.ValueString(),
+		"filename":            m.Filename.ValueString(),
+		"downloadUrl":         notNullString(m.DownloadUrl),
+		"shasumsUrl":          notNullString(m.ShasumsUrl),
+		"shasumsSignatureUrl": notNullString(m.ShasumsSignatureUrl),
+		"shasum":              notNullString(m.Shasum),
+		"keyId":               notNullString(m.KeyId),
+		"trustSignature":      notNullString(m.TrustSignature),
+		"source":              notNullString(m.Source),
+		"sourceUrl":           notNullString(m.SourceUrl),
 	}
+	switch {
+	case !m.AsciiArmor.IsNull() && !m.AsciiArmor.IsUnknown():
+		attributes["asciiArmor"] = m.AsciiArmor.ValueString()
+	case !create:
+		attributes["asciiArmor"] = nil
+	}
+	return attributes
 }
 
-func (m *RegistryProviderImplementationResourceModel) setFromAPI(impl *client.ProviderImplementationEntity) {
+func (m *RegistryProviderImplementationResourceModel) setFromAPI(impl *terrakube.Implementation) {
 	m.ID = types.StringValue(impl.ID)
 	m.Os = types.StringValue(impl.Os)
 	m.Arch = types.StringValue(impl.Arch)
 	m.Filename = types.StringValue(impl.Filename)
-	m.DownloadUrl = stringFromAPI(m.DownloadUrl, impl.DownloadUrl)
-	m.ShasumsUrl = stringFromAPI(m.ShasumsUrl, impl.ShasumsUrl)
-	m.ShasumsSignatureUrl = stringFromAPI(m.ShasumsSignatureUrl, impl.ShasumsSignatureUrl)
+	m.DownloadUrl = stringFromAPI(m.DownloadUrl, impl.DownloadURL)
+	m.ShasumsUrl = stringFromAPI(m.ShasumsUrl, impl.ShasumsURL)
+	m.ShasumsSignatureUrl = stringFromAPI(m.ShasumsSignatureUrl, impl.ShasumsSignatureURL)
 	m.Shasum = stringFromAPI(m.Shasum, impl.Shasum)
-	m.KeyId = stringFromAPI(m.KeyId, impl.KeyId)
-	m.AsciiArmor = stringFromAPI(m.AsciiArmor, impl.AsciiArmor)
+	m.KeyId = stringFromAPI(m.KeyId, impl.KeyID)
+	m.AsciiArmor = stringFromAPI(m.AsciiArmor, impl.ASCIIArmor)
 	m.TrustSignature = stringFromAPI(m.TrustSignature, impl.TrustSignature)
 	m.Source = stringFromAPI(m.Source, impl.Source)
-	m.SourceUrl = stringFromAPI(m.SourceUrl, impl.SourceUrl)
+	m.SourceUrl = stringFromAPI(m.SourceUrl, impl.SourceURL)
 }
 
 func (r *RegistryProviderImplementationResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -192,24 +166,10 @@ func (r *RegistryProviderImplementationResource) Create(ctx context.Context, req
 		return
 	}
 
-	body, err := marshalJSONAPI(plan.entity(""))
+	created, err := r.client.Implementations.CreateFields(ctx, plan.OrganizationId.ValueString(), plan.ProviderId.ValueString(),
+		plan.VersionId.ValueString(), terrakube.Patch{Attributes: plan.attributes(true)})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-	response, responseBody, err := doJSONAPIRequest(ctx, r.client, r.token, http.MethodPost, r.implementationURL(&plan), body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating registry provider implementation", err.Error())
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating registry provider implementation", response, responseBody) {
-		return
-	}
-
-	created := &client.ProviderImplementationEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(responseBody)), created); err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response",
-			fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", response.Status, responseBody, err))
+		reportClientError(&resp.Diagnostics, "creating registry provider implementation", err)
 		return
 	}
 
@@ -224,24 +184,15 @@ func (r *RegistryProviderImplementationResource) Read(ctx context.Context, req r
 		return
 	}
 
-	response, responseBody, err := doJSONAPIRequest(ctx, r.client, r.token, http.MethodGet, r.implementationURL(&state), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading registry provider implementation", err.Error())
-		return
-	}
-	if response.StatusCode == http.StatusNotFound {
+	impl, err := r.client.Implementations.Get(ctx, state.OrganizationId.ValueString(), state.ProviderId.ValueString(),
+		state.VersionId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Registry provider implementation not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading registry provider implementation", response, responseBody) {
-		return
-	}
-
-	impl := &client.ProviderImplementationEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(responseBody)), impl); err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response",
-			fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", response.Status, responseBody, err))
+	if err != nil {
+		reportClientError(&resp.Diagnostics, "reading registry provider implementation", err)
 		return
 	}
 
@@ -257,32 +208,18 @@ func (r *RegistryProviderImplementationResource) Update(ctx context.Context, req
 		return
 	}
 
-	url := r.implementationURL(&state)
-	body, err := marshalJSONAPI(plan.entity(state.ID.ValueString()))
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-	response, responseBody, err := doJSONAPIRequest(ctx, r.client, r.token, http.MethodPatch, url, body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error updating registry provider implementation", err.Error())
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating registry provider implementation", response, responseBody) {
+	organizationID, providerID, versionID, id := state.OrganizationId.ValueString(), state.ProviderId.ValueString(),
+		state.VersionId.ValueString(), state.ID.ValueString()
+	_, err := r.client.Implementations.UpdateFields(ctx, organizationID, providerID, versionID, id,
+		terrakube.Patch{Attributes: plan.attributes(false)})
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating registry provider implementation", err)
 		return
 	}
 
-	response, responseBody, err = doJSONAPIRequest(ctx, r.client, r.token, http.MethodGet, url, nil)
+	updated, err := r.client.Implementations.Get(ctx, organizationID, providerID, versionID, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading registry provider implementation after update", err.Error())
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading registry provider implementation after update", response, responseBody) {
-		return
-	}
-	updated := &client.ProviderImplementationEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(responseBody)), updated); err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
+		reportClientError(&resp.Diagnostics, "reading registry provider implementation after update", err)
 		return
 	}
 
@@ -297,19 +234,11 @@ func (r *RegistryProviderImplementationResource) Delete(ctx context.Context, req
 		return
 	}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodDelete, r.implementationURL(&state), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating registry provider implementation request", fmt.Sprintf("Error creating registry provider implementation request: %s", err))
-		return
+	err := r.client.Implementations.Delete(ctx, state.OrganizationId.ValueString(), state.ProviderId.ValueString(),
+		state.VersionId.ValueString(), state.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting registry provider implementation", err)
 	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	response, err := r.client.Do(request)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing registry provider implementation request", fmt.Sprintf("Error executing registry provider implementation request: %s", err))
-		return
-	}
-	reportDeleteFailure(&resp.Diagnostics, "deleting registry provider implementation", response)
 }
 
 func (r *RegistryProviderImplementationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

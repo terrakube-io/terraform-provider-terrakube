@@ -1,15 +1,10 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -18,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -28,9 +24,7 @@ var (
 )
 
 type RegistryProviderResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type RegistryProviderResourceModel struct {
@@ -158,65 +152,35 @@ func (registryProviderImportValidator) ValidateResource(ctx context.Context, req
 }
 
 func (r *RegistryProviderResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Registry Provider Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	r.client = newTerrakubeHTTPClient(providerData)
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Registry Provider Resource")
 }
 
-func (r *RegistryProviderResource) providerURL(organizationID string, id string) string {
-	url := fmt.Sprintf("%s/api/v1/organization/%s/provider", r.endpoint, organizationID)
-	if id != "" {
-		url += "/" + id
-	}
-	return url
-}
-
-// do sends a request and returns the response with its body read and closed.
-func (r *RegistryProviderResource) do(ctx context.Context, method, url string, body []byte) (*http.Response, []byte, error) {
-	return doJSONAPIRequest(ctx, r.client, r.token, method, url, body)
-}
-
-// registryProviderRequestBody builds the JSON:API body for a create or an update. Imported and the
-// namespace are only sent when they are used, because a Terrakube older than 2.30.0 does not know them.
-func registryProviderRequestBody(plan, prior *RegistryProviderResourceModel, id string) ([]byte, error) {
-	entity := &client.ProviderEntity{
-		ID:          id,
-		Name:        plan.Name.ValueString(),
-		Description: plan.Description.ValueStringPointer(),
+// registryProviderAttributes builds the attributes of a create (prior is nil) or an update.
+// Imported and the namespace are only sent when they are used, because a Terrakube older than
+// 2.30.0 does not know them.
+func registryProviderAttributes(plan, prior *RegistryProviderResourceModel) patchAttributes {
+	attributes := patchAttributes{}
+	if prior == nil {
+		attributes.createString("name", plan.Name)
+		attributes.createString("description", plan.Description)
+	} else {
+		attributes.updateString("name", plan.Name, prior.Name)
+		attributes.updateString("description", plan.Description, prior.Description)
 	}
 	// imported is only sent when it is true, or when it is switched off, so a provider that was
 	// never imported works on a Terrakube older than 2.30.0.
 	if !plan.Imported.IsNull() && !plan.Imported.IsUnknown() &&
 		(plan.Imported.ValueBool() || (prior != nil && prior.Imported.ValueBool())) {
-		entity.Imported = plan.Imported.ValueBoolPointer()
+		attributes["imported"] = plan.Imported.ValueBool()
 	}
 	switch {
 	case !plan.RegistryNamespace.IsNull() && !plan.RegistryNamespace.IsUnknown():
-		entity.RegistryNamespace = plan.RegistryNamespace.ValueStringPointer()
+		attributes["registryNamespace"] = plan.RegistryNamespace.ValueString()
 	case prior != nil && !prior.RegistryNamespace.IsNull():
 		// Leaving the attribute out of a PATCH keeps the old value, so a removed namespace is sent empty.
-		empty := ""
-		entity.RegistryNamespace = &empty
+		attributes["registryNamespace"] = ""
 	}
-
-	var out bytes.Buffer
-	if err := jsonapi.MarshalPayload(&out, entity); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
+	return attributes
 }
 
 // stringFromAPI keeps a null a null: Terrakube may return an empty string for an attribute that
@@ -228,11 +192,11 @@ func stringFromAPI(current types.String, value *string) types.String {
 	return types.StringValue(*value)
 }
 
-func (m *RegistryProviderResourceModel) setFromAPI(provider *client.ProviderEntity) {
+func (m *RegistryProviderResourceModel) setFromAPI(provider *terrakube.Provider) {
 	m.ID = types.StringValue(provider.ID)
 	m.Name = types.StringValue(provider.Name)
 	m.Description = stringFromAPI(m.Description, provider.Description)
-	m.Imported = types.BoolValue(provider.Imported != nil && *provider.Imported)
+	m.Imported = types.BoolValue(provider.Imported)
 	m.RegistryNamespace = stringFromAPI(m.RegistryNamespace, provider.RegistryNamespace)
 }
 
@@ -243,24 +207,10 @@ func (r *RegistryProviderResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
-	body, err := registryProviderRequestBody(&plan, nil, "")
+	patch := terrakube.Patch{Attributes: registryProviderAttributes(&plan, nil)}
+	created, err := r.client.Providers.CreateFields(ctx, plan.OrganizationId.ValueString(), patch)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-	response, responseBody, err := r.do(ctx, http.MethodPost, r.providerURL(plan.OrganizationId.ValueString(), ""), body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating registry provider", err.Error())
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating registry provider", response, responseBody) {
-		return
-	}
-
-	created := &client.ProviderEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(responseBody)), created); err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response",
-			fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", response.Status, responseBody, err))
+		reportClientError(&resp.Diagnostics, "creating registry provider", err)
 		return
 	}
 
@@ -275,24 +225,14 @@ func (r *RegistryProviderResource) Read(ctx context.Context, req resource.ReadRe
 		return
 	}
 
-	response, responseBody, err := r.do(ctx, http.MethodGet, r.providerURL(state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading registry provider", err.Error())
-		return
-	}
-	if response.StatusCode == http.StatusNotFound {
+	provider, err := r.client.Providers.Get(ctx, state.OrganizationId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Registry provider not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading registry provider", response, responseBody) {
-		return
-	}
-
-	provider := &client.ProviderEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(responseBody)), provider); err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response",
-			fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", response.Status, responseBody, err))
+	if err != nil {
+		reportClientError(&resp.Diagnostics, "reading registry provider", err)
 		return
 	}
 
@@ -308,32 +248,16 @@ func (r *RegistryProviderResource) Update(ctx context.Context, req resource.Upda
 		return
 	}
 
-	url := r.providerURL(state.OrganizationId.ValueString(), state.ID.ValueString())
-	body, err := registryProviderRequestBody(&plan, &state, state.ID.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-	response, responseBody, err := r.do(ctx, http.MethodPatch, url, body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error updating registry provider", err.Error())
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating registry provider", response, responseBody) {
+	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
+	patch := terrakube.Patch{Attributes: registryProviderAttributes(&plan, &state)}
+	if _, err := r.client.Providers.UpdateFields(ctx, organizationID, id, patch); patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating registry provider", err)
 		return
 	}
 
-	response, responseBody, err = r.do(ctx, http.MethodGet, url, nil)
+	updated, err := r.client.Providers.Get(ctx, organizationID, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading registry provider after update", err.Error())
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading registry provider after update", response, responseBody) {
-		return
-	}
-	updated := &client.ProviderEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(responseBody)), updated); err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
+		reportClientError(&resp.Diagnostics, "reading registry provider after update", err)
 		return
 	}
 
@@ -355,77 +279,42 @@ func (r *RegistryProviderResource) Delete(ctx context.Context, req resource.Dele
 		return
 	}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodDelete, r.providerURL(state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating registry provider request", fmt.Sprintf("Error creating registry provider request: %s", err))
-		return
+	err := r.client.Providers.Delete(ctx, state.OrganizationId.ValueString(), state.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting registry provider", err)
 	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	response, err := r.client.Do(request)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing registry provider request", fmt.Sprintf("Error executing registry provider request: %s", err))
-		return
-	}
-	reportDeleteFailure(&resp.Diagnostics, "deleting registry provider", response)
-}
-
-// listIDs returns the ids of a JSON:API collection.
-func (r *RegistryProviderResource) listIDs(ctx context.Context, url string) ([]string, error) {
-	response, body, err := r.do(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	if response.StatusCode == http.StatusNotFound {
-		return nil, nil
-	}
-	if response.StatusCode < 200 || response.StatusCode > 299 {
-		return nil, fmt.Errorf("status %s: %s", response.Status, body)
-	}
-	var payload struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("reading the list: %w", err)
-	}
-	ids := make([]string, 0, len(payload.Data))
-	for _, item := range payload.Data {
-		ids = append(ids, item.ID)
-	}
-	return ids, nil
 }
 
 // maxVersionDeletePages bounds the list-and-delete loop, so a version that cannot be deleted
 // cannot keep it going.
 const maxVersionDeletePages = 20
 
-// deleteVersions deletes the implementations and then the versions of a provider.
+// deleteVersions deletes the implementations and then the versions of a provider. A list that
+// answers 404 has nothing left to delete.
 func (r *RegistryProviderResource) deleteVersions(ctx context.Context, diags *diag.Diagnostics, organizationID, providerID string) {
-	versionsURL := r.providerURL(organizationID, providerID) + "/version"
 	for range maxVersionDeletePages {
-		versions, err := r.listIDs(ctx, versionsURL)
-		if err != nil {
-			diags.AddError("Error listing the versions of the registry provider", err.Error())
+		versions, err := r.client.ProviderVersions.List(ctx, organizationID, providerID, nil)
+		if err != nil && !terrakube.IsNotFound(err) {
+			reportClientError(diags, "listing the versions of the registry provider", err)
 			return
 		}
 		if len(versions) == 0 {
 			return
 		}
-		for _, versionID := range versions {
-			implementationsURL := versionsURL + "/" + versionID + "/implementation"
-			implementations, err := r.listIDs(ctx, implementationsURL)
-			if err != nil {
-				diags.AddError("Error listing the implementations of a registry provider version", err.Error())
+		for _, version := range versions {
+			implementations, err := r.client.Implementations.List(ctx, organizationID, providerID, version.ID, nil)
+			if err != nil && !terrakube.IsNotFound(err) {
+				reportClientError(diags, "listing the implementations of a registry provider version", err)
 				return
 			}
-			for _, implementationID := range implementations {
-				if !r.deleteOne(ctx, diags, "deleting registry provider implementation", implementationsURL+"/"+implementationID) {
+			for _, implementation := range implementations {
+				err := r.client.Implementations.Delete(ctx, organizationID, providerID, version.ID, implementation.ID)
+				if !deleteSucceeded(diags, "deleting registry provider implementation", err) {
 					return
 				}
 			}
-			if !r.deleteOne(ctx, diags, "deleting registry provider version", versionsURL+"/"+versionID) {
+			err = r.client.ProviderVersions.Delete(ctx, organizationID, providerID, version.ID)
+			if !deleteSucceeded(diags, "deleting registry provider version", err) {
 				return
 			}
 		}
@@ -434,20 +323,14 @@ func (r *RegistryProviderResource) deleteVersions(ctx context.Context, diags *di
 		fmt.Sprintf("Versions are still left after %d rounds of deleting them.", maxVersionDeletePages))
 }
 
-func (r *RegistryProviderResource) deleteOne(ctx context.Context, diags *diag.Diagnostics, action, url string) bool {
-	request, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
-	if err != nil {
-		diags.AddError("Error creating registry provider request", err.Error())
+// deleteSucceeded reports whether a delete left the object gone. A 404 means it already was;
+// any other error, such as a 409 for a version that still has implementations, is reported.
+func deleteSucceeded(diags *diag.Diagnostics, action string, err error) bool {
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(diags, action, err)
 		return false
 	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	response, err := r.client.Do(request)
-	if err != nil {
-		diags.AddError("Error executing registry provider request", err.Error())
-		return false
-	}
-	reportDeleteFailure(diags, action, response)
-	return !diags.HasError()
+	return true
 }
 
 func (r *RegistryProviderResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

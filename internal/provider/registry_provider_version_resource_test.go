@@ -29,7 +29,7 @@ func registryProviderVersionCase(create map[string]tftypes.Value) crudResourceCa
 		itemType:   "version",
 		collection: "/api/v1/organization/org-1/provider/prov-1/version",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
-			return &RegistryProviderVersionResource{client: c, endpoint: endpoint, token: "test-token"}
+			return &RegistryProviderVersionResource{client: newTestClient(c, endpoint)}
 		},
 		scope:  map[string]tftypes.Value{"provider_id": str("prov-1")},
 		create: create,
