@@ -2,19 +2,11 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
-	"fmt"
-	"github.com/google/jsonapi"
+
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"io"
-	"net/http"
-	"net/url"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -30,45 +22,15 @@ type SshDataSourceModel struct {
 }
 
 type SshDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewSshDataSource() datasource.DataSource {
 	return &SshDataSource{}
 }
 
-func (d *SshDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, res *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		res.Diagnostics.AddError(
-			"Unexpected Ssh Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-
-	tflog.Info(ctx, "Creating Ssh datasource")
+func (d *SshDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Ssh Data Source")
 }
 
 func (d *SshDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -102,53 +64,26 @@ func (d *SshDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, re
 func (d *SshDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var state SshDataSourceModel
 
-	req.Config.Get(ctx, &state)
-
-	requestSsh, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/ssh?filter[ssh]=name==%s", d.endpoint, url.PathEscape(state.OrganizationId.ValueString()), url.QueryEscape(rsqlQuote(state.Name.ValueString()))), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating ssh datasource request", fmt.Sprintf("Error creating ssh datasource request: %s", err))
-		return
-	}
-	requestSsh.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	requestSsh.Header.Add("Content-Type", "application/vnd.api+json")
-
-	responseSsh, err := d.client.Do(requestSsh)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing ssh request", fmt.Sprintf("Error executing ssh request: %s", err))
+	resp.Diagnostics.Append(req.Config.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	body, err := io.ReadAll(responseSsh.Body)
+	sshKeys, err := d.client.SSH.List(ctx, state.OrganizationId.ValueString(), &terrakube.ListOptions{Filter: "name==" + rsqlQuote(state.Name.ValueString())})
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading ssh response body", fmt.Sprintf("Error reading ssh response body: %s", err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(body)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading ssh key", responseSsh, body) {
+		reportClientError(&resp.Diagnostics, "reading ssh key", err)
 		return
 	}
 
-	var sshList []interface{}
-
-	sshList, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.SshEntity)))
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to unmarshal payload: %s", err))
-		return
-	}
-
-	data := findSingleByName(&resp.Diagnostics, "ssh key", state.Name.ValueString(), " in organization "+state.OrganizationId.ValueString(), sshList,
-		func(e *client.SshEntity) string { return e.Name })
+	data := findSingleByNameIn(&resp.Diagnostics, "ssh key", state.Name.ValueString(), " in organization "+state.OrganizationId.ValueString(), sshKeys,
+		func(e *terrakube.SSH) string { return e.Name })
 	if data == nil {
 		return
 	}
+	// The private key is not part of the data source.
 	state.ID = types.StringValue(data.ID)
 	state.Description = types.StringPointerValue(data.Description)
 
 	diags := resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
 }

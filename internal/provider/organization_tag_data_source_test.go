@@ -18,9 +18,9 @@ func TestOrganizationTagDataSource(t *testing.T) {
 		notFound:   "Organization tag not found",
 		multiple:   "Multiple organization tag entries found",
 		apiError:   "Error reading organization tag: 403 Forbidden",
-		badPayload: "Unable to unmarshal payload",
+		badPayload: "Error reading organization tag",
 		newSource: func(c *http.Client, endpoint string) datasource.DataSource {
-			return &OrganizationTagDataSource{client: c, endpoint: endpoint, token: "test-token"}
+			return &OrganizationTagDataSource{client: newTestClient(c, endpoint)}
 		},
 	})
 }

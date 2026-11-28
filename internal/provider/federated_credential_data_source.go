@@ -2,20 +2,11 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -31,45 +22,15 @@ type FederatedCredentialDataSourceModel struct {
 }
 
 type FederatedCredentialDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewFederatedCredentialDataSource() datasource.DataSource {
 	return &FederatedCredentialDataSource{}
 }
 
-func (d *FederatedCredentialDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, res *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		res.Diagnostics.AddError(
-			"Unexpected Federated Credential Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-
-	tflog.Info(ctx, "Creating Federated Credential datasource")
+func (d *FederatedCredentialDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Federated Credential Data Source")
 }
 
 func (d *FederatedCredentialDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -108,47 +69,20 @@ func (d *FederatedCredentialDataSource) Read(ctx context.Context, req datasource
 		return
 	}
 
-	reqURL := fmt.Sprintf("%s/api/v1/federated?filter[federated]=name==%s", d.endpoint, url.QueryEscape(rsqlQuote(state.Name.ValueString())))
-	federatedRequest, err := http.NewRequest(http.MethodGet, reqURL, nil)
+	credentials, err := d.client.Federated.List(ctx, &terrakube.ListOptions{Filter: "name==" + rsqlQuote(state.Name.ValueString())})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating federated credential datasource request", fmt.Sprintf("Error creating federated credential datasource request: %s", err))
-		return
-	}
-	federatedRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	federatedRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	federatedResponse, err := d.client.Do(federatedRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing federated credential request", fmt.Sprintf("Error executing federated credential request: %s", err))
+		reportClientError(&resp.Diagnostics, "reading federated credential", err)
 		return
 	}
 
-	body, err := io.ReadAll(federatedResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading federated credential response body", fmt.Sprintf("Error reading federated credential response body: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(body)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading federated credential", federatedResponse, body) {
-		return
-	}
-
-	federatedList, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.FederatedEntity)))
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to unmarshal payload: %s", err))
-		return
-	}
-
-	data := findSingleByName(&resp.Diagnostics, "federated credential", state.Name.ValueString(), "", federatedList,
-		func(e *client.FederatedEntity) string { return e.Name })
+	data := findSingleByNameIn(&resp.Diagnostics, "federated credential", state.Name.ValueString(), "", credentials,
+		func(e *terrakube.Federated) string { return e.Name })
 	if data == nil {
 		return
 	}
 	state.ID = types.StringValue(data.ID)
 	state.Name = types.StringValue(data.Name)
-	state.IssuerUrl = types.StringValue(data.IssuerUrl)
+	state.IssuerUrl = types.StringValue(data.IssuerURL)
 	state.Audience = types.StringValue(data.Audience)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)

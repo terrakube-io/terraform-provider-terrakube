@@ -17,9 +17,9 @@ func TestFederatedCredentialDataSource(t *testing.T) {
 		notFound:   "Federated credential not found",
 		multiple:   "Multiple federated credential entries found",
 		apiError:   "Error reading federated credential: 403 Forbidden",
-		badPayload: "Unable to unmarshal payload",
+		badPayload: "Error reading federated credential",
 		newSource: func(c *http.Client, endpoint string) datasource.DataSource {
-			return &FederatedCredentialDataSource{client: c, endpoint: endpoint, token: "test-token"}
+			return &FederatedCredentialDataSource{client: newTestClient(c, endpoint)}
 		},
 	})
 }

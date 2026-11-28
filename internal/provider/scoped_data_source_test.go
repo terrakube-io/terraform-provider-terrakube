@@ -89,7 +89,7 @@ func runScopedDataSourceTests(t *testing.T, tc scopedDataSourceCase) {
 			func(r *http.Request) {
 				switch r.URL.Path {
 				case "/api/v1/organization":
-					if got := r.URL.Query().Get("filter[organization]"); got != `name=="my-org"` {
+					if got := r.URL.Query().Get("filter"); got != `name=="my-org"` {
 						t.Errorf("organization filter = %q", got)
 					}
 				case tc.entityPath:

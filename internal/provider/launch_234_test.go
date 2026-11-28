@@ -180,7 +180,7 @@ func TestTeamDataSourceRBAC(t *testing.T) {
 				_, _ = w.Write([]byte(`{"data":[{"type":"team","id":"team","attributes":{"name":"test",` + attrs + `}}]}`))
 			}))
 			defer server.Close()
-			d := &TeamDataSource{client: server.Client(), endpoint: server.URL}
+			d := &TeamDataSource{client: newTestClient(server.Client(), server.URL)}
 			var sr datasource.SchemaResponse
 			d.Schema(ctx, datasource.SchemaRequest{}, &sr)
 			obj, ok := sr.Schema.Type().TerraformType(ctx).(tftypes.Object)

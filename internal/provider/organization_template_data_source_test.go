@@ -18,9 +18,9 @@ func TestOrganizationTemplateDataSource(t *testing.T) {
 		notFound:   "Organization template not found",
 		multiple:   "Multiple organization template entries found",
 		apiError:   "Error reading organization template: 403 Forbidden",
-		badPayload: "Unable to unmarshal payload",
+		badPayload: "Error reading organization template",
 		newSource: func(c *http.Client, endpoint string) datasource.DataSource {
-			return &OrganizationTemplateDataSource{client: c, endpoint: endpoint, token: "test-token"}
+			return &OrganizationTemplateDataSource{client: newTestClient(c, endpoint)}
 		},
 	})
 }

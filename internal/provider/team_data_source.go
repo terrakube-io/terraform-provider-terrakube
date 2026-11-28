@@ -2,20 +2,13 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -42,48 +35,15 @@ type TeamDataSourceModel struct {
 }
 
 type TeamDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewTeamDataSource() datasource.DataSource {
 	return &TeamDataSource{}
 }
 
-func (d *TeamDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, res *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		res.Diagnostics.AddError(
-			"Unexpected Team Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-
-	ctx = tflog.SetField(ctx, "endpoint", d.endpoint)
-	ctx = tflog.SetField(ctx, "token", d.token)
-	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "token")
-	tflog.Info(ctx, "Creating Team datasource")
+func (d *TeamDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Team Data Source")
 }
 
 func (d *TeamDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -149,34 +109,37 @@ func (d *TeamDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, r
 func (d *TeamDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var state TeamDataSourceModel
 
-	req.Config.Get(ctx, &state)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	tflog.Info(ctx, fmt.Sprintf("organization : %s", state.Organization.ValueString()))
 	tflog.Info(ctx, fmt.Sprintf("team : %s", state.Name.ValueString()))
 
 	teamName := state.Name.ValueString()
 
-	orgs := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, url.QueryEscape(rsqlQuote(state.Organization.ValueString()))), ctx, resp, new(client.OrganizationEntity))
-
-	if resp.Diagnostics.HasError() {
+	organizations, err := d.client.Organizations.List(ctx, &terrakube.ListOptions{Filter: "name==" + rsqlQuote(state.Organization.ValueString())})
+	if err != nil {
+		reportClientError(&resp.Diagnostics, "reading team", err)
 		return
 	}
-	organization := findSingleByName(&resp.Diagnostics, "organization", state.Organization.ValueString(), "", orgs,
-		func(e *client.OrganizationEntity) string { return e.Name })
+	organization := findSingleByNameIn(&resp.Diagnostics, "organization", state.Organization.ValueString(), "", organizations,
+		func(e *terrakube.Organization) string { return e.Name })
 	if organization == nil {
 		return
 	}
-	OrganizationID := organization.ID
 
-	teams := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/team?filter[team]=name==%s", d.endpoint, url.PathEscape(OrganizationID), url.QueryEscape(rsqlQuote(teamName))), ctx, resp, new(client.TeamEntity))
-	if resp.Diagnostics.HasError() {
+	teams, err := d.client.Teams.List(ctx, organization.ID, &terrakube.ListOptions{Filter: "name==" + rsqlQuote(teamName)})
+	if err != nil {
+		reportClientError(&resp.Diagnostics, "reading team", err)
 		return
 	}
-	data := findSingleByName(&resp.Diagnostics, "team", teamName, " in organization "+state.Organization.ValueString(), teams,
-		func(e *client.TeamEntity) string { return e.Name })
+	data := findSingleByNameIn(&resp.Diagnostics, "team", teamName, " in organization "+state.Organization.ValueString(), teams,
+		func(e *terrakube.Team) string { return e.Name })
 	if data == nil {
 		return
 	}
-	state.Role = roleToState(data.Role)
+	state.Role = roleToState(&data.Role)
 	state.PlanJob = types.BoolValue(data.PlanJob)
 	state.ApproveJob = types.BoolValue(data.ApproveJob)
 	state.DestroyJob = types.BoolPointerValue(data.DestroyJob)
@@ -192,43 +155,4 @@ func (d *TeamDataSource) Read(ctx context.Context, req datasource.ReadRequest, r
 
 	diags := resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-}
-
-func (d *TeamDataSource) ReadDataFromApi(url string, ctx context.Context, resp *datasource.ReadResponse, structType any) (data []interface{}) {
-	regApi, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating Team datasource request", fmt.Sprintf("Error creating Team datasource request: %s", err))
-		return
-	}
-	regApi.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	regApi.Header.Add("Content-Type", "application/vnd.api+json")
-
-	resApi, err := d.client.Do(regApi)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Team datasource request", fmt.Sprintf("Error executing Team datasource request: %s", err))
-		return
-	}
-
-	body, err := io.ReadAll(resApi.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading Team response, response status: %s, error: %s", resApi.Status, err))
-	}
-
-	tflog.Info(ctx, string(body))
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading team", resApi, body) {
-		return
-	}
-
-	data, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(structType))
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to marshal payload, response status: %s, response body: %s, error: %s", resApi.Status, string(body), err))
-		return
-	}
-
-	return data
 }

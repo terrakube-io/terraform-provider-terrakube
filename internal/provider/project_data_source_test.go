@@ -19,7 +19,7 @@ func TestProjectDataSource(t *testing.T) {
 		multiple:   "Multiple project entries found",
 		apiError:   "Error reading project: 403 Forbidden",
 		newSource: func(c *http.Client, endpoint string) datasource.DataSource {
-			return &ProjectDataSource{client: c, endpoint: endpoint, token: "test-token"}
+			return &ProjectDataSource{client: newTestClient(c, endpoint)}
 		},
 	})
 }
