@@ -123,8 +123,8 @@ func (s *collectionReferenceServer) ServeHTTP(w http.ResponseWriter, r *http.Req
 	}
 }
 
-// The reference links the workspace and the collection with JSON:API relationships, as the
-// hand-written client did, on create and on update.
+// The reference links the workspace and the collection with JSON:API relationships, on create
+// and on update.
 func TestCollectionReferenceResource_SendsRelationships(t *testing.T) {
 	ctx := context.Background()
 	s, objType := collectionReferenceSchemaAndType(t, ctx)

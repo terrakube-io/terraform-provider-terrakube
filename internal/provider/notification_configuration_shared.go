@@ -103,7 +103,7 @@ func signingSecretConfigValidators() []resource.ConfigValidator {
 
 // signingSecretToSend returns the signing secret for the request body: signing_secret from
 // the plan, or signing_secret_wo from the configuration (write-only values are never in the
-// plan). nil when neither is set, so the attribute is left out of the request, as before.
+// plan). nil when neither is set, so the attribute is left out of the request.
 func signingSecretToSend(ctx context.Context, config tfsdk.Config, planned types.String) (*string, diag.Diagnostics) {
 	value, fromWo, diags := writeOnlyValue(ctx, config, planned, "signing_secret")
 	if diags.HasError() || (planned.IsNull() && !fromWo) {

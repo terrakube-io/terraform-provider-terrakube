@@ -320,7 +320,8 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 		return
 	}
 
-	// Both secrets are always sent, as before: a write-only secret is null in plan and state.
+	// Both secrets are always sent: a write-only secret is null in plan and state, so there is no
+	// prior value to compare with.
 	attributes := patchAttributes{"clientSecret": clientSecret, "privateKey": privateKey}
 	attributes.updateString("name", plan.Name, state.Name)
 	attributes.updateString("description", plan.Description, state.Description)
@@ -332,12 +333,15 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 	attributes.updateString("status", plan.Status, state.Status)
 
 	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
-	if _, err := r.client.VCS.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+	vcs, err := r.client.VCS.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating vcs connection", err)
 		return
 	}
 
-	vcs, err := r.client.VCS.Get(ctx, organizationID, id)
+	vcs, err = readAfterPatch(vcs, func() (*terrakube.VCS, error) {
+		return r.client.VCS.Get(ctx, organizationID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading vcs connection after update", err)
 		return
@@ -372,9 +376,7 @@ func (r *VcsResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 	}
 
 	err := r.client.VCS.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting vcs connection", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting vcs connection", err)
 }
 
 func (r *VcsResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

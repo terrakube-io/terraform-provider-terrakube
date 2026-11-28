@@ -23,7 +23,7 @@ func registryObjectType(t *testing.T, r resource.Resource) tftypes.Object {
 }
 
 // Terrakube may answer an attribute that was never set with "". The update keeps the planned null
-// instead, as before, or Terraform would report an inconsistent result.
+// instead, or Terraform would report an inconsistent result.
 func TestRegistryProviderResource_UpdateKeepsNullForEmptyStrings(t *testing.T) {
 	str := func(v string) tftypes.Value { return tftypes.NewValue(tftypes.String, v) }
 	server, sent := policyTestServer(t, `{"data":{"type":"provider","id":"p-1","attributes":{
@@ -58,7 +58,7 @@ func TestRegistryProviderResource_UpdateKeepsNullForEmptyStrings(t *testing.T) {
 }
 
 // A Terrakube older than 2.34.0 has no status and may answer an unset message with "". The update
-// keeps active and the planned null, as before.
+// keeps active and the planned null.
 func TestRegistryProviderVersionResource_UpdateKeepsNullForEmptyStrings(t *testing.T) {
 	str := func(v string) tftypes.Value { return tftypes.NewValue(tftypes.String, v) }
 	server, sent := policyTestServer(t, `{"data":{"type":"version","id":"v-1","attributes":{
@@ -94,7 +94,7 @@ func TestRegistryProviderVersionResource_UpdateKeepsNullForEmptyStrings(t *testi
 }
 
 // Terrakube stores an unset optional attribute of an implementation as "" (the columns are NOT
-// NULL). The update keeps the planned null, as before, and still sends every attribute, with
+// NULL). The update keeps the planned null, and still sends every attribute, with
 // ascii_armor as null.
 func TestRegistryProviderImplementationResource_UpdateKeepsNullForEmptyStrings(t *testing.T) {
 	str := func(v string) tftypes.Value { return tftypes.NewValue(tftypes.String, v) }

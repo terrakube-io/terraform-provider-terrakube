@@ -210,14 +210,16 @@ func (r *RegistryProviderImplementationResource) Update(ctx context.Context, req
 
 	organizationID, providerID, versionID, id := state.OrganizationId.ValueString(), state.ProviderId.ValueString(),
 		state.VersionId.ValueString(), state.ID.ValueString()
-	_, err := r.client.Implementations.UpdateFields(ctx, organizationID, providerID, versionID, id,
+	updated, err := r.client.Implementations.UpdateFields(ctx, organizationID, providerID, versionID, id,
 		terrakube.Patch{Attributes: plan.attributes(false)})
 	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating registry provider implementation", err)
 		return
 	}
 
-	updated, err := r.client.Implementations.Get(ctx, organizationID, providerID, versionID, id)
+	updated, err = readAfterPatch(updated, func() (*terrakube.Implementation, error) {
+		return r.client.Implementations.Get(ctx, organizationID, providerID, versionID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading registry provider implementation after update", err)
 		return
@@ -236,9 +238,7 @@ func (r *RegistryProviderImplementationResource) Delete(ctx context.Context, req
 
 	err := r.client.Implementations.Delete(ctx, state.OrganizationId.ValueString(), state.ProviderId.ValueString(),
 		state.VersionId.ValueString(), state.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting registry provider implementation", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting registry provider implementation", err)
 }
 
 func (r *RegistryProviderImplementationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

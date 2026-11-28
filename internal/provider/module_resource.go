@@ -202,12 +202,15 @@ func (r *ModuleResource) Update(ctx context.Context, req resource.UpdateRequest,
 
 	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
 	patch := terrakube.Patch{Attributes: attributes, Relationships: moduleRelationships(plan)}
-	if _, err := r.client.Modules.UpdateFields(ctx, organizationID, id, patch); patchFailed(err) {
+	module, err := r.client.Modules.UpdateFields(ctx, organizationID, id, patch)
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating module", err)
 		return
 	}
 
-	module, err := r.client.Modules.Get(ctx, organizationID, id)
+	module, err = readAfterPatch(module, func() (*terrakube.Module, error) {
+		return r.client.Modules.Get(ctx, organizationID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading module after update", err)
 		return
@@ -235,13 +238,12 @@ func (r *ModuleResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	}
 
 	err := r.client.Modules.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting module", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting module", err)
 }
 
 // moduleRelationships links the module to its VCS connection and SSH key when they are set.
-// As before, a link is never cleared: a vcs_id or ssh_id removed from the configuration is not sent.
+// A link is never cleared: a vcs_id or ssh_id removed from the configuration is not sent, and
+// Terrakube does not clear a link that is left out.
 func moduleRelationships(model ModuleResourceModel) map[string]terrakube.Relationship {
 	relationships := map[string]terrakube.Relationship{}
 	if !model.VcsId.IsNull() && !model.VcsId.IsUnknown() {

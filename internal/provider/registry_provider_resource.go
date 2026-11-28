@@ -250,12 +250,15 @@ func (r *RegistryProviderResource) Update(ctx context.Context, req resource.Upda
 
 	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
 	patch := terrakube.Patch{Attributes: registryProviderAttributes(&plan, &state)}
-	if _, err := r.client.Providers.UpdateFields(ctx, organizationID, id, patch); patchFailed(err) {
+	updated, err := r.client.Providers.UpdateFields(ctx, organizationID, id, patch)
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating registry provider", err)
 		return
 	}
 
-	updated, err := r.client.Providers.Get(ctx, organizationID, id)
+	updated, err = readAfterPatch(updated, func() (*terrakube.Provider, error) {
+		return r.client.Providers.Get(ctx, organizationID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading registry provider after update", err)
 		return
@@ -280,9 +283,7 @@ func (r *RegistryProviderResource) Delete(ctx context.Context, req resource.Dele
 	}
 
 	err := r.client.Providers.Delete(ctx, state.OrganizationId.ValueString(), state.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting registry provider", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting registry provider", err)
 }
 
 // maxVersionDeletePages bounds the list-and-delete loop, so a version that cannot be deleted
@@ -309,28 +310,18 @@ func (r *RegistryProviderResource) deleteVersions(ctx context.Context, diags *di
 			}
 			for _, implementation := range implementations {
 				err := r.client.Implementations.Delete(ctx, organizationID, providerID, version.ID, implementation.ID)
-				if !deleteSucceeded(diags, "deleting registry provider implementation", err) {
+				if reportDeleteError(diags, "deleting registry provider implementation", err) {
 					return
 				}
 			}
 			err = r.client.ProviderVersions.Delete(ctx, organizationID, providerID, version.ID)
-			if !deleteSucceeded(diags, "deleting registry provider version", err) {
+			if reportDeleteError(diags, "deleting registry provider version", err) {
 				return
 			}
 		}
 	}
 	diags.AddError("Error deleting the versions of the registry provider",
 		fmt.Sprintf("Versions are still left after %d rounds of deleting them.", maxVersionDeletePages))
-}
-
-// deleteSucceeded reports whether a delete left the object gone. A 404 means it already was;
-// any other error, such as a 409 for a version that still has implementations, is reported.
-func deleteSucceeded(diags *diag.Diagnostics, action string, err error) bool {
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(diags, action, err)
-		return false
-	}
-	return true
 }
 
 func (r *RegistryProviderResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

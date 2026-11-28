@@ -300,15 +300,18 @@ func (r *OrganizationNotificationConfigurationResource) Update(ctx context.Conte
 	attributes.updateString("messageStyle", plan.MessageStyle, state.MessageStyle)
 
 	id := state.ID.ValueString()
-	if _, err := r.client.NotificationConfigurations.UpdateFieldsByID(ctx, id, terrakube.Patch{
+	configuration, err := r.client.NotificationConfigurations.UpdateFieldsByID(ctx, id, terrakube.Patch{
 		Attributes:    attributes,
 		Relationships: notificationTemplatesRelationship(desiredTemplateIds),
-	}); patchFailed(err) {
+	})
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating organization notification configuration", err)
 		return
 	}
 
-	configuration, err := r.client.NotificationConfigurations.GetByID(ctx, id)
+	configuration, err = readAfterPatch(configuration, func() (*terrakube.NotificationConfiguration, error) {
+		return r.client.NotificationConfigurations.GetByID(ctx, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading organization notification configuration after update", err)
 		return
@@ -351,9 +354,7 @@ func (r *OrganizationNotificationConfigurationResource) Delete(ctx context.Conte
 	}
 
 	err := r.client.NotificationConfigurations.DeleteByID(ctx, state.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting organization notification configuration", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting organization notification configuration", err)
 }
 
 func (r *OrganizationNotificationConfigurationResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {

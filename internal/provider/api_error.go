@@ -16,25 +16,16 @@ import (
 // trace from a failing backend would otherwise become the entire error output.
 const maxErrorDetailBytes = 4096
 
-// reportAPIErrorStatus adds a diagnostic naming the HTTP status and the API's own
-// error message when the response is not 2xx, and reports whether it did so.
-// Call it before unmarshaling a response body: jsonapi rejects an error payload
-// with a complaint that mentions neither the status nor the cause.
-func reportAPIErrorStatus(diags *diag.Diagnostics, action string, response *http.Response, body []byte) bool {
-	if response.StatusCode >= 200 && response.StatusCode < 300 {
-		return false
-	}
-
-	diags.AddError(
-		fmt.Sprintf("Error %s: %s", action, response.Status),
-		apiErrorDetail(body),
-	)
-	return true
+// apiErrorResponse is a JSON:API error document.
+type apiErrorResponse struct {
+	Errors []struct {
+		Detail string `json:"detail"`
+	} `json:"errors"`
 }
 
 // reportClientError adds a diagnostic for an error returned by the terrakube-go client.
-// An API error is reported like reportAPIErrorStatus does, naming the HTTP status and the
-// API's own message; any other error (transport, validation) is reported as it is.
+// An API error is reported with the HTTP status and the API's own message; any other error
+// (transport, validation) is reported as it is.
 func reportClientError(diags *diag.Diagnostics, action string, err error) {
 	var apiErr *terrakube.APIError
 	if errors.As(err, &apiErr) {
@@ -48,8 +39,19 @@ func reportClientError(diags *diag.Diagnostics, action string, err error) {
 	diags.AddError(fmt.Sprintf("Error %s", action), err.Error())
 }
 
+// reportDeleteError reports an error from a delete and reports whether it did. A 404 is not an
+// error: the object is already gone. Any other error, such as a 409 for a registry provider
+// version that still has implementations, is reported with reportClientError.
+func reportDeleteError(diags *diag.Diagnostics, action string, err error) bool {
+	if err == nil || terrakube.IsNotFound(err) {
+		return false
+	}
+	reportClientError(diags, action, err)
+	return true
+}
+
 func apiErrorDetail(body []byte) string {
-	var errorResponse ErrorResponse
+	var errorResponse apiErrorResponse
 	if err := json.Unmarshal(body, &errorResponse); err == nil {
 		details := make([]string, 0, len(errorResponse.Errors))
 		for _, apiError := range errorResponse.Errors {

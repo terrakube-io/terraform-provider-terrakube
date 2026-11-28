@@ -300,13 +300,13 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 	attributes.updateString("terraformVersion", plan.IaCVersion, state.IaCVersion)
 	attributes.updateString("executionMode", plan.ExecutionMode, state.ExecutionMode)
 	attributes.updateBool("allowRemoteApply", plan.AllowRemoteApply, state.AllowRemoteApply)
-	// As before, module_ssh_key is never cleared with null; an empty string clears it.
+	// module_ssh_key is sent only when set: null leaves it unchanged, an empty string clears it.
 	attributes.createString("moduleSshKey", plan.ModuleSshKey)
 	attributes.createBool("restrictApplyToConfiguredBranch", config.RestrictApplyToConfiguredBranch)
 	attributes.createBool("requireApproveToApply", config.RequireApproveToApply)
 
-	// As before, a vcs_id, ssh_id or agent_id removed from the configuration is not sent, so the
-	// link stays on the server.
+	// A vcs_id, ssh_id or agent_id removed from the configuration is not sent, and Terrakube does
+	// not clear a link that is left out, so the link stays on the server.
 	relationships := map[string]terrakube.Relationship{}
 	addWorkspaceRelationship(relationships, "vcs", plan.VcsId)
 	addWorkspaceRelationship(relationships, "ssh", plan.SshId)
@@ -317,13 +317,15 @@ func (r *WorkspaceVcsResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
-	_, err := r.client.Workspaces.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes, Relationships: relationships})
+	workspace, err := r.client.Workspaces.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes, Relationships: relationships})
 	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating workspace vcs", err)
 		return
 	}
 
-	workspace, err := r.client.Workspaces.Get(ctx, organizationID, id)
+	workspace, err = readAfterPatch(workspace, func() (*terrakube.Workspace, error) {
+		return r.client.Workspaces.Get(ctx, organizationID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading workspace vcs after update", err)
 		return

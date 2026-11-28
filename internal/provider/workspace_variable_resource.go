@@ -215,12 +215,15 @@ func (r *WorkspaceVariableResource) Update(ctx context.Context, req resource.Upd
 	attributes.updateBool("hcl", plan.Hcl, state.Hcl)
 
 	organizationID, workspaceID, id := state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()
-	if _, err := r.client.Variables.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+	workspaceVariable, err := r.client.Variables.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
 		reportClientError(&resp.Diagnostics, "updating workspace variable", err)
 		return
 	}
 
-	workspaceVariable, err := r.client.Variables.Get(ctx, organizationID, workspaceID, id)
+	workspaceVariable, err = readAfterPatch(workspaceVariable, func() (*terrakube.Variable, error) {
+		return r.client.Variables.Get(ctx, organizationID, workspaceID, id)
+	})
 	if err != nil {
 		reportClientError(&resp.Diagnostics, "reading workspace variable after update", err)
 		return
@@ -252,9 +255,7 @@ func (r *WorkspaceVariableResource) Delete(ctx context.Context, req resource.Del
 	}
 
 	err := r.client.Variables.Delete(ctx, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting workspace variable", err)
-	}
+	reportDeleteError(&resp.Diagnostics, "deleting workspace variable", err)
 }
 
 func (r *WorkspaceVariableResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

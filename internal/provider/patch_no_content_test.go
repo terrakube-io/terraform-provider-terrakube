@@ -317,9 +317,6 @@ func TestPatchNoContent(t *testing.T) {
 		}, "download_url"},
 	}
 
-	// These resources use the item UpdateFields read back instead of reading it again.
-	readsBackOnce := map[string]bool{"organization": true, "organization_tag": true, "organization_template": true, "project": true}
-
 	for _, c := range cases {
 		t.Run(c.name+"/update", func(t *testing.T) {
 			h := newCrudHarness(t, c.tc)
@@ -330,9 +327,7 @@ func TestPatchNoContent(t *testing.T) {
 				t.Fatalf("Update returned diagnostics: %v", resp.Diagnostics)
 			}
 			h.checkState(resp.State, map[string]string{c.update: patchNoContentWant(c.tc.update[c.update])})
-			if readsBackOnce[c.name] {
-				checkOneReadAfterPatch(t, h.server)
-			}
+			checkOneReadAfterPatch(t, h.server)
 		})
 
 		t.Run(c.name+"/update survives a failed read-back", func(t *testing.T) {
@@ -345,6 +340,16 @@ func TestPatchNoContent(t *testing.T) {
 				t.Fatalf("Update returned diagnostics: %v", resp.Diagnostics)
 			}
 			h.checkState(resp.State, map[string]string{c.update: patchNoContentWant(c.tc.update[c.update])})
+		})
+
+		// When the read-back answers 404, UpdateFields returns an item that holds only the attributes
+		// that were sent. Update must not dereference an attribute that is missing from it.
+		t.Run(c.name+"/update survives an item gone after the PATCH", func(t *testing.T) {
+			h := newCrudHarness(t, c.tc)
+			prior := h.createdState()
+			h.server.patchNoContent = true
+			h.server.fail[http.MethodGet] = http.StatusNotFound
+			h.update(prior)
 		})
 	}
 
@@ -377,6 +382,9 @@ func TestPatchNoContent(t *testing.T) {
 				t.Fatalf("Update returned diagnostics: %v", resp.Diagnostics)
 			}
 			h.checkState(resp.State, map[string]string{"migrated_v2": "true"})
+			if !failReadBack {
+				checkOneReadAfterPatch(t, h.server)
+			}
 			request, _ := h.server.lastRequest(http.MethodPatch)
 			checkSent(t, request, map[string]any{"migratedV2": true})
 		})
@@ -395,22 +403,26 @@ func TestPatchNoContent(t *testing.T) {
 	})
 }
 
-// checkOneReadAfterPatch fails the test unless exactly one GET followed the PATCH.
+// checkOneReadAfterPatch fails the test unless exactly one GET of the item followed the PATCH.
 func checkOneReadAfterPatch(t *testing.T, s *crudServer) {
 	t.Helper()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	item := s.collection + "/" + crudItemID
+	if s.item != "" {
+		item = s.item
+	}
 	patched, reads := false, 0
 	for _, r := range s.requests {
 		switch {
 		case r.method == http.MethodPatch:
 			patched = true
-		case patched && r.method == http.MethodGet:
+		case patched && r.method == http.MethodGet && r.path == item:
 			reads++
 		}
 	}
 	if reads != 1 {
-		t.Errorf("expected one GET after the PATCH, got %d", reads)
+		t.Errorf("expected one GET of the item after the PATCH, got %d", reads)
 	}
 }
 

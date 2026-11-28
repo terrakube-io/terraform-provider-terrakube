@@ -215,7 +215,7 @@ func (r *PolicySetResource) Update(ctx context.Context, req resource.UpdateReque
 
 	id := state.ID.ValueString()
 	patch := terrakube.Patch{Attributes: attributes, Relationships: policySetRelationships(plan)}
-	_, err := r.client.PolicySets.UpdateFieldsByID(ctx, id, patch)
+	policySet, err := r.client.PolicySets.UpdateFieldsByID(ctx, id, patch)
 	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Policy set not found during update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
@@ -226,7 +226,9 @@ func (r *PolicySetResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	policySet, err := r.client.PolicySets.GetByID(ctx, id)
+	policySet, err = readAfterPatch(policySet, func() (*terrakube.PolicySet, error) {
+		return r.client.PolicySets.GetByID(ctx, id)
+	})
 	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Policy set not found after update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
@@ -237,10 +239,10 @@ func (r *PolicySetResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	// As before, a VCS or notification link removed from the configuration is not cleared on the
-	// server, so the state keeps the planned IDs rather than the links Terrakube still has.
-	// branch, folder and opa_version set to "" are left out of the request, as before, so Terrakube
-	// keeps its value; the state keeps the planned "" too.
+	// A VCS or notification link removed from the configuration is not sent, and Terrakube does not
+	// clear a link that is left out, so the state keeps the planned IDs rather than the links
+	// Terrakube still has. branch, folder and opa_version set to "" are left out of the request, so
+	// Terrakube keeps its value; the state keeps the planned "" too.
 	vcsID, notificationID := plan.VcsId, plan.NotificationConfigurationId
 	branch, folder, opaVersion := plan.Branch, plan.Folder, plan.OpaVersion
 	setPolicySetState(&plan, policySet)
@@ -265,8 +267,7 @@ func (r *PolicySetResource) Delete(ctx context.Context, req resource.DeleteReque
 	}
 
 	err := r.client.PolicySets.DeleteByID(ctx, state.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting policy set", err)
+	if reportDeleteError(&resp.Diagnostics, "deleting policy set", err) {
 		return
 	}
 
@@ -274,8 +275,7 @@ func (r *PolicySetResource) Delete(ctx context.Context, req resource.DeleteReque
 }
 
 // policySetRelationships links the policy set to its VCS connection and notification configuration
-// when they are set. As before, a link is never cleared: an ID removed from the configuration is
-// not sent.
+// when they are set. A link is never cleared: an ID removed from the configuration is not sent.
 func policySetRelationships(model PolicySetResourceModel) map[string]terrakube.Relationship {
 	relationships := map[string]terrakube.Relationship{}
 	if !model.VcsId.IsNull() && !model.VcsId.IsUnknown() && model.VcsId.ValueString() != "" {
@@ -334,8 +334,8 @@ func isEmptyString(value types.String) bool {
 	return !value.IsNull() && !value.IsUnknown() && value.ValueString() == ""
 }
 
-// updateNonEmptyString is updateString, except that an empty value is left out, as the old
-// request bodies left out an empty branch, folder or OPA version.
+// updateNonEmptyString is updateString, except that an empty value is left out, so an empty
+// branch, folder or OPA version leaves Terrakube's value unchanged.
 func updateNonEmptyString(attributes patchAttributes, name string, value, prior types.String) {
 	if isEmptyString(value) {
 		return
@@ -349,15 +349,6 @@ func upperString(value types.String) types.String {
 		return value
 	}
 	return types.StringValue(strings.ToUpper(value.ValueString()))
-}
-
-// stringOrEmpty is the string value points to, or "" when it is nil, as the old string fields
-// of the API entities decoded a missing attribute.
-func stringOrEmpty(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
 
 func (r *PolicySetResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

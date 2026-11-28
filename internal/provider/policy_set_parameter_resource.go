@@ -170,8 +170,7 @@ func (r *PolicySetParameterResource) Delete(ctx context.Context, req resource.De
 	}
 
 	err := r.client.PolicySetParameters.DeleteByPolicySet(ctx, state.PolicySetId.ValueString(), state.ID.ValueString())
-	if err != nil && !terrakube.IsNotFound(err) {
-		reportClientError(&resp.Diagnostics, "deleting policy set parameter", err)
+	if reportDeleteError(&resp.Diagnostics, "deleting policy set parameter", err) {
 		return
 	}
 

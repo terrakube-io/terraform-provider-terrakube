@@ -6,7 +6,7 @@ area/data-source:
       - any-glob-to-any-file: ['internal/provider/*_data_source.go']
 area/provider:
   - changed-files:
-      - any-glob-to-any-file: ['internal/provider/provider.go', 'internal/client/**', 'internal/helpers/**']
+      - any-glob-to-any-file: ['internal/provider/provider.go', 'internal/helpers/**']
 area/docs:
   - changed-files:
       - any-glob-to-any-file: ['docs/**', 'templates/**', 'examples/**', '*.md']
