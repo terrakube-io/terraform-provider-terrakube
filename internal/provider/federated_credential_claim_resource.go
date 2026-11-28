@@ -1,16 +1,10 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -18,15 +12,14 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var _ resource.Resource = &FederatedCredentialClaimResource{}
 var _ resource.ResourceWithImportState = &FederatedCredentialClaimResource{}
 
 type FederatedCredentialClaimResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type FederatedCredentialClaimResourceModel struct {
@@ -75,36 +68,7 @@ func (r *FederatedCredentialClaimResource) Schema(ctx context.Context, req resou
 }
 
 func (r *FederatedCredentialClaimResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Federated Credential Claim Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Federated Credential Claim resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Federated Credential Claim Resource")
 }
 
 func (r *FederatedCredentialClaimResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -114,101 +78,39 @@ func (r *FederatedCredentialClaimResource) Create(ctx context.Context, req resou
 		return
 	}
 
-	bodyRequest := &client.FederatedClaimEntity{
-		ClaimKey:   plan.ClaimKey.ValueString(),
-		ClaimValue: plan.ClaimValue.ValueString(),
-	}
+	attributes := patchAttributes{}
+	attributes.createString("claimKey", plan.ClaimKey)
+	attributes.createString("claimValue", plan.ClaimValue)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
+	claim, err := r.client.FederatedClaims.CreateFields(ctx, plan.FederatedCredentialId.ValueString(), terrakube.Patch{Attributes: attributes})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating federated credential claim", err)
 		return
 	}
 
-	claimRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/federated/%s/claims", r.endpoint, plan.FederatedCredentialId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating federated credential claim resource request", fmt.Sprintf("Error creating federated credential claim resource request: %s", err))
-		return
-	}
-	claimRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	claimRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	claimResponse, err := r.client.Do(claimRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing federated credential claim resource request", fmt.Sprintf("Error executing federated credential claim resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(claimResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading federated credential claim resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating federated credential claim", claimResponse, bodyResponse) {
-		return
-	}
-
-	newClaim := &client.FederatedClaimEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newClaim)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	plan.ID = types.StringValue(newClaim.ID)
-	plan.ClaimKey = types.StringValue(newClaim.ClaimKey)
-	plan.ClaimValue = types.StringValue(newClaim.ClaimValue)
+	plan.ID = types.StringValue(claim.ID)
+	plan.ClaimKey = types.StringValue(claim.ClaimKey)
+	plan.ClaimValue = types.StringValue(claim.ClaimValue)
 
 	tflog.Info(ctx, "Federated Credential Claim Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *FederatedCredentialClaimResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state FederatedCredentialClaimResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	claimRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/federated/%s/claims/%s", r.endpoint, state.FederatedCredentialId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating federated credential claim resource request", fmt.Sprintf("Error creating federated credential claim resource request: %s", err))
-		return
-	}
-	claimRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	claimRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	claimResponse, err := r.client.Do(claimRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing federated credential claim resource request", fmt.Sprintf("Error executing federated credential claim resource request: %s", err))
-		return
-	}
-
-	if claimResponse.StatusCode == http.StatusNotFound {
+	claim, err := r.client.FederatedClaims.Get(ctx, state.FederatedCredentialId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Federated credential claim not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(claimResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, "Error reading federated credential claim resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading federated credential claim", claimResponse, bodyResponse) {
-		return
-	}
-
-	claim := &client.FederatedClaimEntity{}
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), claim)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
+		reportClientError(&resp.Diagnostics, "reading federated credential claim", err)
 		return
 	}
 
@@ -216,13 +118,7 @@ func (r *FederatedCredentialClaimResource) Read(ctx context.Context, req resourc
 	state.ClaimKey = types.StringValue(claim.ClaimKey)
 	state.ClaimValue = types.StringValue(claim.ClaimValue)
 
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	tflog.Info(ctx, "Federated Credential Claim Resource reading", map[string]any{"success": true})
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *FederatedCredentialClaimResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -234,76 +130,23 @@ func (r *FederatedCredentialClaimResource) Update(ctx context.Context, req resou
 		return
 	}
 
-	bodyRequest := &client.FederatedClaimEntity{
-		ID:         state.ID.ValueString(),
-		ClaimKey:   plan.ClaimKey.ValueString(),
-		ClaimValue: plan.ClaimValue.ValueString(),
-	}
+	attributes := patchAttributes{}
+	attributes.updateString("claimKey", plan.ClaimKey, state.ClaimKey)
+	attributes.updateString("claimValue", plan.ClaimValue, state.ClaimValue)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	federatedID, id := state.FederatedCredentialId.ValueString(), state.ID.ValueString()
+	if _, err := r.client.FederatedClaims.UpdateFields(ctx, federatedID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating federated credential claim", err)
 		return
 	}
 
-	claimRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/federated/%s/claims/%s", r.endpoint, state.FederatedCredentialId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
+	claim, err := r.client.FederatedClaims.Get(ctx, federatedID, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating federated credential claim resource request", fmt.Sprintf("Error creating federated credential claim resource request: %s", err))
-		return
-	}
-	claimRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	claimRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	claimResponse, err := r.client.Do(claimRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing federated credential claim resource request", fmt.Sprintf("Error executing federated credential claim resource request: %s", err))
+		reportClientError(&resp.Diagnostics, "reading federated credential claim after update", err)
 		return
 	}
 
-	bodyResponse, err := io.ReadAll(claimResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading federated credential claim resource response")
-	}
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating federated credential claim", claimResponse, bodyResponse) {
-		return
-	}
-
-	claimRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/federated/%s/claims/%s", r.endpoint, state.FederatedCredentialId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating federated credential claim resource request", fmt.Sprintf("Error creating federated credential claim resource request: %s", err))
-		return
-	}
-	claimRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	claimRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	claimResponse, err = r.client.Do(claimRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing federated credential claim resource request", fmt.Sprintf("Error executing federated credential claim resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err = io.ReadAll(claimResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading federated credential claim resource response body", fmt.Sprintf("Error reading federated credential claim resource response body: %s", err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading federated credential claim after update", claimResponse, bodyResponse) {
-		return
-	}
-
-	claim := &client.FederatedClaimEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), claim)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	plan.ID = types.StringValue(state.ID.ValueString())
+	plan.ID = types.StringValue(id)
 	plan.ClaimKey = types.StringValue(claim.ClaimKey)
 	plan.ClaimValue = types.StringValue(claim.ClaimValue)
 
@@ -317,19 +160,10 @@ func (r *FederatedCredentialClaimResource) Delete(ctx context.Context, req resou
 		return
 	}
 
-	claimRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/federated/%s/claims/%s", r.endpoint, data.FederatedCredentialId.ValueString(), data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating federated credential claim resource request", fmt.Sprintf("Error creating federated credential claim resource request: %s", err))
-		return
+	err := r.client.FederatedClaims.Delete(ctx, data.FederatedCredentialId.ValueString(), data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting federated credential claim", err)
 	}
-	claimRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	response, err := r.client.Do(claimRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing federated credential claim resource request", fmt.Sprintf("Error executing federated credential claim resource request: %s", err))
-		return
-	}
-	reportDeleteFailure(&resp.Diagnostics, "deleting federated credential claim", response)
 }
 
 func (r *FederatedCredentialClaimResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

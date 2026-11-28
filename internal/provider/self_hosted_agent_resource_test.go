@@ -14,7 +14,7 @@ func TestSelfHostedAgentResource(t *testing.T) {
 		itemType:   "agent",
 		collection: "/api/v1/organization/org-1/agent",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
-			return &AgentResource{client: c, endpoint: endpoint, token: "test-token"}
+			return &AgentResource{client: newTestClient(c, endpoint)}
 		},
 		create: map[string]tftypes.Value{
 			"name":        str("build-agent"),

@@ -111,7 +111,7 @@ func TestVcsResource_Create_ClientSecretWo(t *testing.T) {
 	server := vcsServer(t, &captured)
 	defer server.Close()
 
-	r := &VcsResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &VcsResource{client: newTestClient(server.Client(), server.URL)}
 
 	// Write-only values are null in the plan; only the configuration has them.
 	planValue := vcsValues(objType, map[string]tftypes.Value{
@@ -162,7 +162,7 @@ func TestVcsResource_Update_KeepsPrivateKeyWo(t *testing.T) {
 	server := vcsServer(t, &captured)
 	defer server.Close()
 
-	r := &VcsResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	r := &VcsResource{client: newTestClient(server.Client(), server.URL)}
 
 	stateValue := vcsValues(objType, map[string]tftypes.Value{
 		"id":                     tftypes.NewValue(tftypes.String, "vcs-1"),
@@ -363,7 +363,7 @@ func TestVcsResource_Update_WoVersionBump(t *testing.T) {
 			server := vcsServer(t, &captured)
 			defer server.Close()
 
-			r := &VcsResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+			r := &VcsResource{client: newTestClient(server.Client(), server.URL)}
 
 			stateValue := vcsValues(objType, map[string]tftypes.Value{
 				"id":                 tftypes.NewValue(tftypes.String, "vcs-1"),

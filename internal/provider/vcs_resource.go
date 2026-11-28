@@ -1,18 +1,12 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"regexp"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 	"terraform-provider-terrakube/internal/helpers"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -27,6 +21,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -35,9 +30,7 @@ var _ resource.ResourceWithImportState = &VcsResource{}
 var _ resource.ResourceWithConfigValidators = &VcsResource{}
 
 type VcsResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type VcsResourceModel struct {
@@ -217,43 +210,12 @@ func vcsSecrets(ctx context.Context, config tfsdk.Config, plan VcsResourceModel)
 }
 
 func (r *VcsResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Organization Variable Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Organization Variable resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "VCS Resource")
 }
 
 func (r *VcsResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan VcsResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -264,74 +226,32 @@ func (r *VcsResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 
-	bodyRequest := &client.VcsEntity{
-		Name:           plan.Name.ValueString(),
-		Description:    plan.Description.ValueString(),
-		VcsType:        plan.VcsType.ValueString(),
-		ConnectionType: plan.ConnectionType.ValueString(),
-		ClientId:       plan.ClientId.ValueString(),
-		ClientSecret:   clientSecret,
-		PrivateKey:     privateKey,
-		Endpoint:       plan.Endpoint.ValueString(),
-		ApiUrl:         plan.ApiUrl.ValueString(),
-		Status:         plan.Status.ValueString(),
-	}
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
+	// Both secrets are always sent, empty when not set, as Terrakube has always received them.
+	attributes := patchAttributes{"clientSecret": clientSecret, "privateKey": privateKey}
+	attributes.createString("name", plan.Name)
+	attributes.createString("description", plan.Description)
+	attributes.createString("vcsType", plan.VcsType)
+	attributes.createString("connectionType", plan.ConnectionType)
+	attributes.createString("clientId", plan.ClientId)
+	attributes.createString("endpoint", plan.Endpoint)
+	attributes.createString("apiUrl", plan.ApiUrl)
+	attributes.createString("status", plan.Status)
 
+	vcs, err := r.client.VCS.CreateFields(ctx, plan.OrganizationId.ValueString(), terrakube.Patch{Attributes: attributes})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating vcs connection", err)
 		return
 	}
-
-	vcsRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/vcs", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating VCS resource request", fmt.Sprintf("Error creating VCS resource request: %s", err))
-		return
-	}
-	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	vcsRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	vcsResponse, err := r.client.Do(vcsRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(vcsResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading VCS resource response, error: %s, response status: %s", err, vcsResponse.Status))
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating vcs connection", vcsResponse, bodyResponse) {
-		return
-	}
-
-	vcs := &client.VcsEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), vcs)
-	tflog.Info(ctx, string(bodyResponse))
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response, error: %s, response status: %s", err, vcsResponse.Status))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	plan.ID = types.StringValue(vcs.ID)
 	plan.Name = types.StringValue(vcs.Name)
 	plan.Description = types.StringValue(vcs.Description)
 	plan.VcsType = types.StringValue(vcs.VcsType)
-	plan.ClientId = types.StringValue(vcs.ClientId)
+	plan.ClientId = types.StringValue(vcs.ClientID)
 	plan.Endpoint = types.StringValue(vcs.Endpoint)
-	plan.ApiUrl = types.StringValue(vcs.ApiUrl)
-	tflog.Info(ctx, "Client secret and private key are not available in the response, setting to original value set in the request.")
-	if plan.ClientSecret.ValueString() != "" {
-		plan.ClientSecret = types.StringValue(plan.ClientSecret.ValueString())
-	}
-	if plan.PrivateKey.ValueString() != "" {
-		plan.PrivateKey = types.StringValue(plan.PrivateKey.ValueString())
-	}
+	plan.ApiUrl = types.StringValue(vcs.APIURL)
+	// client_secret and private_key stay as planned (null with their _wo arguments):
+	// Terrakube does not return them.
 	plan.ClientSecretWo = types.StringNull()
 	plan.PrivateKeyWo = types.StringNull()
 	plan.ConnectUrl = types.StringValue(plan.ConnectUrl.ValueString())
@@ -348,66 +268,34 @@ func (r *VcsResource) Create(ctx context.Context, req resource.CreateRequest, re
 
 func (r *VcsResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state VcsResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	vcsRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/vcs/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating VCS resource request", fmt.Sprintf("Error creating VCS resource request: %s", err))
-		return
-	}
-	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	vcsRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	vcsResponse, err := r.client.Do(vcsRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request: %s", err))
-		return
-	}
-
-	if vcsResponse.StatusCode == http.StatusNotFound {
+	vcs, err := r.client.VCS.Get(ctx, state.OrganizationId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "VCS not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(vcsResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading organization variable resource response, error: %s, response status: %s", err, vcsResponse.Status))
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading vcs connection", vcsResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading vcs connection", err)
 		return
 	}
 
-	vcs := &client.VcsEntity{}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), vcs)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response, error: %s, response status: %s", err, vcsResponse.Status))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
+	// client_secret and private_key are kept from the state: Terrakube does not return them.
 	state.ID = types.StringValue(vcs.ID)
 	state.Name = types.StringValue(vcs.Name)
 	state.Description = types.StringValue(vcs.Description)
 	state.VcsType = types.StringValue(vcs.VcsType)
 	state.ConnectionType = types.StringValue(vcs.ConnectionType)
-	state.ClientId = types.StringValue(vcs.ClientId)
+	state.ClientId = types.StringValue(vcs.ClientID)
 	state.Endpoint = types.StringValue(vcs.Endpoint)
-	state.ApiUrl = types.StringValue(vcs.ApiUrl)
+	state.ApiUrl = types.StringValue(vcs.APIURL)
 	state.Status = types.StringValue(vcs.Status)
 
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -415,12 +303,9 @@ func (r *VcsResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 	if vcs.Status == "PENDING" {
 		tflog.Warn(ctx, fmt.Sprintf("VCS connection is pending, please logon to %s to connect. Check doc here %s", state.ConnectUrl, helpers.GetVCSProviderDoc()))
 	}
-
-	tflog.Info(ctx, "VCS Resource read succeed", map[string]any{"success": true})
 }
 
 func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan VcsResourceModel
 	var state VcsResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -435,104 +320,38 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 		return
 	}
 
-	bodyRequest := &client.VcsEntity{
-		ID:             plan.ID.ValueString(),
-		Name:           plan.Name.ValueString(),
-		Description:    plan.Description.ValueString(),
-		VcsType:        plan.VcsType.ValueString(),
-		ConnectionType: plan.ConnectionType.ValueString(),
-		ClientId:       plan.ClientId.ValueString(),
-		ClientSecret:   clientSecret,
-		PrivateKey:     privateKey,
-		Endpoint:       plan.Endpoint.ValueString(),
-		ApiUrl:         plan.ApiUrl.ValueString(),
-		Status:         plan.Status.ValueString(),
-	}
+	// Both secrets are always sent, as before: a write-only secret is null in plan and state.
+	attributes := patchAttributes{"clientSecret": clientSecret, "privateKey": privateKey}
+	attributes.updateString("name", plan.Name, state.Name)
+	attributes.updateString("description", plan.Description, state.Description)
+	attributes.updateString("vcsType", plan.VcsType, state.VcsType)
+	attributes.updateString("connectionType", plan.ConnectionType, state.ConnectionType)
+	attributes.updateString("clientId", plan.ClientId, state.ClientId)
+	attributes.updateString("endpoint", plan.Endpoint, state.Endpoint)
+	attributes.updateString("apiUrl", plan.ApiUrl, state.ApiUrl)
+	attributes.updateString("status", plan.Status, state.Status)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
+	if _, err := r.client.VCS.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes}); patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating vcs connection", err)
 		return
 	}
 
-	tflog.Info(ctx, "Body Update Request: "+out.String())
-
-	vcsRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/vcs/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
+	vcs, err := r.client.VCS.Get(ctx, organizationID, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating VCS resource request", fmt.Sprintf("Error creating VCS resource request: %s", err))
-		return
-	}
-	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	vcsRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	vcsResponse, err := r.client.Do(vcsRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request: %s", err))
+		reportClientError(&resp.Diagnostics, "reading vcs connection after update", err)
 		return
 	}
 
-	bodyResponse, err := io.ReadAll(vcsResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading organization variable resource response, error %s, response status %s", err, vcsResponse.Status))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating vcs connection", vcsResponse, bodyResponse) {
-		return
-	}
-
-	vcsRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/vcs/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating VCS resource request", fmt.Sprintf("Error creating VCS resource request: %s", err))
-		return
-	}
-	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	vcsRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	vcsResponse, err = r.client.Do(vcsRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err = io.ReadAll(vcsResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading VCS resource response body", fmt.Sprintf("Error reading VCS resource response body, error: %s, response status %s", err, vcsResponse.Status))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading vcs connection after update", vcsResponse, bodyResponse) {
-		return
-	}
-
-	vcs := &client.VcsEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), vcs)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response, error: %s, response status: %s", err, vcsResponse.Status))
-		return
-	}
-
-	plan.ID = types.StringValue(state.ID.ValueString())
+	plan.ID = types.StringValue(id)
 	plan.Name = types.StringValue(vcs.Name)
 	plan.Description = types.StringValue(vcs.Description)
 	plan.ConnectionType = types.StringValue(vcs.ConnectionType)
 	plan.VcsType = types.StringValue(vcs.VcsType)
-	plan.ClientId = types.StringValue(vcs.ClientId)
-	if plan.ClientSecret.ValueString() != "" {
-		tflog.Info(ctx, "Client secret is not available in the response, setting to original value set in the request.")
-		plan.ClientSecret = types.StringValue(plan.ClientSecret.ValueString())
-	}
-	if plan.PrivateKey.ValueString() != "" {
-		tflog.Info(ctx, "Private key is not available in the response, setting to original value set in the request.")
-		plan.PrivateKey = types.StringValue(plan.PrivateKey.ValueString())
-	}
+	plan.ClientId = types.StringValue(vcs.ClientID)
+	// client_secret and private_key stay as planned: Terrakube does not return them.
 	plan.Endpoint = types.StringValue(vcs.Endpoint)
-	plan.ApiUrl = types.StringValue(vcs.ApiUrl)
+	plan.ApiUrl = types.StringValue(vcs.APIURL)
 	plan.Status = types.StringValue(vcs.Status)
 	plan.ConnectUrl = types.StringValue(plan.ConnectUrl.ValueString())
 	plan.ClientSecretWo = types.StringNull()
@@ -547,30 +366,14 @@ func (r *VcsResource) Update(ctx context.Context, req resource.UpdateRequest, re
 
 func (r *VcsResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data VcsResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	vcsRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/vcs/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating VCS resource request", fmt.Sprintf("Error creating VCS resource request: %s", err))
-		return
-	}
-	vcsRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	vcsResponse, err := r.client.Do(vcsRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request: %s", err))
-		return
-	}
-	if vcsResponse.StatusCode != http.StatusNoContent {
-		deleteBody, _ := io.ReadAll(vcsResponse.Body)
-		resp.Diagnostics.AddError("Error executing VCS resource request", fmt.Sprintf("Error executing VCS resource request, response status %s, response body %s", vcsResponse.Status, string(deleteBody)))
-		return
+	err := r.client.VCS.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting vcs connection", err)
 	}
 }
 
