@@ -77,7 +77,7 @@ func newTeamTokenHarness(t *testing.T) *teamTokenHarness {
 	}))
 	t.Cleanup(server.Close)
 
-	h.res = &TeamTokenResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+	h.res = &TeamTokenResource{client: newTestClient(server.Client(), server.URL)}
 	h.res.Schema(h.ctx, resource.SchemaRequest{}, &h.schema)
 	objType, ok := h.schema.Schema.Type().TerraformType(h.ctx).(tftypes.Object)
 	if !ok {
@@ -255,6 +255,18 @@ func TestTeamTokenResource_Delete(t *testing.T) {
 			t.Errorf("unexpected delete path %q", h.lastPath[http.MethodDelete])
 		}
 	})
+	for _, status := range []int{http.StatusNoContent, http.StatusNotFound} {
+		t.Run(fmt.Sprintf("status %d is not an error", status), func(t *testing.T) {
+			h := newTeamTokenHarness(t)
+			state := h.created()
+			h.delStatus = status
+			resp := &resource.DeleteResponse{State: state}
+			h.res.Delete(h.ctx, resource.DeleteRequest{State: state}, resp)
+			if resp.Diagnostics.HasError() {
+				t.Errorf("Delete returned diagnostics: %v", resp.Diagnostics)
+			}
+		})
+	}
 	t.Run("api error", func(t *testing.T) {
 		h := newTeamTokenHarness(t)
 		state := h.created()

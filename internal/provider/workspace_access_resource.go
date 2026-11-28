@@ -1,16 +1,10 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
@@ -23,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -31,9 +26,7 @@ var _ resource.ResourceWithImportState = &WorkspaceAccessResource{}
 var _ resource.ResourceWithConfigValidators = &WorkspaceAccessResource{}
 
 type WorkspaceAccessResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type WorkspaceAccessResourceModel struct {
@@ -145,180 +138,52 @@ func (r *WorkspaceAccessResource) Schema(ctx context.Context, req resource.Schem
 }
 
 func (r *WorkspaceAccessResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Workspace Access Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Workspace Access resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Workspace Access Resource")
 }
 
 func (r *WorkspaceAccessResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan WorkspaceAccessResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	bodyRequest := &client.WorkspaceAccessEntity{
-		ManageState:     plan.ManageState.ValueBool(),
-		ManageWorkspace: plan.ManageWorkspace.ValueBool(),
-		ManageJob:       plan.ManageJob.ValueBool(),
-		PlanJob:         resolveJobFlag(plan.PlanJob, plan.ManageJob),
-		ApproveJob:      resolveJobFlag(plan.ApproveJob, plan.ManageJob),
-		Name:            plan.Name.ValueString(),
-	}
-
-	bodyRequest.DestroyJob = optionalBoolPointer(plan.DestroyJob)
-
-	if !plan.Role.IsNull() && !plan.Role.IsUnknown() {
-		role := plan.Role.ValueString()
-		bodyRequest.Role = &role
-	}
-
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
+	access, err := r.client.WorkspaceAccess.CreateFields(ctx, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString(), terrakube.Patch{Attributes: workspaceAccessAttributes(plan)})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating workspace access", err)
 		return
 	}
 
-	workspaceAccessRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/access", r.endpoint, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace access resource request", fmt.Sprintf("Error creating workspace access resource request: %s", err))
-		return
-	}
-	workspaceAccessRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceAccessRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceAccessResponse, err := r.client.Do(workspaceAccessRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace access resource request", fmt.Sprintf("Error executing workspace access resource request: %s", err))
-		return
-	}
-	defer workspaceAccessResponse.Body.Close()
-
-	bodyResponse, err := io.ReadAll(workspaceAccessResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading workspace access resource response body", fmt.Sprintf("Error reading workspace access resource response body: %s", err))
-		return
-	}
-
-	if workspaceAccessResponse.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error creating workspace access", fmt.Sprintf("status: %v, body: %v", workspaceAccessResponse.Status, string(bodyResponse)))
-		return
-	}
-
-	workspaceAccess := &client.WorkspaceAccessEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspaceAccess)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	plan.ManageState = types.BoolValue(workspaceAccess.ManageState)
-	plan.ManageWorkspace = types.BoolValue(workspaceAccess.ManageWorkspace)
-	plan.ManageJob = types.BoolValue(workspaceAccess.ManageJob)
-	plan.PlanJob = types.BoolValue(workspaceAccess.PlanJob)
-	plan.ApproveJob = types.BoolValue(workspaceAccess.ApproveJob)
-	plan.DestroyJob = types.BoolPointerValue(workspaceAccess.DestroyJob)
-	plan.Role = roleToState(workspaceAccess.Role)
-	plan.ID = types.StringValue(workspaceAccess.ID)
+	setWorkspaceAccessState(&plan, access)
+	plan.ID = types.StringValue(access.ID)
 
 	tflog.Info(ctx, "workspace access Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *WorkspaceAccessResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state WorkspaceAccessResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	workspaceAccessRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/access/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace access resource request", fmt.Sprintf("Error creating workspace access resource request: %s", err))
-		return
-	}
-	workspaceAccessRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceAccessRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceAccessResponse, err := r.client.Do(workspaceAccessRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace access resource request", fmt.Sprintf("Error executing workspace access resource request: %s", err))
-		return
-	}
-	defer workspaceAccessResponse.Body.Close()
-
-	if workspaceAccessResponse.StatusCode == http.StatusNotFound {
+	access, err := r.client.WorkspaceAccess.Get(ctx, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Workspace access not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(workspaceAccessResponse.Body)
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading workspace access resource response body", fmt.Sprintf("Error reading workspace access resource response body: %s", err))
+		reportClientError(&resp.Diagnostics, "reading workspace access", err)
 		return
 	}
 
-	if workspaceAccessResponse.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error reading workspace access", fmt.Sprintf("status: %v, body: %v", workspaceAccessResponse.Status, string(bodyResponse)))
-		return
-	}
+	setWorkspaceAccessState(&state, access)
+	state.Name = types.StringValue(access.Name)
+	state.ID = types.StringValue(access.ID)
 
-	workspaceAccess := &client.WorkspaceAccessEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspaceAccess)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	state.ManageState = types.BoolValue(workspaceAccess.ManageState)
-	state.ManageWorkspace = types.BoolValue(workspaceAccess.ManageWorkspace)
-	state.ManageJob = types.BoolValue(workspaceAccess.ManageJob)
-	state.PlanJob = types.BoolValue(workspaceAccess.PlanJob)
-	state.ApproveJob = types.BoolValue(workspaceAccess.ApproveJob)
-	state.DestroyJob = types.BoolPointerValue(workspaceAccess.DestroyJob)
-	state.Role = roleToState(workspaceAccess.Role)
-	state.Name = types.StringValue(workspaceAccess.Name)
-	state.ID = types.StringValue(workspaceAccess.ID)
-
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -327,7 +192,6 @@ func (r *WorkspaceAccessResource) Read(ctx context.Context, req resource.ReadReq
 }
 
 func (r *WorkspaceAccessResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan WorkspaceAccessResourceModel
 	var state WorkspaceAccessResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -336,153 +200,75 @@ func (r *WorkspaceAccessResource) Update(ctx context.Context, req resource.Updat
 		return
 	}
 
-	bodyRequest := &client.WorkspaceAccessEntity{
-		ManageState:     plan.ManageState.ValueBool(),
-		ManageWorkspace: plan.ManageWorkspace.ValueBool(),
-		ManageJob:       plan.ManageJob.ValueBool(),
-		PlanJob:         resolveJobFlag(plan.PlanJob, plan.ManageJob),
-		ApproveJob:      resolveJobFlag(plan.ApproveJob, plan.ManageJob),
-		Name:            plan.Name.ValueString(),
-		ID:              state.ID.ValueString(),
-	}
-
-	bodyRequest.DestroyJob = optionalBoolPointer(plan.DestroyJob)
-
-	if !plan.Role.IsNull() && !plan.Role.IsUnknown() {
-		role := plan.Role.ValueString()
-		bodyRequest.Role = &role
-	}
-
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-
-	workspaceAccessReq, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/access/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating Workspace access resource request", fmt.Sprintf("Error creating Workspace access resource request: %s", err))
-		return
-	}
-	workspaceAccessReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceAccessReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceAccessResponse, err := r.client.Do(workspaceAccessReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Workspace access resource request", fmt.Sprintf("Error executing Workspace access resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(workspaceAccessResponse.Body)
-	workspaceAccessResponse.Body.Close()
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading Workspace access resource response body",
-			fmt.Sprintf("Error reading Workspace access resource response body: %s", err))
-		return
-	}
-
-	if workspaceAccessResponse.StatusCode == http.StatusNotFound {
-		tflog.Warn(ctx, "Workspace access not found during update, removing from state", map[string]any{"id": state.ID.ValueString()})
+	organizationID, workspaceID, id := state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()
+	_, err := r.client.WorkspaceAccess.UpdateFields(ctx, organizationID, workspaceID, id, terrakube.Patch{Attributes: workspaceAccessAttributes(plan)})
+	if terrakube.IsNotFound(err) {
+		tflog.Warn(ctx, "Workspace access not found during update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	if workspaceAccessResponse.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error updating workspace access", fmt.Sprintf("status: %v, body: %v", workspaceAccessResponse.Status, string(bodyResponse)))
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating workspace access", err)
 		return
 	}
 
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	workspaceAccessReq, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/access/%s", r.endpoint, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating Workspace access resource request", fmt.Sprintf("Error creating Workspace access resource request: %s", err))
-		return
-	}
-	workspaceAccessReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	workspaceAccessReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	workspaceAccessResponse, err = r.client.Do(workspaceAccessReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Workspace access resource request", fmt.Sprintf("Error executing Workspace access resource request: %s", err))
-		return
-	}
-	defer workspaceAccessResponse.Body.Close()
-
-	bodyResponse, err = io.ReadAll(workspaceAccessResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading Workspace access resource response body", fmt.Sprintf("Error reading Workspace access resource response body: %s", err))
-		return
-	}
-
-	if workspaceAccessResponse.StatusCode == http.StatusNotFound {
-		tflog.Warn(ctx, "Workspace access not found after update, removing from state", map[string]any{"id": state.ID.ValueString()})
+	access, err := r.client.WorkspaceAccess.Get(ctx, organizationID, workspaceID, id)
+	if terrakube.IsNotFound(err) {
+		tflog.Warn(ctx, "Workspace access not found after update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	if workspaceAccessResponse.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error reading workspace access after update", fmt.Sprintf("status: %v, body: %v", workspaceAccessResponse.Status, string(bodyResponse)))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	workspaceAccess := &client.WorkspaceAccessEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), workspaceAccess)
-
 	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
+		reportClientError(&resp.Diagnostics, "reading workspace access after update", err)
 		return
 	}
 
-	plan.ID = types.StringValue(state.ID.ValueString())
-	plan.ManageState = types.BoolValue(workspaceAccess.ManageState)
-	plan.ManageWorkspace = types.BoolValue(workspaceAccess.ManageWorkspace)
-	plan.ManageJob = types.BoolValue(workspaceAccess.ManageJob)
-	plan.PlanJob = types.BoolValue(workspaceAccess.PlanJob)
-	plan.ApproveJob = types.BoolValue(workspaceAccess.ApproveJob)
-	plan.DestroyJob = types.BoolPointerValue(workspaceAccess.DestroyJob)
-	plan.Role = roleToState(workspaceAccess.Role)
-	plan.Name = types.StringValue(workspaceAccess.Name)
+	plan.ID = types.StringValue(id)
+	setWorkspaceAccessState(&plan, access)
+	plan.Name = types.StringValue(access.Name)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *WorkspaceAccessResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data WorkspaceAccessResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	workspaceRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/access/%s", r.endpoint, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating Workspace access resource request", fmt.Sprintf("Error creating Workspace access resource request: %s", err))
-		return
+	err := r.client.WorkspaceAccess.Delete(ctx, data.OrganizationId.ValueString(), data.WorkspaceId.ValueString(), data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting workspace access", err)
 	}
-	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+}
 
-	delResp, err := r.client.Do(workspaceRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Workspace access resource request", fmt.Sprintf("Error executing Workspace access resource request: %s", err))
-		return
+// workspaceAccessAttributes builds the attributes sent on create and on update. The permission flags are
+// always sent, plan_job and approve_job inheriting manage_job when unset. destroy_job and role are
+// sent only when known, never as null: older APIs reject destroy_job.
+func workspaceAccessAttributes(plan WorkspaceAccessResourceModel) patchAttributes {
+	attributes := patchAttributes{
+		"manageState":     plan.ManageState.ValueBool(),
+		"manageWorkspace": plan.ManageWorkspace.ValueBool(),
+		"manageJob":       plan.ManageJob.ValueBool(),
+		"planJob":         resolveJobFlag(plan.PlanJob, plan.ManageJob),
+		"approveJob":      resolveJobFlag(plan.ApproveJob, plan.ManageJob),
 	}
-	defer delResp.Body.Close()
-	body, err := io.ReadAll(delResp.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading delete response", err.Error())
-		return
-	}
-	if delResp.StatusCode == http.StatusNotFound {
-		return
-	}
-	reportAPIErrorStatus(&resp.Diagnostics, "deleting workspace access", delResp, body)
+	attributes.createString("name", plan.Name)
+	attributes.createBool("destroyJob", plan.DestroyJob)
+	attributes.createString("role", plan.Role)
+	return attributes
+}
+
+// setWorkspaceAccessState copies the permissions the API returned into model.
+func setWorkspaceAccessState(model *WorkspaceAccessResourceModel, access *terrakube.WorkspaceAccess) {
+	model.ManageState = types.BoolValue(access.ManageState)
+	model.ManageWorkspace = types.BoolValue(access.ManageWorkspace)
+	model.ManageJob = types.BoolValue(access.ManageJob)
+	model.PlanJob = types.BoolValue(access.PlanJob)
+	model.ApproveJob = types.BoolValue(access.ApproveJob)
+	model.DestroyJob = types.BoolPointerValue(access.DestroyJob)
+	model.Role = roleToState(&access.Role)
 }
 
 func (r *WorkspaceAccessResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

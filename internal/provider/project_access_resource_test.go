@@ -15,7 +15,7 @@ func TestProjectAccessResource(t *testing.T) {
 		itemType:   "project_access",
 		collection: "/api/v1/organization/org-1/project/project-1/projectAccess",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
-			return &ProjectAccessResource{client: c, endpoint: endpoint, token: "test-token"}
+			return &ProjectAccessResource{client: newTestClient(c, endpoint)}
 		},
 		scope: map[string]tftypes.Value{"project_id": str("project-1")},
 		create: map[string]tftypes.Value{

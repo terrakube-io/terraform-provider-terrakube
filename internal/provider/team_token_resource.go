@@ -2,13 +2,7 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 	"terraform-provider-terrakube/internal/helpers"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int32planmodifier"
@@ -20,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -27,9 +22,7 @@ var _ resource.Resource = &TeamTokenResource{}
 var _ resource.ResourceWithImportState = &TeamTokenResource{}
 
 type TeamTokenResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type TeamTokenResourceModel struct {
@@ -107,93 +100,27 @@ func (r *TeamTokenResource) Schema(ctx context.Context, req resource.SchemaReque
 }
 
 func (r *TeamTokenResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Team Token Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Team Token resource finished successfully.", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Team Token Resource")
 }
 
 func (r *TeamTokenResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan TeamTokenResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	bodyRequest := &client.TeamTokenEntity{
+	newTeamToken, err := r.client.TeamTokens.Create(ctx, &terrakube.TeamToken{
 		Description: plan.Description.ValueString(),
 		Days:        plan.Days.ValueInt32(),
 		Hours:       plan.Hours.ValueInt32(),
 		Minutes:     plan.Minutes.ValueInt32(),
 		Group:       plan.Group.ValueString(),
-	}
-
-	bodyJson, err := json.Marshal(bodyRequest)
+	})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal request ", fmt.Sprintf("Unable to marshal request, error: %s", err))
+		reportClientError(&resp.Diagnostics, "creating team token", err)
 		return
 	}
-
-	teamTokenRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/access-token/v1/teams", r.endpoint), strings.NewReader(string(bodyJson)))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating team token resource request", fmt.Sprintf("Error creating team token resource request: %s", err))
-		return
-	}
-	teamTokenRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	teamTokenRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	teamTokenResponse, err := r.client.Do(teamTokenRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing team token resource request", fmt.Sprintf("Error executing team token resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(teamTokenResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading team token resource response")
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating team token", teamTokenResponse, bodyResponse) {
-		return
-	}
-
-	newTeamToken := &client.TeamTokenEntity{}
-
-	err = json.Unmarshal(bodyResponse, newTeamToken)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response, error: %s, response status: %s", err, teamTokenResponse.Status))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response Status", map[string]any{"responseStatus": teamTokenResponse.Status})
 
 	id, err := helpers.GetIDFromToken(newTeamToken.Value)
 	if err != nil {
@@ -209,48 +136,19 @@ func (r *TeamTokenResource) Create(ctx context.Context, req resource.CreateReque
 
 func (r *TeamTokenResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state TeamTokenResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	teamTokenRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/access-token/v1/teams", r.endpoint), nil)
+	teamTokens, err := r.client.TeamTokens.List(ctx)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating team token resource request", fmt.Sprintf("Error creating team token resource request: %s", err))
+		reportClientError(&resp.Diagnostics, "reading team tokens", err)
 		return
 	}
-	teamTokenRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	teamTokenRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	teamTokenResponse, err := r.client.Do(teamTokenRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing team token resource request", fmt.Sprintf("Error executing team token resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(teamTokenResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading team token resource response, error: %s, response status %s", err, teamTokenResponse.Status))
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading team tokens", teamTokenResponse, bodyResponse) {
-		return
-	}
-
-	teamTokens := &[]client.TeamTokenEntity{}
-
-	tflog.Debug(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	err = json.Unmarshal(bodyResponse, teamTokens)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response, error: %s, response status %s", err, teamTokenResponse.Status))
-		return
-	}
-
-	tflog.Info(ctx, "Response status", map[string]any{"responseStatus": teamTokenResponse.Status})
 
 	found := false
-	for _, teamToken := range *teamTokens {
+	for _, teamToken := range teamTokens {
 		if teamToken.ID != state.ID.ValueString() {
 			continue
 		}
@@ -270,9 +168,7 @@ func (r *TeamTokenResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -286,30 +182,14 @@ func (r *TeamTokenResource) Update(ctx context.Context, req resource.UpdateReque
 
 func (r *TeamTokenResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data TeamTokenResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	reqToken, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/access-token/v1/teams/%s", r.endpoint, data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error deleting team token resource request", fmt.Sprintf("Error deleting team token resource request: %s", err))
-		return
-	}
-	reqToken.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	resToken, err := r.client.Do(reqToken)
-	if err != nil {
-		resp.Diagnostics.AddError("Error deleting team token", fmt.Sprintf("Error deleting team token: %s", err))
-		return
-	}
-	if resToken.StatusCode != http.StatusAccepted {
-		deleteBody, _ := io.ReadAll(resToken.Body)
-		resp.Diagnostics.AddError("Error deleting team token", fmt.Sprintf("Error deleting team token, response status: %s, response body: %s", resToken.Status, string(deleteBody)))
-		return
+	err := r.client.TeamTokens.Delete(ctx, data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting team token", err)
 	}
 }
 

@@ -21,12 +21,14 @@ func TestLaunch234ResourcePermissions(t *testing.T) {
 		flags        map[string]string
 		makeResource func(*httptest.Server) resource.Resource
 	}{
-		{"team", "team", map[string]string{"destroy_job": "destroyJob"}, func(s *httptest.Server) resource.Resource { return &TeamResource{client: s.Client(), endpoint: s.URL} }},
+		{"team", "team", map[string]string{"destroy_job": "destroyJob"}, func(s *httptest.Server) resource.Resource {
+			return &TeamResource{client: newTestClient(s.Client(), s.URL)}
+		}},
 		{"workspace_access", "access", map[string]string{"destroy_job": "destroyJob"}, func(s *httptest.Server) resource.Resource {
-			return &WorkspaceAccessResource{client: s.Client(), endpoint: s.URL}
+			return &WorkspaceAccessResource{client: newTestClient(s.Client(), s.URL)}
 		}},
 		{"project_access", "project_access", map[string]string{"destroy_job": "destroyJob"}, func(s *httptest.Server) resource.Resource {
-			return &ProjectAccessResource{client: s.Client(), endpoint: s.URL}
+			return &ProjectAccessResource{client: newTestClient(s.Client(), s.URL)}
 		}},
 		{"workspace_cli", "workspace", map[string]string{"restrict_apply_to_configured_branch": "restrictApplyToConfiguredBranch", "require_approve_to_apply": "requireApproveToApply"}, func(s *httptest.Server) resource.Resource {
 			return &WorkspaceCliResource{client: s.Client(), endpoint: s.URL}
@@ -276,12 +278,14 @@ func TestLaunch234DeleteReportsAPIFailure(t *testing.T) {
 		{"organization", func(s *httptest.Server) resource.Resource {
 			return &OrganizationResource{client: newTestClient(s.Client(), s.URL)}
 		}},
-		{"team", func(s *httptest.Server) resource.Resource { return &TeamResource{client: s.Client(), endpoint: s.URL} }},
+		{"team", func(s *httptest.Server) resource.Resource {
+			return &TeamResource{client: newTestClient(s.Client(), s.URL)}
+		}},
 		{"workspace_access", func(s *httptest.Server) resource.Resource {
-			return &WorkspaceAccessResource{client: s.Client(), endpoint: s.URL}
+			return &WorkspaceAccessResource{client: newTestClient(s.Client(), s.URL)}
 		}},
 		{"project_access", func(s *httptest.Server) resource.Resource {
-			return &ProjectAccessResource{client: s.Client(), endpoint: s.URL}
+			return &ProjectAccessResource{client: newTestClient(s.Client(), s.URL)}
 		}},
 	}
 	for _, tc := range tests {

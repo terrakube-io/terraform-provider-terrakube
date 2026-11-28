@@ -226,3 +226,25 @@ func TestSoftDeletedName(t *testing.T) {
 		}
 	}
 }
+
+func TestOptionalBoolState(t *testing.T) {
+	cases := []struct {
+		name  string
+		value bool
+		prior types.Bool
+		want  types.Bool
+	}{
+		{"true is always kept", true, types.BoolNull(), types.BoolValue(true)},
+		{"false with a known prior is kept", false, types.BoolValue(true), types.BoolValue(false)},
+		{"false with a known false prior is kept", false, types.BoolValue(false), types.BoolValue(false)},
+		{"false with a null prior stays null", false, types.BoolNull(), types.BoolNull()},
+		{"false with an unknown prior stays null", false, types.BoolUnknown(), types.BoolNull()},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := optionalBoolState(c.value, c.prior); !got.Equal(c.want) {
+				t.Errorf("optionalBoolState(%v, %v) = %v, want %v", c.value, c.prior, got, c.want)
+			}
+		})
+	}
+}

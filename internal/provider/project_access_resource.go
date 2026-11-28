@@ -1,16 +1,10 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
@@ -23,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -31,9 +26,7 @@ var _ resource.ResourceWithImportState = &ProjectAccessResource{}
 var _ resource.ResourceWithConfigValidators = &ProjectAccessResource{}
 
 type ProjectAccessResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type ProjectAccessResourceModel struct {
@@ -145,180 +138,52 @@ func (r *ProjectAccessResource) Schema(ctx context.Context, req resource.SchemaR
 }
 
 func (r *ProjectAccessResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Project Access Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Project Access resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Project Access Resource")
 }
 
 func (r *ProjectAccessResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan ProjectAccessResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	bodyRequest := &client.ProjectAccessEntity{
-		ManageState:     plan.ManageState.ValueBool(),
-		ManageWorkspace: plan.ManageWorkspace.ValueBool(),
-		ManageJob:       plan.ManageJob.ValueBool(),
-		PlanJob:         resolveJobFlag(plan.PlanJob, plan.ManageJob),
-		ApproveJob:      resolveJobFlag(plan.ApproveJob, plan.ManageJob),
-		Name:            plan.Name.ValueString(),
-	}
-
-	bodyRequest.DestroyJob = optionalBoolPointer(plan.DestroyJob)
-
-	if !plan.Role.IsNull() && !plan.Role.IsUnknown() {
-		role := plan.Role.ValueString()
-		bodyRequest.Role = &role
-	}
-
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
+	access, err := r.client.ProjectAccess.CreateFields(ctx, plan.OrganizationId.ValueString(), plan.ProjectId.ValueString(), terrakube.Patch{Attributes: projectAccessAttributes(plan)})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating project access", err)
 		return
 	}
 
-	projectAccessRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/project/%s/projectAccess", r.endpoint, plan.OrganizationId.ValueString(), plan.ProjectId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating project access resource request", fmt.Sprintf("Error creating project access resource request: %s", err))
-		return
-	}
-	projectAccessRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	projectAccessRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	projectAccessResponse, err := r.client.Do(projectAccessRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing project access resource request", fmt.Sprintf("Error executing project access resource request: %s", err))
-		return
-	}
-	defer projectAccessResponse.Body.Close()
-
-	bodyResponse, err := io.ReadAll(projectAccessResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading project access resource response body", fmt.Sprintf("Error reading project access resource response body: %s", err))
-		return
-	}
-
-	if projectAccessResponse.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error creating project access", fmt.Sprintf("status: %v, body: %v", projectAccessResponse.Status, string(bodyResponse)))
-		return
-	}
-
-	projectAccess := &client.ProjectAccessEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), projectAccess)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	plan.ManageState = types.BoolValue(projectAccess.ManageState)
-	plan.ManageWorkspace = types.BoolValue(projectAccess.ManageWorkspace)
-	plan.ManageJob = types.BoolValue(projectAccess.ManageJob)
-	plan.PlanJob = types.BoolValue(projectAccess.PlanJob)
-	plan.ApproveJob = types.BoolValue(projectAccess.ApproveJob)
-	plan.DestroyJob = types.BoolPointerValue(projectAccess.DestroyJob)
-	plan.Role = roleToState(projectAccess.Role)
-	plan.ID = types.StringValue(projectAccess.ID)
+	setProjectAccessState(&plan, access)
+	plan.ID = types.StringValue(access.ID)
 
 	tflog.Info(ctx, "project access Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *ProjectAccessResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state ProjectAccessResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	projectAccessRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/project/%s/projectAccess/%s", r.endpoint, state.OrganizationId.ValueString(), state.ProjectId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating project access resource request", fmt.Sprintf("Error creating project access resource request: %s", err))
-		return
-	}
-	projectAccessRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	projectAccessRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	projectAccessResponse, err := r.client.Do(projectAccessRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing project access resource request", fmt.Sprintf("Error executing project access resource request: %s", err))
-		return
-	}
-	defer projectAccessResponse.Body.Close()
-
-	if projectAccessResponse.StatusCode == http.StatusNotFound {
+	access, err := r.client.ProjectAccess.Get(ctx, state.OrganizationId.ValueString(), state.ProjectId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Project access not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(projectAccessResponse.Body)
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading project access resource response body", fmt.Sprintf("Error reading project access resource response body: %s", err))
+		reportClientError(&resp.Diagnostics, "reading project access", err)
 		return
 	}
 
-	if projectAccessResponse.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error reading project access", fmt.Sprintf("status: %v, body: %v", projectAccessResponse.Status, string(bodyResponse)))
-		return
-	}
+	setProjectAccessState(&state, access)
+	state.Name = types.StringValue(access.Name)
+	state.ID = types.StringValue(access.ID)
 
-	projectAccess := &client.ProjectAccessEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), projectAccess)
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	state.ManageState = types.BoolValue(projectAccess.ManageState)
-	state.ManageWorkspace = types.BoolValue(projectAccess.ManageWorkspace)
-	state.ManageJob = types.BoolValue(projectAccess.ManageJob)
-	state.PlanJob = types.BoolValue(projectAccess.PlanJob)
-	state.ApproveJob = types.BoolValue(projectAccess.ApproveJob)
-	state.DestroyJob = types.BoolPointerValue(projectAccess.DestroyJob)
-	state.Role = roleToState(projectAccess.Role)
-	state.Name = types.StringValue(projectAccess.Name)
-	state.ID = types.StringValue(projectAccess.ID)
-
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -327,7 +192,6 @@ func (r *ProjectAccessResource) Read(ctx context.Context, req resource.ReadReque
 }
 
 func (r *ProjectAccessResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan ProjectAccessResourceModel
 	var state ProjectAccessResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -336,153 +200,75 @@ func (r *ProjectAccessResource) Update(ctx context.Context, req resource.UpdateR
 		return
 	}
 
-	bodyRequest := &client.ProjectAccessEntity{
-		ManageState:     plan.ManageState.ValueBool(),
-		ManageWorkspace: plan.ManageWorkspace.ValueBool(),
-		ManageJob:       plan.ManageJob.ValueBool(),
-		PlanJob:         resolveJobFlag(plan.PlanJob, plan.ManageJob),
-		ApproveJob:      resolveJobFlag(plan.ApproveJob, plan.ManageJob),
-		Name:            plan.Name.ValueString(),
-		ID:              state.ID.ValueString(),
-	}
-
-	bodyRequest.DestroyJob = optionalBoolPointer(plan.DestroyJob)
-
-	if !plan.Role.IsNull() && !plan.Role.IsUnknown() {
-		role := plan.Role.ValueString()
-		bodyRequest.Role = &role
-	}
-
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-
-	projectAccessReq, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/project/%s/projectAccess/%s", r.endpoint, state.OrganizationId.ValueString(), state.ProjectId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating project access resource request", fmt.Sprintf("Error creating project access resource request: %s", err))
-		return
-	}
-	projectAccessReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	projectAccessReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	projectAccessResponse, err := r.client.Do(projectAccessReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing project access resource request", fmt.Sprintf("Error executing project access resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(projectAccessResponse.Body)
-	projectAccessResponse.Body.Close()
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading project access resource response body",
-			fmt.Sprintf("Error reading project access resource response body: %s", err))
-		return
-	}
-
-	if projectAccessResponse.StatusCode == http.StatusNotFound {
-		tflog.Warn(ctx, "Project access not found during update, removing from state", map[string]any{"id": state.ID.ValueString()})
+	organizationID, projectID, id := state.OrganizationId.ValueString(), state.ProjectId.ValueString(), state.ID.ValueString()
+	_, err := r.client.ProjectAccess.UpdateFields(ctx, organizationID, projectID, id, terrakube.Patch{Attributes: projectAccessAttributes(plan)})
+	if terrakube.IsNotFound(err) {
+		tflog.Warn(ctx, "Project access not found during update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	if projectAccessResponse.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error updating project access", fmt.Sprintf("status: %v, body: %v", projectAccessResponse.Status, string(bodyResponse)))
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating project access", err)
 		return
 	}
 
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	projectAccessReq, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/project/%s/projectAccess/%s", r.endpoint, state.OrganizationId.ValueString(), state.ProjectId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating project access resource request", fmt.Sprintf("Error creating project access resource request: %s", err))
-		return
-	}
-	projectAccessReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	projectAccessReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	projectAccessResponse, err = r.client.Do(projectAccessReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing project access resource request", fmt.Sprintf("Error executing project access resource request: %s", err))
-		return
-	}
-	defer projectAccessResponse.Body.Close()
-
-	bodyResponse, err = io.ReadAll(projectAccessResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading project access resource response body", fmt.Sprintf("Error reading project access resource response body: %s", err))
-		return
-	}
-
-	if projectAccessResponse.StatusCode == http.StatusNotFound {
-		tflog.Warn(ctx, "Project access not found after update, removing from state", map[string]any{"id": state.ID.ValueString()})
+	access, err := r.client.ProjectAccess.Get(ctx, organizationID, projectID, id)
+	if terrakube.IsNotFound(err) {
+		tflog.Warn(ctx, "Project access not found after update, removing from state", map[string]any{"id": id})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	if projectAccessResponse.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error reading project access after update", fmt.Sprintf("status: %v, body: %v", projectAccessResponse.Status, string(bodyResponse)))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	projectAccess := &client.ProjectAccessEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), projectAccess)
-
 	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
+		reportClientError(&resp.Diagnostics, "reading project access after update", err)
 		return
 	}
 
-	plan.ID = types.StringValue(state.ID.ValueString())
-	plan.ManageState = types.BoolValue(projectAccess.ManageState)
-	plan.ManageWorkspace = types.BoolValue(projectAccess.ManageWorkspace)
-	plan.ManageJob = types.BoolValue(projectAccess.ManageJob)
-	plan.PlanJob = types.BoolValue(projectAccess.PlanJob)
-	plan.ApproveJob = types.BoolValue(projectAccess.ApproveJob)
-	plan.DestroyJob = types.BoolPointerValue(projectAccess.DestroyJob)
-	plan.Role = roleToState(projectAccess.Role)
-	plan.Name = types.StringValue(projectAccess.Name)
+	plan.ID = types.StringValue(id)
+	setProjectAccessState(&plan, access)
+	plan.Name = types.StringValue(access.Name)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *ProjectAccessResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data ProjectAccessResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	projectAccessRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/project/%s/projectAccess/%s", r.endpoint, data.OrganizationId.ValueString(), data.ProjectId.ValueString(), data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating project access resource request", fmt.Sprintf("Error creating project access resource request: %s", err))
-		return
+	err := r.client.ProjectAccess.Delete(ctx, data.OrganizationId.ValueString(), data.ProjectId.ValueString(), data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting project access", err)
 	}
-	projectAccessRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
+}
 
-	delResp, err := r.client.Do(projectAccessRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing project access resource request", fmt.Sprintf("Error executing project access resource request: %s", err))
-		return
+// projectAccessAttributes builds the attributes sent on create and on update. The permission flags are
+// always sent, plan_job and approve_job inheriting manage_job when unset. destroy_job and role are
+// sent only when known, never as null: older APIs reject destroy_job.
+func projectAccessAttributes(plan ProjectAccessResourceModel) patchAttributes {
+	attributes := patchAttributes{
+		"manageState":     plan.ManageState.ValueBool(),
+		"manageWorkspace": plan.ManageWorkspace.ValueBool(),
+		"manageJob":       plan.ManageJob.ValueBool(),
+		"planJob":         resolveJobFlag(plan.PlanJob, plan.ManageJob),
+		"approveJob":      resolveJobFlag(plan.ApproveJob, plan.ManageJob),
 	}
-	defer delResp.Body.Close()
-	body, err := io.ReadAll(delResp.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading delete response", err.Error())
-		return
-	}
-	if delResp.StatusCode == http.StatusNotFound {
-		return
-	}
-	reportAPIErrorStatus(&resp.Diagnostics, "deleting project access", delResp, body)
+	attributes.createString("name", plan.Name)
+	attributes.createBool("destroyJob", plan.DestroyJob)
+	attributes.createString("role", plan.Role)
+	return attributes
+}
+
+// setProjectAccessState copies the permissions the API returned into model.
+func setProjectAccessState(model *ProjectAccessResourceModel, access *terrakube.ProjectAccess) {
+	model.ManageState = types.BoolValue(access.ManageState)
+	model.ManageWorkspace = types.BoolValue(access.ManageWorkspace)
+	model.ManageJob = types.BoolValue(access.ManageJob)
+	model.PlanJob = types.BoolValue(access.PlanJob)
+	model.ApproveJob = types.BoolValue(access.ApproveJob)
+	model.DestroyJob = types.BoolPointerValue(access.DestroyJob)
+	model.Role = roleToState(&access.Role)
 }
 
 func (r *ProjectAccessResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

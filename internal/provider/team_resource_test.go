@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
@@ -72,11 +73,7 @@ func TestTeamResource_Create_WithManagePolicies(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &TeamResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &TeamResource{client: newTestClient(server.Client(), server.URL)}
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id": tftypes.NewValue(tftypes.String, orgID),
@@ -128,11 +125,7 @@ func TestTeamResource_Create_BackwardCompatibility_OmitWhenUnset(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &TeamResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &TeamResource{client: newTestClient(server.Client(), server.URL)}
 
 	// manage_policies is omitted / unset in planValue
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
@@ -159,5 +152,62 @@ func TestTeamResource_Create_BackwardCompatibility_OmitWhenUnset(t *testing.T) {
 	}
 	if !state.ManagePolicies.IsNull() {
 		t.Errorf("expected ManagePolicies in state to be null when omitted by API response, got: %v", state.ManagePolicies)
+	}
+}
+
+// A current server returns destroyJob and managePolicies even when they were not set; a false
+// it returns is kept in state rather than read as null.
+func TestTeamResource_Create_KeepsFalseReturnedForUnsetFlags(t *testing.T) {
+	ctx := context.Background()
+	s, objType := teamResourceSchemaAndType(t, ctx)
+
+	const orgID = "org-1"
+	var receivedBody string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc(fmt.Sprintf("/api/v1/organization/%s/team", orgID), func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprint(w, `{"data":{"type":"team","id":"team-12","attributes":{
+			"name":"devs",
+			"destroyJob":false,
+			"managePolicies":false
+		}}}`)
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	r := &TeamResource{client: newTestClient(server.Client(), server.URL)}
+
+	planValue := buildObjectValue(objType, map[string]tftypes.Value{
+		"organization_id": tftypes.NewValue(tftypes.String, orgID),
+		"name":            tftypes.NewValue(tftypes.String, "devs"),
+	})
+
+	req := resource.CreateRequest{Plan: tfsdk.Plan{Schema: s, Raw: planValue}}
+	resp := &resource.CreateResponse{State: tfsdk.State{Schema: s}}
+
+	r.Create(ctx, req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
+	}
+
+	var state TeamResourceModel
+	if diags := resp.State.Get(ctx, &state); diags.HasError() {
+		t.Fatalf("unexpected error getting state: %v", diags)
+	}
+
+	if strings.Contains(receivedBody, "destroyJob") || strings.Contains(receivedBody, "managePolicies") {
+		t.Errorf("expected unset flags to be left out of the request, got: %s", receivedBody)
+	}
+	if !state.DestroyJob.Equal(types.BoolValue(false)) {
+		t.Errorf("DestroyJob in state = %v, want false", state.DestroyJob)
+	}
+	if !state.ManagePolicies.Equal(types.BoolValue(false)) {
+		t.Errorf("ManagePolicies in state = %v, want false", state.ManagePolicies)
 	}
 }
