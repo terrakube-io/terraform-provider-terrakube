@@ -1,24 +1,18 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
-
-	"github.com/google/jsonapi"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -26,9 +20,7 @@ var _ resource.Resource = &CollectionReferenceResource{}
 var _ resource.ResourceWithImportState = &CollectionReferenceResource{}
 
 type CollectionReferenceResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type CollectionReferenceResourceModel struct {
@@ -80,94 +72,25 @@ func (r *CollectionReferenceResource) Schema(ctx context.Context, req resource.S
 }
 
 func (r *CollectionReferenceResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Collection Item Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Collection reference resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Collection Reference Resource")
 }
 
 func (r *CollectionReferenceResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan CollectionReferenceResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	bodyRequest := &client.CollectionReferenceEntity{
-		Description: plan.Description.ValueStringPointer(),
-		Workspace:   &client.WorkspaceEntity{ID: plan.WorkspaceId.ValueString()},
-		Collection:  &client.CollectionEntity{ID: plan.CollectionId.ValueString()},
-	}
+	attributes := patchAttributes{}
+	attributes.createString("description", plan.Description)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
+	patch := terrakube.Patch{Attributes: attributes, Relationships: collectionReferenceRelationships(plan)}
+	collectionReference, err := r.client.CollectionReferences.CreateFields(ctx, plan.OrganizationId.ValueString(), plan.CollectionId.ValueString(), patch)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating collection reference", err)
 		return
 	}
-
-	collectionReferenceRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/collection/%s/reference", r.endpoint, plan.OrganizationId.ValueString(), plan.CollectionId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating collection reference resource request", fmt.Sprintf("Error creating collection reference resource request: %s", err))
-		return
-	}
-	collectionReferenceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionReferenceRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	collectionReferenceResponse, err := r.client.Do(collectionReferenceRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing collection reference resource request", fmt.Sprintf("Error executing collection reference resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(collectionReferenceResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading collection reference resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating collection reference", collectionReferenceResponse, bodyResponse) {
-		return
-	}
-
-	collectionReference := &client.CollectionReferenceEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), collectionReference)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	if collectionReference.Collection != nil {
 		plan.CollectionId = types.StringValue(collectionReference.Collection.ID)
@@ -183,58 +106,26 @@ func (r *CollectionReferenceResource) Create(ctx context.Context, req resource.C
 	plan.ID = types.StringValue(collectionReference.ID)
 
 	tflog.Info(ctx, "collection reference Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *CollectionReferenceResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state CollectionReferenceResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	collectionItemRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/reference/%s", r.endpoint, state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating collection reference resource request", fmt.Sprintf("Error creating collection reference resource request: %s", err))
-		return
-	}
-	collectionItemRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionItemRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	collectionReferenceResponse, err := r.client.Do(collectionItemRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing collection reference resource request", fmt.Sprintf("Error executing collection reference resource request: %s", err))
-		return
-	}
-
-	if collectionReferenceResponse.StatusCode == http.StatusNotFound {
+	collectionReference, err := r.client.CollectionReferences.Get(ctx, state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Collection reference not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(collectionReferenceResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, "Error reading collection item resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading collection reference", collectionReferenceResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading collection reference", err)
 		return
 	}
-
-	collectionReference := &client.CollectionReferenceEntity{}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), collectionReference)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
 
 	if collectionReference.Workspace != nil {
 		state.WorkspaceId = types.StringValue(collectionReference.Workspace.ID)
@@ -249,18 +140,10 @@ func (r *CollectionReferenceResource) Read(ctx context.Context, req resource.Rea
 	state.Description = types.StringPointerValue(collectionReference.Description)
 	state.ID = types.StringValue(collectionReference.ID)
 
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	tflog.Info(ctx, "Collection reference Resource reading", map[string]any{"success": true})
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *CollectionReferenceResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan CollectionReferenceResourceModel
 	var state CollectionReferenceResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -269,80 +152,23 @@ func (r *CollectionReferenceResource) Update(ctx context.Context, req resource.U
 		return
 	}
 
-	bodyRequest := &client.CollectionReferenceEntity{
-		Description: plan.Description.ValueStringPointer(),
-		Workspace:   &client.WorkspaceEntity{ID: plan.WorkspaceId.ValueString()},
-		Collection:  &client.CollectionEntity{ID: plan.CollectionId.ValueString()},
-		ID:          state.ID.ValueString(),
-	}
+	attributes := patchAttributes{}
+	attributes.updateString("description", plan.Description, state.Description)
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	id := state.ID.ValueString()
+	patch := terrakube.Patch{Attributes: attributes, Relationships: collectionReferenceRelationships(plan)}
+	if _, err := r.client.CollectionReferences.UpdateFields(ctx, id, patch); patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating collection reference", err)
 		return
 	}
 
-	collectionReferenceReq, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/reference/%s", r.endpoint, state.ID.ValueString()), strings.NewReader(out.String()))
+	collectionReference, err := r.client.CollectionReferences.Get(ctx, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating collection reference resource request", fmt.Sprintf("Error creating collection reference resource request: %s", err))
-		return
-	}
-	collectionReferenceReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionReferenceReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	collectionReferenceResponse, err := r.client.Do(collectionReferenceReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing collection reference resource request", fmt.Sprintf("Error executing collection reference resource request: %s", err))
+		reportClientError(&resp.Diagnostics, "reading collection reference after update", err)
 		return
 	}
 
-	bodyResponse, err := io.ReadAll(collectionReferenceResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading collection item resource response")
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating collection reference", collectionReferenceResponse, bodyResponse) {
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	collectionReferenceReq, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/reference/%s", r.endpoint, state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating collection reference resource request", fmt.Sprintf("Error creating collection reference resource request: %s", err))
-		return
-	}
-	collectionReferenceReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	collectionReferenceReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	collectionReferenceResponse, err = r.client.Do(collectionReferenceReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing collection reference resource request", fmt.Sprintf("Error executing collection reference resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err = io.ReadAll(collectionReferenceResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading collection reference resource response body", fmt.Sprintf("Error reading collection reference resource response body: %s", err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading collection reference after update", collectionReferenceResponse, bodyResponse) {
-		return
-	}
-
-	collectionReference := &client.CollectionReferenceEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), collectionReference)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	plan.ID = types.StringValue(state.ID.ValueString())
+	plan.ID = types.StringValue(id)
 	plan.Description = types.StringPointerValue(collectionReference.Description)
 	if collectionReference.Workspace != nil {
 		plan.WorkspaceId = types.StringValue(collectionReference.Workspace.ID)
@@ -360,27 +186,15 @@ func (r *CollectionReferenceResource) Update(ctx context.Context, req resource.U
 
 func (r *CollectionReferenceResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data CollectionReferenceResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	workspaceRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/reference/%s", r.endpoint, data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating collection reference resource request", fmt.Sprintf("Error creating collection reference resource request: %s", err))
-		return
+	err := r.client.CollectionReferences.Delete(ctx, data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting collection reference", err)
 	}
-	workspaceRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	response, err := r.client.Do(workspaceRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing collection reference resource request", fmt.Sprintf("Error executing collection reference resource request: %s", err))
-		return
-	}
-	reportDeleteFailure(&resp.Diagnostics, "deleting collection reference", response)
 }
 
 func (r *CollectionReferenceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
@@ -398,4 +212,13 @@ func (r *CollectionReferenceResource) ImportState(ctx context.Context, req resou
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("collection_id"), idParts[1])...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("workspace_id"), idParts[2])...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), idParts[3])...)
+}
+
+// collectionReferenceRelationships links the reference to its workspace and its collection.
+func collectionReferenceRelationships(model CollectionReferenceResourceModel) map[string]terrakube.Relationship {
+	workspaceID, collectionID := model.WorkspaceId.ValueString(), model.CollectionId.ValueString()
+	return map[string]terrakube.Relationship{
+		"workspace":  {Type: "workspace", ID: &workspaceID},
+		"collection": {Type: "collection", ID: &collectionID},
+	}
 }

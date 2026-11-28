@@ -42,6 +42,26 @@ func TestPatchNoContent(t *testing.T) {
 			create: map[string]tftypes.Value{"name": str("plan"), "content": str("flow: []\n")},
 			update: map[string]tftypes.Value{"name": str("changed")},
 		}, "name"},
+		{"collection", crudResourceCase{
+			itemType: "collection", collection: "/api/v1/organization/org-1/collection",
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &CollectionResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{"name": str("shared-settings"), "priority": tftypes.NewValue(tftypes.Number, 10)},
+			update: map[string]tftypes.Value{"name": str("changed")},
+		}, "name"},
+		{"collection_item", crudResourceCase{
+			itemType: "item", collection: "/api/v1/organization/org-1/collection/col-1/item",
+			scope: map[string]tftypes.Value{"collection_id": str("col-1")},
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &CollectionItemResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{
+				"key": str("REGION"), "value": str("eu-west-1"), "category": str("ENV"),
+				"sensitive": tftypes.NewValue(tftypes.Bool, false), "hcl": tftypes.NewValue(tftypes.Bool, false),
+			},
+			update: map[string]tftypes.Value{"key": str("changed")},
+		}, "key"},
 		{"project", crudResourceCase{
 			itemType: "project", collection: "/api/v1/organization/org-1/project",
 			newSource: func(c *http.Client, e string) resource.Resource { return &ProjectResource{client: newTestClient(c, e)} },
