@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,12 @@ type crudResourceCase struct {
 	itemType   string // JSON:API type, for example "tag"
 	collection string // full path, for example /api/v1/organization/org-1/tag
 	newSource  func(client *http.Client, endpoint string) resource.Resource
+
+	// item is the item's full path when it is not under collection, for example a notification
+	// configuration's top-level /api/v1/notification_configuration/item-1. emptyChildren are
+	// paths under the item, such as /triggers, that answer as empty to-many collections.
+	item          string
+	emptyChildren []string
 
 	// scope holds the parent IDs a nested resource has, for example project_id.
 	scope map[string]tftypes.Value
@@ -66,9 +73,11 @@ const (
 // crudServer is a small Terrakube: it keeps the attributes it was sent, returns them, applies a
 // PATCH and honours a DELETE.
 type crudServer struct {
-	t          *testing.T
-	itemType   string
-	collection string
+	t             *testing.T
+	itemType      string
+	collection    string
+	item          string
+	emptyChildren []string
 
 	mu       sync.Mutex
 	attrs    map[string]any
@@ -135,6 +144,9 @@ func (s *crudServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	item := s.collection + "/" + crudItemID
+	if s.item != "" {
+		item = s.item
+	}
 	respond := func(status int) {
 		w.Header().Set("Content-Type", "application/vnd.api+json")
 		w.WriteHeader(status)
@@ -170,7 +182,17 @@ func (s *crudServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == item && r.Method == http.MethodDelete:
 		s.deleted = true
 		w.WriteHeader(http.StatusNoContent)
-	case strings.HasPrefix(r.URL.Path, item+"/version") && s.serveChildren(w, r):
+	case strings.HasPrefix(r.URL.Path, item+"/version") && s.serveChildren(w, r, item):
+	case strings.HasPrefix(r.URL.Path, item+"/") && slices.Contains(s.emptyChildren, strings.TrimPrefix(r.URL.Path, item)):
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/vnd.api+json")
+			fmt.Fprint(w, `{"data":[]}`)
+		case http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
 	default:
 		s.t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		w.WriteHeader(http.StatusTeapot)
@@ -178,8 +200,8 @@ func (s *crudServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveChildren answers the version and implementation endpoints under the item.
-func (s *crudServer) serveChildren(w http.ResponseWriter, r *http.Request) bool {
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, s.collection+"/"+crudItemID+"/version"), "/")
+func (s *crudServer) serveChildren(w http.ResponseWriter, r *http.Request, item string) bool {
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, item+"/version"), "/")
 	list := func(ids []string) {
 		data := make([]map[string]any, len(ids))
 		for i, id := range ids {
@@ -230,7 +252,10 @@ type crudHarness struct {
 
 func newCrudHarness(t *testing.T, tc crudResourceCase) *crudHarness {
 	t.Helper()
-	srv := &crudServer{t: t, itemType: tc.itemType, collection: tc.collection, fail: map[string]int{}}
+	srv := &crudServer{
+		t: t, itemType: tc.itemType, collection: tc.collection, item: tc.item, emptyChildren: tc.emptyChildren,
+		fail: map[string]int{},
+	}
 	httpServer := httptest.NewServer(srv)
 	t.Cleanup(httpServer.Close)
 

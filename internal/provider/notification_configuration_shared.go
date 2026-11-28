@@ -1,9 +1,7 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,15 +16,39 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
-// notificationConfigAPI bundles the HTTP client/endpoint/token every notification-related
-// resource and data source needs, so the shared helpers below don't need three positional
-// arguments each.
+// notificationConfigAPI bundles the HTTP client/endpoint/token of the data source's net/http
+// calls, so the helpers below don't need three positional arguments each. Only
+// notification_configuration_data_source.go (and the tests of these helpers) uses it: the
+// notification configuration resources are on terrakube-go.
 type notificationConfigAPI struct {
 	client   *http.Client
 	endpoint string
 	token    string
+}
+
+// notificationTemplatesRelationship is the "templates" relationship of a notification
+// configuration create or update. It always replaces the whole set, mirroring
+// EditNotificationConfiguration.tsx's saveTemplates: simpler and safer than diffing against what
+// was previously selected. An empty list clears the set (meaning "applies to every template"),
+// it is not left out.
+func notificationTemplatesRelationship(templateIDs []string) map[string]terrakube.Relationship {
+	return map[string]terrakube.Relationship{
+		"templates": {Type: "template", Many: true, IDs: templateIDs},
+	}
+}
+
+// notificationTemplateIDs returns the ids of the templates a notification configuration is
+// narrowed to, in the order of the "templates" relationship linkage of its GET response. An
+// empty result means "applies to every template".
+func notificationTemplateIDs(configuration *terrakube.NotificationConfiguration) []string {
+	ids := make([]string, 0, len(configuration.Templates))
+	for _, template := range configuration.Templates {
+		ids = append(ids, template.ID)
+	}
+	return ids
 }
 
 // optionalStringValue converts a nullable API string field into a Terraform types.String,
@@ -39,7 +61,8 @@ func optionalStringValue(s *string) types.String {
 	return types.StringValue(*s)
 }
 
-// fetchNotificationTriggers reads the full set of trigger resources attached to a notification
+// fetchNotificationTriggers is used only by the data source; the resources read triggers with
+// terrakube-go's NotificationTriggers.ListByConfiguration. It reads the full set of trigger resources attached to a notification
 // configuration via the related-resource collection endpoint, which - unlike the relationship
 // linkage embedded in the configuration's own GET response - returns each trigger's full
 // attributes (jobStatus), not just its id. Mirrors workspace_webhook_event_resource.go's Update
@@ -93,9 +116,10 @@ func (a notificationConfigAPI) fetchNotificationTriggers(ctx context.Context, co
 
 // syncNotificationTriggers reconciles a configuration's trigger set with the desired list of job
 // statuses: POSTs one new trigger per status in desired-but-not-current, and DELETEs one per
-// status in current-but-not-desired. Same diff shape as the notification system's own UI
-// (EditNotificationConfiguration.tsx's saveTriggers).
-func (a notificationConfigAPI) syncNotificationTriggers(ctx context.Context, configID string, current []client.NotificationTriggerEntity, desired []string) diag.Diagnostics {
+// status in current-but-not-desired, through the top-level /notification_configuration/{id}/triggers
+// path. Same diff shape as the notification system's own UI (EditNotificationConfiguration.tsx's
+// saveTriggers).
+func syncNotificationTriggers(ctx context.Context, c *terrakube.Client, configID string, current []*terrakube.NotificationTrigger, desired []string) diag.Diagnostics {
 	var diags diag.Diagnostics
 
 	currentByStatus := make(map[string]string, len(current))
@@ -111,28 +135,9 @@ func (a notificationConfigAPI) syncNotificationTriggers(ctx context.Context, con
 		if _, ok := currentByStatus[status]; ok {
 			continue
 		}
-		bodyRequest := &client.NotificationTriggerEntity{JobStatus: status}
-		out := new(bytes.Buffer)
-		if err := jsonapi.MarshalPayload(out, bodyRequest); err != nil {
-			diags.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-			return diags
-		}
-		request, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/api/v1/notification_configuration/%s/triggers", a.endpoint, configID), strings.NewReader(out.String()))
-		if err != nil {
-			diags.AddError("Error creating notification trigger request", fmt.Sprintf("Error creating notification trigger request: %s", err))
-			return diags
-		}
-		request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", a.token))
-		request.Header.Add("Content-Type", "application/vnd.api+json")
-
-		response, err := a.client.Do(request)
-		if err != nil {
-			diags.AddError("Error executing notification trigger request", fmt.Sprintf("Error executing notification trigger request: %s", err))
-			return diags
-		}
-		body, _ := io.ReadAll(response.Body)
-		if response.StatusCode < 200 || response.StatusCode >= 300 {
-			diags.AddError(fmt.Sprintf("Failed to create notification trigger %q: %s", status, response.Status), string(body))
+		p := terrakube.Patch{Attributes: map[string]any{"jobStatus": status}}
+		if _, err := c.NotificationTriggers.CreateFieldsByConfiguration(ctx, configID, p); err != nil {
+			reportClientError(&diags, fmt.Sprintf("creating notification trigger %q", status), err)
 			return diags
 		}
 	}
@@ -141,21 +146,8 @@ func (a notificationConfigAPI) syncNotificationTriggers(ctx context.Context, con
 		if desiredSet[status] {
 			continue
 		}
-		request, err := http.NewRequestWithContext(ctx, http.MethodDelete, fmt.Sprintf("%s/api/v1/notification_configuration/%s/triggers/%s", a.endpoint, configID, triggerID), nil)
-		if err != nil {
-			diags.AddError("Error creating notification trigger delete request", fmt.Sprintf("Error creating notification trigger delete request: %s", err))
-			return diags
-		}
-		request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", a.token))
-
-		response, err := a.client.Do(request)
-		if err != nil {
-			diags.AddError("Error executing notification trigger delete request", fmt.Sprintf("Error executing notification trigger delete request: %s", err))
-			return diags
-		}
-		if response.StatusCode < 200 || response.StatusCode >= 300 {
-			body, _ := io.ReadAll(response.Body)
-			diags.AddError(fmt.Sprintf("Failed to delete notification trigger %q: %s", status, response.Status), string(body))
+		if err := c.NotificationTriggers.DeleteByConfiguration(ctx, configID, triggerID); err != nil {
+			reportClientError(&diags, fmt.Sprintf("deleting notification trigger %q", status), err)
 			return diags
 		}
 	}
@@ -163,6 +155,8 @@ func (a notificationConfigAPI) syncNotificationTriggers(ctx context.Context, con
 	return diags
 }
 
+// fetchNotificationConfigurationTemplateIDs is used only by the data source.
+//
 // fetchNotificationConfigurationTemplateIDs reads the ids of every template a notification
 // configuration is currently narrowed to, via the related-resource collection endpoint (same
 // "full resources, not just linkage" shape fetchNotificationTriggers relies on). An empty result
@@ -215,48 +209,6 @@ func (a notificationConfigAPI) fetchNotificationConfigurationTemplateIDs(ctx con
 	return ids, diags
 }
 
-// replaceNotificationConfigurationTemplates replaces the entire "applies to these templates" set
-// in one call, mirroring EditNotificationConfiguration.tsx's saveTemplates: simpler and safer
-// than diffing against what was previously selected, and Elide supports replacing a to-many
-// relationship wholesale via PATCH .../relationships/{name}. Passing an empty slice clears the
-// set (meaning "applies to every template"), it does not skip the call.
-func (a notificationConfigAPI) replaceNotificationConfigurationTemplates(ctx context.Context, configID string, templateIDs []string) diag.Diagnostics {
-	var diags diag.Diagnostics
-
-	data := make([]map[string]string, 0, len(templateIDs))
-	for _, id := range templateIDs {
-		data = append(data, map[string]string{"type": "template", "id": id})
-	}
-	payload := map[string]interface{}{"data": data}
-
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		diags.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return diags
-	}
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodPatch, fmt.Sprintf("%s/api/v1/notification_configuration/%s/relationships/templates", a.endpoint, configID), bytes.NewReader(jsonData))
-	if err != nil {
-		diags.AddError("Error creating notification configuration templates request", fmt.Sprintf("Error creating notification configuration templates request: %s", err))
-		return diags
-	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", a.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
-
-	response, err := a.client.Do(request)
-	if err != nil {
-		diags.AddError("Error executing notification configuration templates request", fmt.Sprintf("Error executing notification configuration templates request: %s", err))
-		return diags
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		body, _ := io.ReadAll(response.Body)
-		diags.AddError(fmt.Sprintf("Failed to set notification configuration templates: %s", response.Status), string(body))
-		return diags
-	}
-
-	return diags
-}
-
 // signingSecretDescription is shared by the organization and workspace notification
 // configuration resources.
 const signingSecretDescription = "If set, outgoing WEBHOOK requests are signed with an X-Terrakube-Signature header (HMAC-SHA256) so the destination can verify they came from Terrakube. Stored in the Terraform state; conflicts with `signing_secret_wo`. Terrakube never returns the secret, so a change made outside Terraform is not detected, an import leaves it null (the next plan shows an update). Removing it from the configuration clears it in Terrakube."
@@ -274,8 +226,7 @@ func signingSecretConfigValidators() []resource.ConfigValidator {
 
 // signingSecretToSend returns the signing secret for the request body: signing_secret from
 // the plan, or signing_secret_wo from the configuration (write-only values are never in the
-// plan). nil when neither is set, so the attribute is left out of the request
-// (SigningSecret is omitempty) as before.
+// plan). nil when neither is set, so the attribute is left out of the request, as before.
 func signingSecretToSend(ctx context.Context, config tfsdk.Config, planned types.String) (*string, diag.Diagnostics) {
 	value, fromWo, diags := writeOnlyValue(ctx, config, planned, "signing_secret")
 	if diags.HasError() || (planned.IsNull() && !fromWo) {

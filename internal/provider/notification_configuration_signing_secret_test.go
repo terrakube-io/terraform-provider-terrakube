@@ -35,7 +35,7 @@ func notificationConfigurationTestCases() []notificationConfigurationTestCase {
 				if server == nil {
 					return &OrganizationNotificationConfigurationResource{}
 				}
-				return &OrganizationNotificationConfigurationResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+				return &OrganizationNotificationConfigurationResource{client: newTestClient(server.Client(), server.URL)}
 			},
 			schemaAndType: organizationNotificationConfigurationSchemaAndType,
 		},
@@ -45,7 +45,7 @@ func notificationConfigurationTestCases() []notificationConfigurationTestCase {
 				if server == nil {
 					return &WorkspaceNotificationConfigurationResource{}
 				}
-				return &WorkspaceNotificationConfigurationResource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+				return &WorkspaceNotificationConfigurationResource{client: newTestClient(server.Client(), server.URL)}
 			},
 			schemaAndType: workspaceNotificationConfigurationSchemaAndType,
 			extra: map[string]tftypes.Value{
@@ -76,13 +76,15 @@ func (tc notificationConfigurationTestCase) values(objType tftypes.Object, overr
 
 // notificationConfigurationServer answers as Terrakube does: signingSecret is
 // never in a response (its "read notification signing secret" check always
-// denies), and the configuration has the "failed" trigger and no templates. When captured
-// is not nil, it records the body of the last configuration POST or PATCH.
+// denies), and the configuration has the "failed" trigger and no templates (an empty templates
+// relationship linkage). When captured is not nil, it records the body of the last configuration
+// POST or PATCH.
 func notificationConfigurationServer(t *testing.T, captured *[]byte) *httptest.Server {
 	t.Helper()
 
 	config := `{"data":{"type":"notification_configuration","id":"cfg-1","attributes":{` +
-		`"name":"signed-webhook","channelType":"WEBHOOK","destinationUrl":"https://example.com/hook","active":true,"messageStyle":"DETAILED"}}}`
+		`"name":"signed-webhook","channelType":"WEBHOOK","destinationUrl":"https://example.com/hook","active":true,"messageStyle":"DETAILED"},` +
+		`"relationships":{"templates":{"data":[]}}}}`
 	triggers := `{"data":[{"type":"notification_trigger","id":"trg-1","attributes":{"jobStatus":"failed"}}]}`
 
 	mux := http.NewServeMux()
@@ -105,12 +107,6 @@ func notificationConfigurationServer(t *testing.T, captured *[]byte) *httptest.S
 				return
 			}
 			fmt.Fprint(w, triggers)
-		case strings.HasSuffix(req.URL.Path, "/templates"):
-			if req.Method == http.MethodPatch {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			fmt.Fprint(w, `{"data":[]}`)
 		default:
 			t.Errorf("unexpected request %s %s", req.Method, req.URL.Path)
 			w.WriteHeader(http.StatusNotFound)

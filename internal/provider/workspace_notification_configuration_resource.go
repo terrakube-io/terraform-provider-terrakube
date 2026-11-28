@@ -1,16 +1,10 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -25,6 +19,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var _ resource.Resource = &WorkspaceNotificationConfigurationResource{}
@@ -32,9 +27,7 @@ var _ resource.ResourceWithImportState = &WorkspaceNotificationConfigurationReso
 var _ resource.ResourceWithConfigValidators = &WorkspaceNotificationConfigurationResource{}
 
 type WorkspaceNotificationConfigurationResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type WorkspaceNotificationConfigurationResourceModel struct {
@@ -143,35 +136,7 @@ func (r *WorkspaceNotificationConfigurationResource) Schema(ctx context.Context,
 }
 
 func (r *WorkspaceNotificationConfigurationResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Workspace Notification Configuration Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Workspace Notification Configuration resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Workspace Notification Configuration Resource")
 }
 
 func (r *WorkspaceNotificationConfigurationResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -200,59 +165,27 @@ func (r *WorkspaceNotificationConfigurationResource) Create(ctx context.Context,
 		return
 	}
 
-	bodyRequest := &client.NotificationConfigurationEntity{
-		Name:           plan.Name.ValueString(),
-		Description:    plan.Description.ValueStringPointer(),
-		ChannelType:    plan.ChannelType.ValueString(),
-		DestinationUrl: plan.DestinationUrl.ValueString(),
-		SigningSecret:  signingSecret,
-		Active:         plan.Active.ValueBool(),
-		MessageStyle:   plan.MessageStyle.ValueString(),
+	attributes := patchAttributes{}
+	attributes.createString("name", plan.Name)
+	attributes.createString("description", plan.Description)
+	attributes.createString("channelType", plan.ChannelType)
+	attributes.createString("destinationUrl", plan.DestinationUrl)
+	if signingSecret != nil {
+		attributes["signingSecret"] = *signingSecret
 	}
+	attributes.createBool("active", plan.Active)
+	attributes.createString("messageStyle", plan.MessageStyle)
 
-	out := new(bytes.Buffer)
-	if err := jsonapi.MarshalPayload(out, bodyRequest); err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-
-	createRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/notificationConfiguration", r.endpoint, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString()), strings.NewReader(out.String()))
+	created, err := r.client.NotificationConfigurations.CreateForWorkspaceFields(ctx, plan.OrganizationId.ValueString(), plan.WorkspaceId.ValueString(), terrakube.Patch{
+		Attributes:    attributes,
+		Relationships: notificationTemplatesRelationship(templateIds),
+	})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace notification configuration resource request", fmt.Sprintf("Error creating workspace notification configuration resource request: %s", err))
-		return
-	}
-	createRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	createRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	createResponse, err := r.client.Do(createRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace notification configuration resource request", fmt.Sprintf("Error executing workspace notification configuration resource request: %s", err))
-		return
-	}
-	createBody, err := io.ReadAll(createResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading workspace notification configuration resource response")
-	}
-	if createResponse.StatusCode < 200 || createResponse.StatusCode >= 300 {
-		resp.Diagnostics.AddError(
-			fmt.Sprintf("Failed to create notification configuration: %s", createResponse.Status),
-			string(createBody),
-		)
+		reportClientError(&resp.Diagnostics, "creating workspace notification configuration", err)
 		return
 	}
 
-	created := &client.NotificationConfigurationEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(createBody)), created); err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	api := notificationConfigAPI{client: r.client, endpoint: r.endpoint, token: r.token}
-	resp.Diagnostics.Append(api.syncNotificationTriggers(ctx, created.ID, nil, triggerStatuses)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	resp.Diagnostics.Append(api.replaceNotificationConfigurationTemplates(ctx, created.ID, templateIds)...)
+	resp.Diagnostics.Append(syncNotificationTriggers(ctx, r.client, created.ID, nil, triggerStatuses)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -261,7 +194,7 @@ func (r *WorkspaceNotificationConfigurationResource) Create(ctx context.Context,
 	plan.Name = types.StringValue(created.Name)
 	plan.Description = optionalStringValue(created.Description)
 	plan.ChannelType = types.StringValue(created.ChannelType)
-	plan.DestinationUrl = types.StringValue(created.DestinationUrl)
+	plan.DestinationUrl = types.StringValue(created.DestinationURL)
 	// signing_secret stays as planned: Terrakube never returns it (see the Read comment).
 	plan.Active = types.BoolValue(created.Active)
 	plan.MessageStyle = types.StringValue(created.MessageStyle)
@@ -284,46 +217,20 @@ func (r *WorkspaceNotificationConfigurationResource) Read(ctx context.Context, r
 		return
 	}
 
-	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/notification_configuration/%s", r.endpoint, state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace notification configuration resource request", fmt.Sprintf("Error creating workspace notification configuration resource request: %s", err))
-		return
-	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
-
-	response, err := r.client.Do(request)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace notification configuration resource request", fmt.Sprintf("Error executing workspace notification configuration resource request: %s", err))
-		return
-	}
-
-	if response.StatusCode == http.StatusNotFound {
+	configuration, err := r.client.NotificationConfigurations.GetByID(ctx, state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Notification configuration not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading workspace notification configuration resource response", fmt.Sprintf("Error reading workspace notification configuration resource response: %s", err))
+		reportClientError(&resp.Diagnostics, "reading workspace notification configuration", err)
 		return
 	}
 
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace notification configuration", response, body) {
-		return
-	}
-
-	configuration := &client.NotificationConfigurationEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(body)), configuration); err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	api := notificationConfigAPI{client: r.client, endpoint: r.endpoint, token: r.token}
-	triggers, diags := api.fetchNotificationTriggers(ctx, state.ID.ValueString())
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
+	triggers, err := r.client.NotificationTriggers.ListByConfiguration(ctx, state.ID.ValueString(), nil)
+	if err != nil {
+		reportClientError(&resp.Diagnostics, "reading notification triggers", err)
 		return
 	}
 	statuses := make([]string, 0, len(triggers))
@@ -333,19 +240,14 @@ func (r *WorkspaceNotificationConfigurationResource) Read(ctx context.Context, r
 	triggerList, listDiags := types.ListValueFrom(ctx, types.StringType, statuses)
 	resp.Diagnostics.Append(listDiags...)
 
-	templateIds, templateDiags := api.fetchNotificationConfigurationTemplateIDs(ctx, state.ID.ValueString())
-	resp.Diagnostics.Append(templateDiags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	templateList, templateListDiags := types.ListValueFrom(ctx, types.StringType, templateIds)
+	templateList, templateListDiags := types.ListValueFrom(ctx, types.StringType, notificationTemplateIDs(configuration))
 	resp.Diagnostics.Append(templateListDiags...)
 
 	state.ID = types.StringValue(configuration.ID)
 	state.Name = types.StringValue(configuration.Name)
 	state.Description = optionalStringValue(configuration.Description)
 	state.ChannelType = types.StringValue(configuration.ChannelType)
-	state.DestinationUrl = types.StringValue(configuration.DestinationUrl)
+	state.DestinationUrl = types.StringValue(configuration.DestinationURL)
 	// signing_secret is kept from the state: Terrakube never returns it (its
 	// "read notification signing secret" check always denies), so the response
 	// value is always empty.
@@ -385,64 +287,50 @@ func (r *WorkspaceNotificationConfigurationResource) Update(ctx context.Context,
 		return
 	}
 
-	bodyRequest := &client.NotificationConfigurationEntity{
-		ID:             state.ID.ValueString(),
-		Name:           plan.Name.ValueString(),
-		Description:    plan.Description.ValueStringPointer(),
-		ChannelType:    plan.ChannelType.ValueString(),
-		DestinationUrl: plan.DestinationUrl.ValueString(),
-		SigningSecret:  signingSecret,
-		Active:         plan.Active.ValueBool(),
-		MessageStyle:   plan.MessageStyle.ValueString(),
+	attributes := patchAttributes{}
+	attributes.updateString("name", plan.Name, state.Name)
+	attributes.updateString("description", plan.Description, state.Description)
+	attributes.updateString("channelType", plan.ChannelType, state.ChannelType)
+	attributes.updateString("destinationUrl", plan.DestinationUrl, state.DestinationUrl)
+	if signingSecret != nil {
+		attributes["signingSecret"] = *signingSecret
 	}
+	attributes.updateBool("active", plan.Active, state.Active)
+	attributes.updateString("messageStyle", plan.MessageStyle, state.MessageStyle)
 
-	out := new(bytes.Buffer)
-	if err := jsonapi.MarshalPayload(out, bodyRequest); err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	id := state.ID.ValueString()
+	if _, err := r.client.NotificationConfigurations.UpdateFieldsByID(ctx, id, terrakube.Patch{
+		Attributes:    attributes,
+		Relationships: notificationTemplatesRelationship(desiredTemplateIds),
+	}); patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating workspace notification configuration", err)
 		return
 	}
 
-	updateRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/notification_configuration/%s", r.endpoint, state.ID.ValueString()), strings.NewReader(out.String()))
+	configuration, err := r.client.NotificationConfigurations.GetByID(ctx, id)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace notification configuration resource request", fmt.Sprintf("Error creating workspace notification configuration resource request: %s", err))
-		return
-	}
-	updateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	updateRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	updateResponse, err := r.client.Do(updateRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace notification configuration resource request", fmt.Sprintf("Error executing workspace notification configuration resource request: %s", err))
-		return
-	}
-	updateBody, err := io.ReadAll(updateResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, "Error reading workspace notification configuration resource response")
-	}
-	if updateResponse.StatusCode < 200 || updateResponse.StatusCode >= 300 {
-		resp.Diagnostics.AddError(
-			fmt.Sprintf("Failed to update notification configuration: %s", updateResponse.Status),
-			string(updateBody),
-		)
+		reportClientError(&resp.Diagnostics, "reading workspace notification configuration after update", err)
 		return
 	}
 
-	api := notificationConfigAPI{client: r.client, endpoint: r.endpoint, token: r.token}
-	current, diags := api.fetchNotificationTriggers(ctx, state.ID.ValueString())
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
+	current, err := r.client.NotificationTriggers.ListByConfiguration(ctx, id, nil)
+	if err != nil {
+		reportClientError(&resp.Diagnostics, "reading notification triggers", err)
 		return
 	}
-	resp.Diagnostics.Append(api.syncNotificationTriggers(ctx, state.ID.ValueString(), current, desiredStatuses)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	resp.Diagnostics.Append(api.replaceNotificationConfigurationTemplates(ctx, state.ID.ValueString(), desiredTemplateIds)...)
+	resp.Diagnostics.Append(syncNotificationTriggers(ctx, r.client, id, current, desiredStatuses)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	plan.ID = state.ID
+	plan.Name = types.StringValue(configuration.Name)
+	plan.Description = optionalStringValue(configuration.Description)
+	plan.ChannelType = types.StringValue(configuration.ChannelType)
+	plan.DestinationUrl = types.StringValue(configuration.DestinationURL)
+	// signing_secret stays as planned: Terrakube never returns it (see the Read comment).
+	plan.Active = types.BoolValue(configuration.Active)
+	plan.MessageStyle = types.StringValue(configuration.MessageStyle)
 	triggerList, listDiags := types.ListValueFrom(ctx, types.StringType, desiredStatuses)
 	resp.Diagnostics.Append(listDiags...)
 	plan.TriggerStatuses = triggerList
@@ -461,19 +349,10 @@ func (r *WorkspaceNotificationConfigurationResource) Delete(ctx context.Context,
 		return
 	}
 
-	request, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/notification_configuration/%s", r.endpoint, state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace notification configuration resource request", fmt.Sprintf("Error creating workspace notification configuration resource request: %s", err))
-		return
+	err := r.client.NotificationConfigurations.DeleteByID(ctx, state.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting workspace notification configuration", err)
 	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	response, err := r.client.Do(request)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace notification configuration resource request", fmt.Sprintf("Error executing workspace notification configuration resource request: %s", err))
-		return
-	}
-	reportDeleteFailure(&resp.Diagnostics, "deleting workspace notification configuration", response)
 }
 
 func (r *WorkspaceNotificationConfigurationResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {

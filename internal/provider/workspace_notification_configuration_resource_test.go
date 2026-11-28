@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -56,18 +57,11 @@ func TestWorkspaceNotificationConfigurationResource_Create_PostsToWorkspaceScope
 		triggerPosts = append(triggerPosts, string(body))
 		w.WriteHeader(http.StatusCreated)
 	})
-	mux.HandleFunc("/api/v1/notification_configuration/cfg-override/relationships/templates", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceNotificationConfigurationResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceNotificationConfigurationResource{client: newTestClient(server.Client(), server.URL)}
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization_id": tftypes.NewValue(tftypes.String, orgID),
@@ -108,42 +102,42 @@ func TestWorkspaceNotificationConfigurationResource_Create_PostsToWorkspaceScope
 }
 
 // TestWorkspaceNotificationConfigurationResource_Update_ReplacesTemplatesWholesale covers that
-// Update always sends a full-replace PATCH for templates, not a diff against the prior set -
-// matching how notification_configuration_shared.go's replaceNotificationConfigurationTemplates
-// (and the notification system's own UI) manage this to-many relationship.
+// Update always sends the full templates set in its PATCH, not a diff against the prior set -
+// matching how notification_configuration_shared.go's notificationTemplatesRelationship (and the
+// notification system's own UI) manage this to-many relationship.
 func TestWorkspaceNotificationConfigurationResource_Update_ReplacesTemplatesWholesale(t *testing.T) {
 	ctx := context.Background()
 	s, objType := workspaceNotificationConfigurationSchemaAndType(t, ctx)
 
-	var templatesPatchBody string
+	var templatesPatchBody []byte
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/notification_configuration/cfg-1", func(w http.ResponseWriter, r *http.Request) {
+		// terrakube-go reads the configuration back after a PATCH that has no body, and Update
+		// then reads it once more.
+		if r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"data":{"type":"notification_configuration","id":"cfg-1","attributes":{
+				"name":"prod-alerts-override","channelType":"SLACK","destinationUrl":"https://hooks.slack.com/x","active":true,"messageStyle":"DETAILED"}}}`)
+			return
+		}
 		if r.Method != http.MethodPatch {
 			t.Fatalf("unexpected method %s", r.Method)
 		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("reading request body: %v", err)
+		}
+		templatesPatchBody = body
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("/api/v1/notification_configuration/cfg-1/triggers", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"data":[]}`)
 	})
-	mux.HandleFunc("/api/v1/notification_configuration/cfg-1/relationships/templates", func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("reading request body: %v", err)
-		}
-		templatesPatchBody = string(body)
-		w.WriteHeader(http.StatusNoContent)
-	})
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceNotificationConfigurationResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceNotificationConfigurationResource{client: newTestClient(server.Client(), server.URL)}
 
 	stateValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"id":               tftypes.NewValue(tftypes.String, "cfg-1"),
@@ -186,10 +180,11 @@ func TestWorkspaceNotificationConfigurationResource_Update_ReplacesTemplatesWhol
 		t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
 	}
 
-	if !contains(templatesPatchBody, `"id":"tmpl-new"`) {
-		t.Errorf("expected templates PATCH body to contain tmpl-new, got: %s", templatesPatchBody)
+	ids, ok := sentTemplateIDs(t, templatesPatchBody)
+	if !ok || !slices.Contains(ids, "tmpl-new") {
+		t.Errorf("expected the PATCH body's templates relationship to contain tmpl-new, got: %s", templatesPatchBody)
 	}
-	if contains(templatesPatchBody, `"id":"tmpl-old"`) {
-		t.Errorf("expected templates PATCH body to NOT contain tmpl-old (full replace, not merge), got: %s", templatesPatchBody)
+	if slices.Contains(ids, "tmpl-old") {
+		t.Errorf("expected the PATCH body's templates relationship to NOT contain tmpl-old (full replace, not merge), got: %s", templatesPatchBody)
 	}
 }
