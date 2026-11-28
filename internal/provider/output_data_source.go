@@ -3,24 +3,20 @@ package provider
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
-	"net/http"
-	"net/url"
 	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -29,9 +25,7 @@ var (
 )
 
 type OutputDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type OutputDataSourceModel struct {
@@ -45,39 +39,8 @@ func NewOutputDataSource() datasource.DataSource {
 	return &OutputDataSource{}
 }
 
-func (d *OutputDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, res *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		res.Diagnostics.AddError(
-			"Unexpected Output Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-
-	ctx = tflog.SetField(ctx, "endpoint", d.endpoint)
-	ctx = tflog.SetField(ctx, "token", d.token)
-	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "token")
-	tflog.Info(ctx, "Creating Output datasource")
+func (d *OutputDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Output Data Source")
 }
 
 func (d *OutputDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -111,28 +74,33 @@ func (d *OutputDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var state OutputDataSourceModel
 
-	req.Config.Get(ctx, &state)
-	tflog.Info(ctx, state.Workspace.ValueString())
-	tflog.Info(ctx, state.Organization.ValueString())
-
-	orgs := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, url.QueryEscape(rsqlQuote(state.Organization.ValueString()))), ctx, resp, new(client.OrganizationEntity))
+	resp.Diagnostics.Append(req.Config.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	organization := findSingleByName(&resp.Diagnostics, "organization", state.Organization.ValueString(), "", orgs,
-		func(e *client.OrganizationEntity) string { return e.Name })
+	tflog.Info(ctx, state.Workspace.ValueString())
+	tflog.Info(ctx, state.Organization.ValueString())
+
+	orgs, err := d.client.Organizations.List(ctx, &terrakube.ListOptions{Filter: "name==" + rsqlQuote(state.Organization.ValueString())})
+	if err != nil {
+		reportClientError(&resp.Diagnostics, "reading workspace output", err)
+		return
+	}
+	organization := findSingleByNameIn(&resp.Diagnostics, "organization", state.Organization.ValueString(), "", orgs,
+		func(e *terrakube.Organization) string { return e.Name })
 	if organization == nil {
 		return
 	}
 	OrganizationID := organization.ID
 
 	// now try to find the Workspace
-	workspaces := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/workspace?filter[workspace]=name==%s", d.endpoint, url.PathEscape(OrganizationID), url.QueryEscape(rsqlQuote(state.Workspace.ValueString()))), ctx, resp, new(client.WorkspaceEntity))
-	if resp.Diagnostics.HasError() {
+	workspaces, err := d.client.Workspaces.List(ctx, OrganizationID, &terrakube.ListOptions{Filter: "name==" + rsqlQuote(state.Workspace.ValueString())})
+	if err != nil {
+		reportClientError(&resp.Diagnostics, "reading workspace output", err)
 		return
 	}
-	workspace := findSingleByName(&resp.Diagnostics, "workspace", state.Workspace.ValueString(), " in organization "+state.Organization.ValueString(), workspaces,
-		func(e *client.WorkspaceEntity) string { return e.Name })
+	workspace := findSingleByNameIn(&resp.Diagnostics, "workspace", state.Workspace.ValueString(), " in organization "+state.Organization.ValueString(), workspaces,
+		func(e *terrakube.Workspace) string { return e.Name })
 	if workspace == nil {
 		return
 	}
@@ -140,8 +108,9 @@ func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	tflog.Info(ctx, WorkspaceId)
 
 	// Now that we found the workspace id we can query for the history
-	Histories := d.ReadDataFromApi(fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/history?sort=-createdDate", d.endpoint, url.PathEscape(OrganizationID), url.PathEscape(WorkspaceId)), ctx, resp, new(client.HistoryEntity))
-	if resp.Diagnostics.HasError() {
+	Histories, err := d.client.History.List(ctx, OrganizationID, WorkspaceId, &terrakube.ListOptions{Sort: "-createdDate"})
+	if err != nil {
+		reportClientError(&resp.Diagnostics, "reading workspace output", err)
 		return
 	}
 
@@ -151,35 +120,26 @@ func (d *OutputDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		return
 	}
 
-	data, _ := Histories[0].(*client.HistoryEntity)
-	tflog.Info(ctx, fmt.Sprintf("%#v", data))
-	// Output contains a link to the Output.json file, which contains the real data we need.
-	OutputUrl := data.Output
-	reqFile, err := http.NewRequest(http.MethodGet, OutputUrl, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating request", fmt.Sprintf("Error creating request: %s", err))
-		return
-	}
-	reqFile.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	reqFile.Header.Add("Content-Type", "application/vnd.api+json")
-
-	resFile, err := d.client.Do(reqFile)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Output datasource request part 4", fmt.Sprintf("Error executing Output datasource request part 4: %s", err))
-		return
-	}
-
-	bodyFile, err := io.ReadAll(resFile.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading Output response part 4, response status: %s, error: %s", resFile.Status, err))
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "downloading workspace output", resFile, bodyFile) {
-		return
-	}
-
+	// Output of the newest history entry names the JSON state file, which contains the real data
+	// we need. The token is only sent to the configured endpoint.
+	file, err := d.client.State.Download(ctx, Histories[0], terrakube.StateJSON)
 	// Terrakube answers a missing output file with 200 and an empty body, because the history entry
 	// is saved before the state is uploaded. That is no outputs yet, not a corrupt file.
+	if errors.Is(err, terrakube.ErrStateNotFound) {
+		tflog.Info(ctx, "The output file is empty, so there are no outputs yet")
+		return
+	}
+	if err != nil {
+		reportClientError(&resp.Diagnostics, "downloading workspace output", err)
+		return
+	}
+	defer file.Close()
+
+	bodyFile, err := io.ReadAll(file)
+	if err != nil {
+		tflog.Error(ctx, fmt.Sprintf("Error reading Output response part 4, error: %s", err))
+	}
+
 	if len(bytes.TrimSpace(bodyFile)) == 0 {
 		tflog.Info(ctx, "The output file is empty, so there are no outputs yet")
 		return
@@ -442,40 +402,4 @@ func inferAttrType(raw interface{}) (attr.Type, error) {
 	default:
 		return nil, fmt.Errorf("unsupported type %T", raw)
 	}
-}
-
-func (d *OutputDataSource) ReadDataFromApi(url string, ctx context.Context, resp *datasource.ReadResponse, structType any) (data []interface{}) {
-	regApi, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating Output datasource request", fmt.Sprintf("Error creating Output datasource request: %s", err))
-		return
-	}
-	regApi.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	regApi.Header.Add("Content-Type", "application/vnd.api+json")
-
-	resApi, err := d.client.Do(regApi)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Output datasource request", fmt.Sprintf("Error executing Output datasource request: %s", err))
-		return
-	}
-
-	body, err := io.ReadAll(resApi.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading Output response, response status: %s, error: %s", resApi.Status, err))
-	}
-
-	tflog.Info(ctx, string(body))
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace output", resApi, body) {
-		return
-	}
-
-	data, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(structType))
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to marshal payload, response status: %s, response body: %s, error: %s", resApi.Status, string(body), err))
-		return
-	}
-
-	return data
 }

@@ -49,11 +49,7 @@ func TestPolicyAttachmentDataSource_ReadById(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	d := &PolicyAttachmentDataSource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	d := &PolicyAttachmentDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"policy_set_id": tftypes.NewValue(tftypes.String, policySetID),
@@ -108,11 +104,7 @@ func TestPolicyAttachmentDataSource_ReadByWorkspaceId(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	d := &PolicyAttachmentDataSource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	d := &PolicyAttachmentDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"policy_set_id": tftypes.NewValue(tftypes.String, policySetID),
@@ -162,11 +154,7 @@ func TestPolicyAttachmentDataSource_ReadByProjectId(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	d := &PolicyAttachmentDataSource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	d := &PolicyAttachmentDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"policy_set_id": tftypes.NewValue(tftypes.String, policySetID),
@@ -216,11 +204,7 @@ func TestPolicyAttachmentDataSource_ReadByTagId(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	d := &PolicyAttachmentDataSource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	d := &PolicyAttachmentDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"policy_set_id": tftypes.NewValue(tftypes.String, policySetID),

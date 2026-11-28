@@ -51,11 +51,7 @@ func TestPolicySetParameterDataSource_ReadById(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	d := &PolicySetParameterDataSource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	d := &PolicySetParameterDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"policy_set_id": tftypes.NewValue(tftypes.String, policySetID),
@@ -120,11 +116,7 @@ func TestPolicySetParameterDataSource_ReadByKey(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	d := &PolicySetParameterDataSource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	d := &PolicySetParameterDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"policy_set_id": tftypes.NewValue(tftypes.String, policySetID),
@@ -191,11 +183,7 @@ func TestPolicySetParameterDataSource_NotFound(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	d := &PolicySetParameterDataSource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	d := &PolicySetParameterDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"policy_set_id": tftypes.NewValue(tftypes.String, policySetID),

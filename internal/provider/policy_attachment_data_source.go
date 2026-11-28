@@ -2,19 +2,14 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
+	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -31,9 +26,7 @@ type PolicyAttachmentDataSourceModel struct {
 }
 
 type PolicyAttachmentDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewPolicyAttachmentDataSource() datasource.DataSource {
@@ -77,33 +70,7 @@ func (d *PolicyAttachmentDataSource) Schema(_ context.Context, _ datasource.Sche
 }
 
 func (d *PolicyAttachmentDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Policy Attachment Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Policy Attachment Data Source")
 }
 
 func (d *PolicyAttachmentDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
@@ -127,80 +94,30 @@ func (d *PolicyAttachmentDataSource) Read(ctx context.Context, req datasource.Re
 	}
 
 	policySetID := state.PolicySetId.ValueString()
-	var targetAttachment *client.PolicyAttachmentEntity
+	var targetAttachment *terrakube.PolicyAttachment
 
 	if hasID {
 		attachID := state.ID.ValueString()
-		url := fmt.Sprintf("%s/api/v1/policy_set/%s/attachments/%s", d.endpoint, policySetID, attachID)
-		readReq, err := http.NewRequest(http.MethodGet, url, nil)
+		single, err := d.client.PolicyAttachments.GetByPolicySet(ctx, policySetID, attachID)
 		if err != nil {
-			resp.Diagnostics.AddError("Error creating policy attachment read request", fmt.Sprintf("Error: %s", err))
-			return
-		}
-		readReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-		readReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-		readResp, err := d.client.Do(readReq)
-		if err != nil {
-			resp.Diagnostics.AddError("Error executing policy attachment read request", fmt.Sprintf("Error: %s", err))
-			return
-		}
-		defer readResp.Body.Close()
-
-		bodyResponse, err := io.ReadAll(readResp.Body)
-		if err != nil {
-			resp.Diagnostics.AddError("Error reading policy attachment response body", fmt.Sprintf("Error: %s", err))
-			return
-		}
-
-		if readResp.StatusCode >= http.StatusBadRequest {
-			resp.Diagnostics.AddError("Policy Attachment Not Found", fmt.Sprintf("Attachment ID %s was not found for policy set %s: %s", attachID, policySetID, string(bodyResponse)))
-			return
-		}
-
-		single := &client.PolicyAttachmentEntity{}
-		if err := jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), single); err != nil {
-			resp.Diagnostics.AddError("Error unmarshalling policy attachment payload", fmt.Sprintf("Error: %s", err))
+			var apiErr *terrakube.APIError
+			if errors.As(err, &apiErr) {
+				resp.Diagnostics.AddError("Policy Attachment Not Found", fmt.Sprintf("Attachment ID %s was not found for policy set %s: %s", attachID, policySetID, string(apiErr.Body)))
+				return
+			}
+			reportClientError(&resp.Diagnostics, "reading policy attachment", err)
 			return
 		}
 		targetAttachment = single
 	} else {
-		url := fmt.Sprintf("%s/api/v1/policy_set/%s/attachments", d.endpoint, policySetID)
-		readReq, err := http.NewRequest(http.MethodGet, url, nil)
+		attachments, err := d.client.PolicyAttachments.ListByPolicySet(ctx, policySetID, nil)
 		if err != nil {
-			resp.Diagnostics.AddError("Error creating policy attachment list request", fmt.Sprintf("Error: %s", err))
-			return
-		}
-		readReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-		readReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-		readResp, err := d.client.Do(readReq)
-		if err != nil {
-			resp.Diagnostics.AddError("Error executing policy attachment list request", fmt.Sprintf("Error: %s", err))
-			return
-		}
-		defer readResp.Body.Close()
-
-		bodyResponse, err := io.ReadAll(readResp.Body)
-		if err != nil {
-			resp.Diagnostics.AddError("Error reading policy attachment list response", fmt.Sprintf("Error: %s", err))
+			reportClientError(&resp.Diagnostics, "querying policy attachments", err)
 			return
 		}
 
-		if readResp.StatusCode >= http.StatusBadRequest {
-			resp.Diagnostics.AddError("Error querying policy attachments", fmt.Sprintf("status: %v, body: %v", readResp.Status, string(bodyResponse)))
-			return
-		}
-
-		rawAttachments, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(bodyResponse)), reflect.TypeOf(new(client.PolicyAttachmentEntity)))
-		if err != nil {
-			resp.Diagnostics.AddError("Error unmarshalling policy attachments", fmt.Sprintf("Error: %s", err))
-			return
-		}
-
-		for _, item := range rawAttachments {
-			att, ok := item.(*client.PolicyAttachmentEntity)
-			if !ok {
+		for _, att := range attachments {
+			if att == nil {
 				continue
 			}
 			if hasWS && att.Workspace != nil && att.Workspace.ID == state.WorkspaceId.ValueString() {
