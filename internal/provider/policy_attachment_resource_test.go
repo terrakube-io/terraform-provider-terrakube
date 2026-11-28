@@ -95,11 +95,7 @@ func TestPolicyAttachmentResource_Create_Success(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &PolicyAttachmentResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &PolicyAttachmentResource{client: newTestClient(server.Client(), server.URL)}
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"policy_set_id": tftypes.NewValue(tftypes.String, "ps-1"),
@@ -148,11 +144,7 @@ func TestPolicyAttachmentResource_Delete(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &PolicyAttachmentResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &PolicyAttachmentResource{client: newTestClient(server.Client(), server.URL)}
 
 	stateValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"id":            tftypes.NewValue(tftypes.String, "att-999"),

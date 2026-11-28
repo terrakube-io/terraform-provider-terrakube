@@ -251,6 +251,40 @@ func TestPatchNoContent(t *testing.T) {
 			},
 			update: map[string]tftypes.Value{"name": str("changed")},
 		}, "name"},
+		{"policy_set", crudResourceCase{
+			itemType: "policy_set", collection: "/api/v1/organization/org-1/policySet",
+			item: "/api/v1/policy_set/" + crudItemID,
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &PolicySetResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{
+				"name": str("blast-radius"), "enforcement_level": str("hard_mandatory"),
+				"global": tftypes.NewValue(tftypes.Bool, false), "branch": str("main"), "folder": str("/"),
+			},
+			update: map[string]tftypes.Value{"name": str("changed")},
+		}, "name"},
+		{"policy_set_parameter", crudResourceCase{
+			itemType: "policy_set_parameter", collection: "/api/v1/policy_set/ps-1/parameters", noOrganization: true,
+			scope: map[string]tftypes.Value{"policy_set_id": str("ps-1")},
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &PolicySetParameterResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{"key": str("max_vcpus"), "value": str("64")},
+			update: map[string]tftypes.Value{"value": str("changed")},
+		}, "value"},
+		{"policy_exemption", crudResourceCase{
+			itemType: "policy_exemption", collection: "/api/v1/organization/org-1/policyExemption",
+			item: "/api/v1/policy_exemption/" + crudItemID,
+			newSource: func(c *http.Client, e string) resource.Resource {
+				return &PolicyExemptionResource{client: newTestClient(c, e)}
+			},
+			create: map[string]tftypes.Value{
+				"policy_set_id": str("ps-1"), "rule_id": str("azure_apim_no_public_network"),
+				"ticket_reference": str("SEC-8842"), "justification": str("Approved integration gateway"),
+				"expires_at": str("2026-12-31T23:59:59Z"),
+			},
+			update: map[string]tftypes.Value{"ticket_reference": str("changed")},
+		}, "ticket_reference"},
 	}
 
 	// These resources use the item UpdateFields read back instead of reading it again.

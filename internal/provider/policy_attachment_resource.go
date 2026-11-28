@@ -1,16 +1,10 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -18,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var _ resource.Resource = &PolicyAttachmentResource{}
@@ -25,9 +20,7 @@ var _ resource.ResourceWithConfigure = &PolicyAttachmentResource{}
 var _ resource.ResourceWithImportState = &PolicyAttachmentResource{}
 
 type PolicyAttachmentResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type PolicyAttachmentResourceModel struct {
@@ -90,35 +83,7 @@ func (r *PolicyAttachmentResource) Schema(ctx context.Context, req resource.Sche
 }
 
 func (r *PolicyAttachmentResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Policy Attachment Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Policy Attachment resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Policy Attachment Resource")
 }
 
 func (r *PolicyAttachmentResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -147,70 +112,28 @@ func (r *PolicyAttachmentResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
-	bodyRequest := &client.PolicyAttachmentEntity{
-		PolicySet: &client.PolicySetEntity{ID: plan.PolicySetId.ValueString()},
-	}
-
+	policySetID := plan.PolicySetId.ValueString()
+	relationships := map[string]terrakube.Relationship{"policySet": {Type: "policy_set", ID: &policySetID}}
 	if !plan.WorkspaceId.IsNull() && plan.WorkspaceId.ValueString() != "" {
-		bodyRequest.Workspace = &client.WorkspaceEntity{ID: plan.WorkspaceId.ValueString()}
+		workspaceID := plan.WorkspaceId.ValueString()
+		relationships["workspace"] = terrakube.Relationship{Type: "workspace", ID: &workspaceID}
 	}
 	if !plan.ProjectId.IsNull() && plan.ProjectId.ValueString() != "" {
-		bodyRequest.Project = &client.ProjectEntity{ID: plan.ProjectId.ValueString()}
+		projectID := plan.ProjectId.ValueString()
+		relationships["project"] = terrakube.Relationship{Type: "project", ID: &projectID}
 	}
 	if !plan.TagId.IsNull() && plan.TagId.ValueString() != "" {
-		bodyRequest.Tag = &client.OrganizationTagEntity{ID: plan.TagId.ValueString()}
+		tagID := plan.TagId.ValueString()
+		relationships["tag"] = terrakube.Relationship{Type: "tag", ID: &tagID}
 	}
 
-	var out bytes.Buffer
-	if err := jsonapi.MarshalPayload(&out, bodyRequest); err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
-		return
-	}
-
-	url := fmt.Sprintf("%s/api/v1/policy_set/%s/attachments", r.endpoint, plan.PolicySetId.ValueString())
-	createReq, err := http.NewRequest(http.MethodPost, url, strings.NewReader(out.String()))
+	attachment, err := r.client.PolicyAttachments.CreateFieldsByPolicySet(ctx, policySetID, terrakube.Patch{Relationships: relationships})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy attachment request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	createReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	createReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	createResp, err := r.client.Do(createReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy attachment create request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer createResp.Body.Close()
-
-	bodyResponse, err := io.ReadAll(createResp.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading policy attachment response body", fmt.Sprintf("Error: %s", err))
+		reportClientError(&resp.Diagnostics, "creating policy attachment", err)
 		return
 	}
 
-	if createResp.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error creating policy attachment", fmt.Sprintf("status: %v, body: %v", createResp.Status, string(bodyResponse)))
-		return
-	}
-
-	newAttachment := &client.PolicyAttachmentEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), newAttachment); err != nil {
-		resp.Diagnostics.AddError("Error unmarshalling policy attachment payload", fmt.Sprintf("Error: %s", err))
-		return
-	}
-
-	plan.ID = types.StringValue(newAttachment.ID)
-	if newAttachment.Workspace != nil {
-		plan.WorkspaceId = types.StringValue(newAttachment.Workspace.ID)
-	}
-	if newAttachment.Project != nil {
-		plan.ProjectId = types.StringValue(newAttachment.Project.ID)
-	}
-	if newAttachment.Tag != nil {
-		plan.TagId = types.StringValue(newAttachment.Tag.ID)
-	}
-
+	setPolicyAttachmentState(&plan, attachment)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -221,56 +144,18 @@ func (r *PolicyAttachmentResource) Read(ctx context.Context, req resource.ReadRe
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/v1/policy_set/%s/attachments/%s", r.endpoint, state.PolicySetId.ValueString(), state.ID.ValueString())
-	readReq, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy attachment read request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	readReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	readReq.Header.Add("Content-Type", "application/vnd.api+json")
-
-	readResp, err := r.client.Do(readReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy attachment read request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer readResp.Body.Close()
-
-	if readResp.StatusCode == http.StatusNotFound {
+	attachment, err := r.client.PolicyAttachments.GetByPolicySet(ctx, state.PolicySetId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Policy attachment not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(readResp.Body)
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading policy attachment response body", fmt.Sprintf("Error: %s", err))
+		reportClientError(&resp.Diagnostics, "reading policy attachment", err)
 		return
 	}
 
-	if readResp.StatusCode >= http.StatusBadRequest {
-		resp.Diagnostics.AddError("Error reading policy attachment", fmt.Sprintf("status: %v, body: %v", readResp.Status, string(bodyResponse)))
-		return
-	}
-
-	attachment := &client.PolicyAttachmentEntity{}
-	if err := jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), attachment); err != nil {
-		resp.Diagnostics.AddError("Error unmarshalling policy attachment payload", fmt.Sprintf("Error: %s", err))
-		return
-	}
-
-	state.ID = types.StringValue(attachment.ID)
-	if attachment.Workspace != nil {
-		state.WorkspaceId = types.StringValue(attachment.Workspace.ID)
-	}
-	if attachment.Project != nil {
-		state.ProjectId = types.StringValue(attachment.Project.ID)
-	}
-	if attachment.Tag != nil {
-		state.TagId = types.StringValue(attachment.Tag.ID)
-	}
-
+	setPolicyAttachmentState(&state, attachment)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -286,28 +171,26 @@ func (r *PolicyAttachmentResource) Delete(ctx context.Context, req resource.Dele
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/v1/policy_set/%s/attachments/%s", r.endpoint, state.PolicySetId.ValueString(), state.ID.ValueString())
-	delReq, err := http.NewRequest(http.MethodDelete, url, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating policy attachment delete request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	delReq.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	delResp, err := r.client.Do(delReq)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing policy attachment delete request", fmt.Sprintf("Error: %s", err))
-		return
-	}
-	defer delResp.Body.Close()
-
-	if delResp.StatusCode >= http.StatusBadRequest && delResp.StatusCode != http.StatusNotFound {
-		bodyResponse, _ := io.ReadAll(delResp.Body)
-		resp.Diagnostics.AddError("Error deleting policy attachment", fmt.Sprintf("status: %v, body: %v", delResp.Status, string(bodyResponse)))
+	err := r.client.PolicyAttachments.DeleteByPolicySet(ctx, state.PolicySetId.ValueString(), state.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting policy attachment", err)
 		return
 	}
 
 	tflog.Info(ctx, "Policy attachment deleted", map[string]any{"id": state.ID.ValueString()})
+}
+
+func setPolicyAttachmentState(model *PolicyAttachmentResourceModel, attachment *terrakube.PolicyAttachment) {
+	model.ID = types.StringValue(attachment.ID)
+	if attachment.Workspace != nil {
+		model.WorkspaceId = types.StringValue(attachment.Workspace.ID)
+	}
+	if attachment.Project != nil {
+		model.ProjectId = types.StringValue(attachment.Project.ID)
+	}
+	if attachment.Tag != nil {
+		model.TagId = types.StringValue(attachment.Tag.ID)
+	}
 }
 
 func (r *PolicyAttachmentResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
