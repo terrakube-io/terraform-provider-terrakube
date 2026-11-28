@@ -2,20 +2,11 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -32,43 +23,15 @@ type CollectionDataSourceModel struct {
 }
 
 type CollectionDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewCollectionDataSource() datasource.DataSource {
 	return &CollectionDataSource{}
 }
 
-func (d *CollectionDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Collection Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-	tflog.Debug(ctx, "Configured Collection data source")
+func (d *CollectionDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Collection Data Source")
 }
 
 func (d *CollectionDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -111,58 +74,15 @@ func (d *CollectionDataSource) Read(ctx context.Context, req datasource.ReadRequ
 	}
 
 	name := state.Name.ValueString()
-	reqURL := fmt.Sprintf("%s/api/v1/organization/%s/collection?filter[collection]=name==%s",
-		d.endpoint, url.PathEscape(state.OrganizationId.ValueString()), url.QueryEscape(rsqlQuote(name)))
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	collections, err := d.client.Collections.List(ctx, state.OrganizationId.ValueString(), &terrakube.ListOptions{Filter: "name==" + rsqlQuote(name)})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating collection data source request", fmt.Sprintf("Error creating request: %s", err))
-		return
-	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
-
-	response, err := d.client.Do(request)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing collection request", fmt.Sprintf("Error executing request: %s", err))
-		return
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading collection response body", fmt.Sprintf("Error reading response body: %s", err))
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading collection", response, body) {
+		reportClientError(&resp.Diagnostics, "reading collection", err)
 		return
 	}
 
-	collections, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.CollectionEntity)))
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal collection payload", fmt.Sprintf("Unable to unmarshal payload: %s", err))
-		return
-	}
-
-	var found *client.CollectionEntity
-	for _, item := range collections {
-		collection, ok := item.(*client.CollectionEntity)
-		if !ok || collection == nil {
-			resp.Diagnostics.AddError("Unable to unmarshal collection payload", "Unexpected type in collection payload.")
-			return
-		}
-		if collection.Name != name {
-			continue
-		}
-		if found != nil {
-			resp.Diagnostics.AddError("Multiple collections found",
-				fmt.Sprintf("More than one collection named %q was found in organization %s.", name, state.OrganizationId.ValueString()))
-			return
-		}
-		found = collection
-	}
+	found := findSingleByNameIn(&resp.Diagnostics, "collection", name, " in organization "+state.OrganizationId.ValueString(), collections,
+		func(e *terrakube.Collection) string { return e.Name })
 	if found == nil {
-		resp.Diagnostics.AddError("Collection not found",
-			fmt.Sprintf("No collection named %q was found in organization %s.", name, state.OrganizationId.ValueString()))
 		return
 	}
 

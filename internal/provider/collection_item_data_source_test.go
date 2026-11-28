@@ -30,9 +30,7 @@ func readCollectionItemDataSource(t *testing.T, key, category string, handler ht
 
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	d.client = server.Client()
-	d.endpoint = server.URL
-	d.token = "test-token"
+	d.client = newTestClient(server.Client(), server.URL)
 
 	values := map[string]tftypes.Value{
 		"organization_id": tftypes.NewValue(tftypes.String, "org-1"),
@@ -133,7 +131,7 @@ func TestCollectionItemDataSource_ReadErrors(t *testing.T) {
 		{"not found", http.StatusOK, `{"data":[]}`, "Collection item not found"},
 		{"other key", http.StatusOK, `{"data":[` + collectionItemJSON("1", "other", "ENV", "", `,"sensitive":false`) + `]}`, "Collection item not found"},
 		{"api error", http.StatusForbidden, `{"errors":[{"detail":"forbidden"}]}`, "Error reading collection item: 403 Forbidden"},
-		{"invalid payload", http.StatusOK, `not json`, "Unable to unmarshal collection item payload"},
+		{"invalid payload", http.StatusOK, `not json`, "Error reading collection item"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -2,20 +2,12 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -35,43 +27,15 @@ type OrganizationVariableDataSourceModel struct {
 }
 
 type OrganizationVariableDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewOrganizationVariableDataSource() datasource.DataSource {
 	return &OrganizationVariableDataSource{}
 }
 
-func (d *OrganizationVariableDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Organization Variable Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-	tflog.Debug(ctx, "Configured Organization Variable data source")
+func (d *OrganizationVariableDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Organization Variable Data Source")
 }
 
 func (d *OrganizationVariableDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -129,51 +93,19 @@ func (d *OrganizationVariableDataSource) Read(ctx context.Context, req datasourc
 
 	key := state.Key.ValueString()
 	category := state.Category.ValueString()
-	// The whole filter is escaped, including the ';' that joins the conditions.
 	filter := "key==" + rsqlQuote(key)
 	if category != "" {
 		filter += ";category==" + rsqlQuote(category)
 	}
-	reqURL := fmt.Sprintf("%s/api/v1/organization/%s/globalvar?filter[globalvar]=%s",
-		d.endpoint, url.PathEscape(state.OrganizationId.ValueString()), url.QueryEscape(filter))
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	variables, err := d.client.OrganizationVariables.List(ctx, state.OrganizationId.ValueString(), &terrakube.ListOptions{Filter: filter})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization variable data source request", fmt.Sprintf("Error creating request: %s", err))
-		return
-	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
-
-	response, err := d.client.Do(request)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization variable request", fmt.Sprintf("Error executing request: %s", err))
-		return
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading organization variable response body", fmt.Sprintf("Error reading response body: %s", err))
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization variable", response, body) {
+		reportClientError(&resp.Diagnostics, "reading organization variable", err)
 		return
 	}
 
-	variables, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.OrganizationVariableEntity)))
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal organization variable payload", fmt.Sprintf("Unable to unmarshal payload: %s", err))
-		return
-	}
-
-	var found *client.OrganizationVariableEntity
-	for _, item := range variables {
-		variable, ok := item.(*client.OrganizationVariableEntity)
-		if !ok || variable == nil {
-			resp.Diagnostics.AddError("Unable to unmarshal organization variable payload", "Unexpected type in variable payload.")
-			return
-		}
-		if variable.Key != key || (category != "" && variable.Category != category) {
+	var found *terrakube.OrganizationVariable
+	for _, variable := range variables {
+		if variable == nil || variable.Key != key || (category != "" && variable.Category != category) {
 			continue
 		}
 		if found != nil {

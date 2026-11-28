@@ -22,9 +22,9 @@ func TestRegistryProviderDataSource(t *testing.T) {
 		notFound:   "Registry provider not found",
 		multiple:   "Multiple registry provider entries found",
 		apiError:   "Error reading registry provider: 403 Forbidden",
-		badPayload: "Unable to unmarshal registry provider payload",
+		badPayload: "Error reading registry provider",
 		newSource: func(c *http.Client, endpoint string) datasource.DataSource {
-			return &RegistryProviderDataSource{client: c, endpoint: endpoint, token: "test-token"}
+			return &RegistryProviderDataSource{client: newTestClient(c, endpoint)}
 		},
 	})
 }
@@ -46,7 +46,7 @@ func TestRegistryProviderDataSource_ImportedAndOptionalAttributes(t *testing.T) 
 			tc := lookupDataSourceCase{
 				config: map[string]string{"organization_id": "org-1"},
 				newSource: func(c *http.Client, endpoint string) datasource.DataSource {
-					return &RegistryProviderDataSource{client: c, endpoint: endpoint, token: "test-token"}
+					return &RegistryProviderDataSource{client: newTestClient(c, endpoint)}
 				},
 				entityType: "provider",
 			}
