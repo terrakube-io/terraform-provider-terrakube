@@ -1,26 +1,20 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/base64"
 	"fmt"
-	"io"
-	"net/http"
-	"strconv"
 	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
-
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -28,9 +22,7 @@ var _ resource.Resource = &OrganizationTemplateResource{}
 var _ resource.ResourceWithImportState = &OrganizationTemplateResource{}
 
 type OrganizationTemplateResource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type OrganizationTemplateResourceModel struct {
@@ -88,184 +80,63 @@ func (r *OrganizationTemplateResource) Schema(ctx context.Context, req resource.
 }
 
 func (r *OrganizationTemplateResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Organization Template Resource Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			r.client = &http.Client{Transport: customTransport}
-		} else {
-			r.client = &http.Client{}
-		}
-	} else {
-		r.client = &http.Client{}
-	}
-
-	r.endpoint = providerData.Endpoint
-	r.token = providerData.Token
-
-	tflog.Debug(ctx, "Configuring Organization Template resource", map[string]any{"success": true})
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Organization Template Resource")
 }
 
 func (r *OrganizationTemplateResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan OrganizationTemplateResourceModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	bodyRequest := &client.OrganizationTemplateEntity{
-		Name:        plan.Name.ValueString(),
-		Description: plan.Description.ValueStringPointer(),
-		Version:     plan.Version.ValueStringPointer(),
-		Content:     base64.StdEncoding.EncodeToString([]byte(plan.Content.ValueString())),
-	}
+	attributes := patchAttributes{}
+	attributes.createString("name", plan.Name)
+	attributes.createString("description", plan.Description)
+	attributes.createString("version", plan.Version)
+	attributes.createString("tcl", encodeTemplateContent(plan.Content))
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
+	template, err := r.client.Templates.CreateFields(ctx, plan.OrganizationId.ValueString(), terrakube.Patch{Attributes: attributes})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "creating organization template", err)
 		return
 	}
 
-	organizationTemplateRequest, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/organization/%s/template", r.endpoint, plan.OrganizationId.ValueString()), strings.NewReader(out.String()))
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization template resource request", fmt.Sprintf("Error creating organization template resource request: %s", err))
+	plan.ID = types.StringValue(template.ID)
+	if !setOrganizationTemplateState(&plan, template, &resp.Diagnostics) {
 		return
 	}
-	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTemplateRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationTemplateResponse, err := r.client.Do(organizationTemplateRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization template resource request", fmt.Sprintf("Error executing organization template resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err := io.ReadAll(organizationTemplateResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading organization template resource response, response status: %s, error: %s", organizationTemplateResponse.Status, err))
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "creating organization template", organizationTemplateResponse, bodyResponse) {
-		return
-	}
-
-	organizationTemplate := &client.OrganizationTemplateEntity{}
-
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organizationTemplate)
-	tflog.Info(ctx, string(bodyResponse))
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response, response status: %s, response body: %s, error: %s", organizationTemplateResponse.Status, string(bodyResponse), err))
-		return
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	plan.ID = types.StringValue(organizationTemplate.ID)
-	plan.Name = types.StringValue(organizationTemplate.Name)
-	plan.Description = types.StringPointerValue(organizationTemplate.Description)
-	plan.Version = types.StringPointerValue(organizationTemplate.Version)
-	contentDecoded, err := base64.StdEncoding.DecodeString(organizationTemplate.Content)
-	if err != nil {
-		resp.Diagnostics.AddError("Error decoding the content from Base64.", fmt.Sprintf("Error decode the tcl: %s", err))
-		return
-	}
-	plan.Content = types.StringValue(string(contentDecoded))
 
 	tflog.Info(ctx, "Organization Template Resource Created", map[string]any{"success": true})
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *OrganizationTemplateResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state OrganizationTemplateResourceModel
-	diags := req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	organizationTemplateRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/template/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization template resource request", fmt.Sprintf("Error creating organization template resource request: %s", err))
-		return
-	}
-	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTemplateRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationTemplateResponse, err := r.client.Do(organizationTemplateRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization template resource request", fmt.Sprintf("Error executing organization template resource request: %s", err))
-		return
-	}
-
-	if organizationTemplateResponse.StatusCode == http.StatusNotFound {
+	template, err := r.client.Templates.Get(ctx, state.OrganizationId.ValueString(), state.ID.ValueString())
+	if terrakube.IsNotFound(err) {
 		tflog.Warn(ctx, "Organization template not found, removing from state", map[string]any{"id": state.ID.ValueString()})
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	bodyResponse, err := io.ReadAll(organizationTemplateResponse.Body)
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading organization template resource response, response status: %s, error: %s", organizationTemplateResponse.Status, err))
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization template", organizationTemplateResponse, bodyResponse) {
+		reportClientError(&resp.Diagnostics, "reading organization template", err)
 		return
 	}
 
-	organizationTemplate := &client.OrganizationTemplateEntity{}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organizationTemplate)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
+	if !setOrganizationTemplateState(&state, template, &resp.Diagnostics) {
 		return
 	}
 
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-
-	state.Name = types.StringValue(organizationTemplate.Name)
-	state.Description = types.StringPointerValue(organizationTemplate.Description)
-	state.Version = types.StringPointerValue(organizationTemplate.Version)
-	contentDecoded, err := base64.StdEncoding.DecodeString(organizationTemplate.Content)
-	if err != nil {
-		resp.Diagnostics.AddError("Error decoding the content from Base64.", fmt.Sprintf("Error decode the tcl: %s", err))
-		return
-	}
-	state.Content = types.StringValue(string(contentDecoded))
-	state.ID = types.StringValue(organizationTemplate.ID)
-
-	// Set refreshed state
-	diags = resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	tflog.Info(ctx, "organization template Resource reading", map[string]any{"success": true})
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *OrganizationTemplateResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// Retrieve values from plan
 	var plan OrganizationTemplateResourceModel
 	var state OrganizationTemplateResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -274,123 +145,45 @@ func (r *OrganizationTemplateResource) Update(ctx context.Context, req resource.
 		return
 	}
 
-	bodyRequest := &client.OrganizationTemplateEntity{
-		Name:        plan.Name.ValueString(),
-		Description: plan.Description.ValueStringPointer(),
-		Version:     plan.Version.ValueStringPointer(),
-		Content:     base64.StdEncoding.EncodeToString([]byte(plan.Content.ValueString())),
-		ID:          state.ID.ValueString(),
-	}
+	attributes := patchAttributes{}
+	attributes.updateString("name", plan.Name, state.Name)
+	attributes.updateString("description", plan.Description, state.Description)
+	attributes.updateString("version", plan.Version, state.Version)
+	attributes.updateString("tcl", encodeTemplateContent(plan.Content), encodeTemplateContent(state.Content))
 
-	var out = new(bytes.Buffer)
-	err := jsonapi.MarshalPayload(out, bodyRequest)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to marshal payload", fmt.Sprintf("Unable to marshal payload: %s", err))
+	organizationID, id := state.OrganizationId.ValueString(), state.ID.ValueString()
+	template, err := r.client.Templates.UpdateFields(ctx, organizationID, id, terrakube.Patch{Attributes: attributes})
+	if patchFailed(err) {
+		reportClientError(&resp.Diagnostics, "updating organization template", err)
 		return
 	}
 
-	tflog.Info(ctx, "Body Update Request: "+out.String())
-
-	organizationTemplateRequest, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/organization/%s/template/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), strings.NewReader(out.String()))
+	template, err = readAfterPatch(template, func() (*terrakube.Template, error) {
+		return r.client.Templates.Get(ctx, organizationID, id)
+	})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization template resource request", fmt.Sprintf("Error creating organization template resource request: %s", err))
-		return
-	}
-	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTemplateRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationTemplateResponse, err := r.client.Do(organizationTemplateRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization template resource request", fmt.Sprintf("Error executing organization template resource request: %s", err))
+		reportClientError(&resp.Diagnostics, "reading organization template after update", err)
 		return
 	}
 
-	bodyResponse, err := io.ReadAll(organizationTemplateResponse.Body)
-	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading organization template resource response, response status: %s, error: %s", organizationTemplateResponse.Status, err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"success": string(bodyResponse)})
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "updating organization template", organizationTemplateResponse, bodyResponse) {
+	plan.ID = types.StringValue(id)
+	if !setOrganizationTemplateState(&plan, template, &resp.Diagnostics) {
 		return
 	}
-
-	organizationTemplateRequest, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/template/%s", r.endpoint, state.OrganizationId.ValueString(), state.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization template resource request", fmt.Sprintf("Error creating organization template resource request: %s", err))
-		return
-	}
-	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-	organizationTemplateRequest.Header.Add("Content-Type", "application/vnd.api+json")
-
-	organizationTemplateResponse, err = r.client.Do(organizationTemplateRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization template resource request", fmt.Sprintf("Error executing organization template resource request: %s", err))
-		return
-	}
-
-	bodyResponse, err = io.ReadAll(organizationTemplateResponse.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading organization template resource response body", fmt.Sprintf("Error reading organization template resource response body, response status: %s, error: %s", organizationTemplateResponse.Status, err))
-	}
-
-	tflog.Info(ctx, "Body Response", map[string]any{"bodyResponse": string(bodyResponse)})
-	tflog.Info(ctx, "Status"+strconv.Itoa(organizationTemplateResponse.StatusCode))
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization template after update", organizationTemplateResponse, bodyResponse) {
-		return
-	}
-
-	organizationTemplate := &client.OrganizationTemplateEntity{}
-	err = jsonapi.UnmarshalPayload(strings.NewReader(string(bodyResponse)), organizationTemplate)
-
-	if err != nil {
-		resp.Diagnostics.AddError("Error unmarshal payload response", fmt.Sprintf("Error unmarshal payload response: %s", err))
-		return
-	}
-
-	plan.ID = types.StringValue(state.ID.ValueString())
-	plan.Name = types.StringValue(organizationTemplate.Name)
-	plan.Description = types.StringPointerValue(organizationTemplate.Description)
-	plan.Version = types.StringPointerValue(organizationTemplate.Version)
-	contentDecoded, err := base64.StdEncoding.DecodeString(organizationTemplate.Content)
-	if err != nil {
-		resp.Diagnostics.AddError("Error decoding the content from Base64.", fmt.Sprintf("Error decode the tcl: %s", err))
-		return
-	}
-	plan.Content = types.StringValue(string(contentDecoded))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *OrganizationTemplateResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data OrganizationTemplateResourceModel
-
-	// Read Terraform prior state data into the model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	organizationTemplateRequest, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/organization/%s/template/%s", r.endpoint, data.OrganizationId.ValueString(), data.ID.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization template resource request", fmt.Sprintf("Error creating organization template resource request: %s", err))
-		return
-	}
-	organizationTemplateRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.token))
-
-	organizationTemplateResponse, err := r.client.Do(organizationTemplateRequest)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing organization template resource request", fmt.Sprintf("Error executing organization template resource request: %s", err))
-		return
-	}
-	if organizationTemplateResponse.StatusCode != http.StatusNoContent {
-		deleteBody, _ := io.ReadAll(organizationTemplateResponse.Body)
-		resp.Diagnostics.AddError("Error executing organization template resource request", fmt.Sprintf("Error executing organization template resource request, response status: %s, response body: %s", organizationTemplateResponse.Status, string(deleteBody)))
-		return
+	err := r.client.Templates.Delete(ctx, data.OrganizationId.ValueString(), data.ID.ValueString())
+	if err != nil && !terrakube.IsNotFound(err) {
+		reportClientError(&resp.Diagnostics, "deleting organization template", err)
 	}
 }
 
@@ -407,4 +200,29 @@ func (r *OrganizationTemplateResource) ImportState(ctx context.Context, req reso
 
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("organization_id"), idParts[0])...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), idParts[1])...)
+}
+
+// encodeTemplateContent returns the template flow base64 encoded, the way Terrakube stores it in
+// the tcl attribute. A null or unknown content stays null or unknown.
+func encodeTemplateContent(content types.String) types.String {
+	if content.IsNull() || content.IsUnknown() {
+		return content
+	}
+	return types.StringValue(base64.StdEncoding.EncodeToString([]byte(content.ValueString())))
+}
+
+// setOrganizationTemplateState copies the attributes Terrakube returned into the model and
+// decodes the template flow. It reports false, with a diagnostic, when the flow is not base64.
+func setOrganizationTemplateState(model *OrganizationTemplateResourceModel, template *terrakube.Template, diags *diag.Diagnostics) bool {
+	content, err := base64.StdEncoding.DecodeString(template.Content)
+	if err != nil {
+		diags.AddError("Error decoding the content from Base64.", fmt.Sprintf("Error decode the tcl: %s", err))
+		return false
+	}
+
+	model.Name = types.StringValue(template.Name)
+	model.Description = types.StringPointerValue(template.Description)
+	model.Version = types.StringPointerValue(template.Version)
+	model.Content = types.StringValue(string(content))
+	return true
 }

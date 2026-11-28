@@ -76,6 +76,11 @@ type crudServer struct {
 	requests []crudRequest
 	// fail makes the next request with that method fail with the given status.
 	fail map[string]int
+	// failAll makes every request with that method fail with the given status.
+	failAll map[string]int
+	// patchNoContent makes a PATCH answer 204 with no body, as Terrakube does, instead of 200
+	// with the item.
+	patchNoContent bool
 	// versions and implementations are children of the item, for resources that have to delete
 	// them first. Both are empty unless a test fills them in.
 	versions        []string
@@ -123,6 +128,11 @@ func (s *crudServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"errors":[{"detail":"the server said no"}]}`)
 		return
 	}
+	if status, ok := s.failAll[r.Method]; ok {
+		w.WriteHeader(status)
+		fmt.Fprint(w, `{"errors":[{"detail":"the server said no"}]}`)
+		return
+	}
 
 	item := s.collection + "/" + crudItemID
 	respond := func(status int) {
@@ -151,6 +161,10 @@ func (s *crudServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == item && r.Method == http.MethodPatch:
 		for k, v := range attributes() {
 			s.attrs[k] = v
+		}
+		if s.patchNoContent {
+			w.WriteHeader(http.StatusNoContent)
+			return
 		}
 		respond(http.StatusOK)
 	case r.URL.Path == item && r.Method == http.MethodDelete:
@@ -493,31 +507,16 @@ func runCrudResourceTests(t *testing.T, tc crudResourceCase) {
 			t.Errorf("the PATCH body must carry the id, got %v", data["id"])
 		}
 		checkSent(t, request, tc.wantSentPatch)
+		// The state holds what Terrakube returned: the PATCH response here, or the item read back
+		// after a 204 (see TestPatchNoContent), not only what was planned.
 		h.checkState(resp.State, tc.wantUpdated)
-
-		// Update reads the item again after the PATCH, so the state holds what Terrakube stored and
-		// not only what was planned. The mock returns what it was sent, so the request is the proof.
-		h.server.mu.Lock()
-		defer h.server.mu.Unlock()
-		patched := false
-		reread := false
-		for _, r := range h.server.requests {
-			switch {
-			case r.method == http.MethodPatch:
-				patched = true
-			case patched && r.method == http.MethodGet && r.path == tc.collection+"/"+crudItemID:
-				reread = true
-			}
-		}
-		if !reread {
-			t.Error("expected a GET of the item after the PATCH")
-		}
 	})
 
 	t.Run("update reports an error when the item cannot be read afterwards", func(t *testing.T) {
 		h := newCrudHarness(t, tc)
 		prior := h.createdState()
-		h.server.fail[http.MethodGet] = http.StatusInternalServerError
+		h.server.patchNoContent = true
+		h.server.failAll = map[string]int{http.MethodGet: http.StatusInternalServerError}
 		if resp := h.update(prior); !resp.Diagnostics.HasError() {
 			t.Error("expected an error diagnostic")
 		}

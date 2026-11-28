@@ -15,7 +15,7 @@ func TestOrganizationResource(t *testing.T) {
 		itemType:   "organization",
 		collection: "/api/v1/organization",
 		newSource: func(c *http.Client, endpoint string) resource.Resource {
-			return &OrganizationResource{client: c, endpoint: endpoint, token: "test-token"}
+			return &OrganizationResource{client: newTestClient(c, endpoint)}
 		},
 		noOrganization: true,
 		create: map[string]tftypes.Value{

@@ -274,7 +274,7 @@ func TestLaunch234DeleteReportsAPIFailure(t *testing.T) {
 		makeResource func(*httptest.Server) resource.Resource
 	}{
 		{"organization", func(s *httptest.Server) resource.Resource {
-			return &OrganizationResource{client: s.Client(), endpoint: s.URL}
+			return &OrganizationResource{client: newTestClient(s.Client(), s.URL)}
 		}},
 		{"team", func(s *httptest.Server) resource.Resource { return &TeamResource{client: s.Client(), endpoint: s.URL} }},
 		{"workspace_access", func(s *httptest.Server) resource.Resource {
