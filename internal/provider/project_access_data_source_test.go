@@ -16,9 +16,9 @@ func TestProjectAccessDataSource(t *testing.T) {
 		notFound:   "Project access not found",
 		multiple:   "Multiple project access entries found",
 		apiError:   "Error reading project access: 403 Forbidden",
-		badPayload: "Unable to unmarshal project access payload",
+		badPayload: "Error reading project access",
 		newSource: func(c *http.Client, endpoint string) datasource.DataSource {
-			return &ProjectAccessDataSource{client: c, endpoint: endpoint, token: "test-token"}
+			return &ProjectAccessDataSource{client: newTestClient(c, endpoint)}
 		},
 	})
 }

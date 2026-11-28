@@ -2,20 +2,12 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -38,43 +30,15 @@ type WorkspaceAccessDataSourceModel struct {
 }
 
 type WorkspaceAccessDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewWorkspaceAccessDataSource() datasource.DataSource {
 	return &WorkspaceAccessDataSource{}
 }
 
-func (d *WorkspaceAccessDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Workspace access Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-	tflog.Debug(ctx, "Configured Workspace access data source")
+func (d *WorkspaceAccessDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Workspace Access Data Source")
 }
 
 func (d *WorkspaceAccessDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -141,46 +105,15 @@ func (d *WorkspaceAccessDataSource) Read(ctx context.Context, req datasource.Rea
 	}
 
 	name := state.Name.ValueString()
-	reqURL := fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/access?filter[access]=name==%s",
-		d.endpoint, url.PathEscape(state.OrganizationId.ValueString()), url.PathEscape(state.WorkspaceId.ValueString()), url.QueryEscape(rsqlQuote(name)))
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	entries, err := d.client.WorkspaceAccess.List(ctx, state.OrganizationId.ValueString(), state.WorkspaceId.ValueString(), &terrakube.ListOptions{Filter: "name==" + rsqlQuote(name)})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace access data source request", fmt.Sprintf("Error creating request: %s", err))
-		return
-	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
-
-	response, err := d.client.Do(request)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace access request", fmt.Sprintf("Error executing request: %s", err))
-		return
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading workspace access response body", fmt.Sprintf("Error reading response body: %s", err))
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace access", response, body) {
+		reportClientError(&resp.Diagnostics, "reading workspace access", err)
 		return
 	}
 
-	entries, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.WorkspaceAccessEntity)))
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal workspace access payload", fmt.Sprintf("Unable to unmarshal payload: %s", err))
-		return
-	}
-
-	var found *client.WorkspaceAccessEntity
-	for _, item := range entries {
-		access, ok := item.(*client.WorkspaceAccessEntity)
-		if !ok || access == nil {
-			resp.Diagnostics.AddError("Unable to unmarshal workspace access payload", "Unexpected type in workspace access payload.")
-			return
-		}
-		if access.Name != name {
+	var found *terrakube.WorkspaceAccess
+	for _, access := range entries {
+		if access == nil || access.Name != name {
 			continue
 		}
 		if found != nil {
@@ -203,6 +136,6 @@ func (d *WorkspaceAccessDataSource) Read(ctx context.Context, req datasource.Rea
 	state.PlanJob = types.BoolValue(found.PlanJob)
 	state.ApproveJob = types.BoolValue(found.ApproveJob)
 	state.DestroyJob = types.BoolPointerValue(found.DestroyJob)
-	state.Role = roleToState(found.Role)
+	state.Role = roleToState(&found.Role)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

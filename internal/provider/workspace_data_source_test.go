@@ -69,11 +69,7 @@ func TestWorkspaceDataSource_PolicyComplianceStatus(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	d := &WorkspaceDataSource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	d := &WorkspaceDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"organization": tftypes.NewValue(tftypes.String, "enterprise"),
@@ -121,7 +117,7 @@ func TestWorkspaceDataSource_ApplyGuardCompatibility(t *testing.T) {
 				_, _ = fmt.Fprint(w, `{"data":[{"type":"workspace","id":"ws-1","attributes":{"name":"payments-core"`+tc.attributes+`}}]}`)
 			}))
 			defer server.Close()
-			d := &WorkspaceDataSource{client: server.Client(), endpoint: server.URL, token: "test-token"}
+			d := &WorkspaceDataSource{client: newTestClient(server.Client(), server.URL)}
 			config := buildObjectValue(objType, map[string]tftypes.Value{
 				"organization": tftypes.NewValue(tftypes.String, "enterprise"),
 				"name":         tftypes.NewValue(tftypes.String, "payments-core"),

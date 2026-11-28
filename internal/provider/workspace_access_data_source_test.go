@@ -16,9 +16,9 @@ func TestWorkspaceAccessDataSource(t *testing.T) {
 		notFound:   "Workspace access not found",
 		multiple:   "Multiple workspace access entries found",
 		apiError:   "Error reading workspace access: 403 Forbidden",
-		badPayload: "Unable to unmarshal workspace access payload",
+		badPayload: "Error reading workspace access",
 		newSource: func(c *http.Client, endpoint string) datasource.DataSource {
-			return &WorkspaceAccessDataSource{client: c, endpoint: endpoint, token: "test-token"}
+			return &WorkspaceAccessDataSource{client: newTestClient(c, endpoint)}
 		},
 	})
 }

@@ -2,20 +2,12 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -31,40 +23,15 @@ type WorkspaceScheduleDataSourceModel struct {
 }
 
 type WorkspaceScheduleDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewWorkspaceScheduleDataSource() datasource.DataSource {
 	return &WorkspaceScheduleDataSource{}
 }
 
-func (d *WorkspaceScheduleDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		resp.Diagnostics.AddError(
-			"Unexpected Workspace Schedule Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	d.client = &http.Client{}
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		}
-	}
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-	tflog.Debug(ctx, "Configured Workspace Schedule data source")
+func (d *WorkspaceScheduleDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Workspace Schedule Data Source")
 }
 
 func (d *WorkspaceScheduleDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -113,49 +80,17 @@ func (d *WorkspaceScheduleDataSource) Read(ctx context.Context, req datasource.R
 	if filterByCron {
 		filter += ";cron==" + rsqlQuote(cron)
 	}
-	reqURL := fmt.Sprintf("%s/api/v1/workspace/%s/schedule?filter[schedule]=%s",
-		d.endpoint, url.PathEscape(workspaceID), url.QueryEscape(filter))
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	entries, err := d.client.WorkspaceSchedules.List(ctx, workspaceID, &terrakube.ListOptions{Filter: filter})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace schedule data source request", fmt.Sprintf("Error creating request: %s", err))
-		return
-	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
-
-	response, err := d.client.Do(request)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing workspace schedule request", fmt.Sprintf("Error executing request: %s", err))
-		return
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading workspace schedule response body", fmt.Sprintf("Error reading response body: %s", err))
-		return
-	}
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace schedule", response, body) {
-		return
-	}
-
-	entries, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.WorkspaceScheduleEntity)))
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal workspace schedule payload", fmt.Sprintf("Unable to unmarshal payload: %s", err))
+		reportClientError(&resp.Diagnostics, "reading workspace schedule", err)
 		return
 	}
 
 	// The API filters too; check again so a server that ignores the filter
 	// cannot return the wrong schedule.
-	var found *client.WorkspaceScheduleEntity
-	for _, item := range entries {
-		schedule, ok := item.(*client.WorkspaceScheduleEntity)
-		if !ok || schedule == nil {
-			resp.Diagnostics.AddError("Unable to unmarshal workspace schedule payload", "Unexpected type in workspace schedule payload.")
-			return
-		}
-		if schedule.TemplateId != templateID || (filterByCron && schedule.Schedule != cron) {
+	var found *terrakube.WorkspaceSchedule
+	for _, schedule := range entries {
+		if schedule == nil || schedule.TemplateID != templateID || (filterByCron && schedule.Schedule != cron) {
 			continue
 		}
 		if found != nil {

@@ -40,11 +40,7 @@ func readWorkspaceTagDataSource(t *testing.T, mux *http.ServeMux, name string) *
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 
-	d := &WorkspaceTagDataSource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	d := &WorkspaceTagDataSource{client: newTestClient(server.Client(), server.URL)}
 
 	configValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"name":            tftypes.NewValue(tftypes.String, name),

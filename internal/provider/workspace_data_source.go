@@ -2,19 +2,12 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -23,9 +16,7 @@ var (
 )
 
 type WorkspaceDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 type WorkspaceDataSourceModel struct {
@@ -55,39 +46,8 @@ func NewWorkspaceDataSource() datasource.DataSource {
 	return &WorkspaceDataSource{}
 }
 
-func (d *WorkspaceDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, res *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		res.Diagnostics.AddError(
-			"Unexpected Workspace Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-
-	ctx = tflog.SetField(ctx, "endpoint", d.endpoint)
-	ctx = tflog.SetField(ctx, "token", d.token)
-	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "token")
-	tflog.Info(ctx, "Creating Workspace datasource")
+func (d *WorkspaceDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Workspace Data Source")
 }
 
 func (d *WorkspaceDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -179,39 +139,14 @@ func (d *WorkspaceDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var state WorkspaceDataSourceModel
 
-	req.Config.Get(ctx, &state)
-
-	reqOrg, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization?filter[organization]=name==%s", d.endpoint, state.Organization.ValueString()), nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating Workspace datasource request", fmt.Sprintf("Error creating Workspace datasource request: %s", err))
-		return
-	}
-	reqOrg.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	reqOrg.Header.Add("Content-Type", "application/vnd.api+json")
-
-	resOrg, err := d.client.Do(reqOrg)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Workspace datasource request", fmt.Sprintf("Error executing Workspace datasource request: %s", err))
+	resp.Diagnostics.Append(req.Config.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	body, err := io.ReadAll(resOrg.Body)
+	orgs, err := d.client.Organizations.List(ctx, &terrakube.ListOptions{Filter: "name==" + state.Organization.ValueString()})
 	if err != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading Workspace response, response status: %s, error: %s", resOrg.Status, err))
-	}
-
-	tflog.Info(ctx, string(body))
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading organization", resOrg, body) {
-		return
-	}
-
-	var orgs []interface{}
-
-	orgs, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(body)), reflect.TypeOf(new(client.OrganizationEntity)))
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to marshal payload, response status: %s, response body: %s, error: %s", resOrg.Status, string(body), err))
+		reportClientError(&resp.Diagnostics, "reading organization", err)
 		return
 	}
 
@@ -221,44 +156,15 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 	}
 
 	for _, organization := range orgs {
-		data, _ := organization.(*client.OrganizationEntity)
-		state.OrganizationID = types.StringValue(data.ID)
-		state.ID = types.StringValue(data.ID)
-		state.Description = types.StringPointerValue(data.Description)
+		state.OrganizationID = types.StringValue(organization.ID)
+		state.ID = types.StringValue(organization.ID)
+		state.Description = types.StringPointerValue(organization.Description)
 	}
 
 	// now try to find the workspace
-	reqWS, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/organization/%s/workspace?filter[workspace]=name==%s", d.endpoint, state.OrganizationID.ValueString(), state.Name.ValueString()), nil)
+	workspaces, err := d.client.Workspaces.List(ctx, state.OrganizationID.ValueString(), &terrakube.ListOptions{Filter: "name==" + state.Name.ValueString()})
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating Workspace datasource request part 2", fmt.Sprintf("Error creating Workspace datasource request part 2: %s", err))
-		return
-	}
-	reqWS.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	reqWS.Header.Add("Content-Type", "application/vnd.api+json")
-
-	resWS, err := d.client.Do(reqWS)
-	if err != nil {
-		resp.Diagnostics.AddError("Error executing Workspace datasource request part 2", fmt.Sprintf("Error executing Workspace datasource request part 2: %s", err))
-		return
-	}
-
-	bodyws, errws := io.ReadAll(resWS.Body)
-	if errws != nil {
-		tflog.Error(ctx, fmt.Sprintf("Error reading Workspace response part 2, response status: %s, error: %s", resWS.Status, errws))
-	}
-
-	tflog.Info(ctx, string(bodyws))
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading workspace", resWS, bodyws) {
-		return
-	}
-
-	var workspaces []interface{}
-
-	workspaces, err = jsonapi.UnmarshalManyPayload(strings.NewReader(string(bodyws)), reflect.TypeOf(new(client.WorkspaceEntity)))
-
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal payload", fmt.Sprintf("Unable to marshal payload, response status: %s, response body: %s, error: %s", resWS.Status, string(bodyws), err))
+		reportClientError(&resp.Diagnostics, "reading workspace", err)
 		return
 	}
 
@@ -267,14 +173,13 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 		return
 	}
 
-	for _, workspace := range workspaces {
-		data, _ := workspace.(*client.WorkspaceEntity)
+	for _, data := range workspaces {
 		state.ID = types.StringValue(data.ID)
 		state.Description = types.StringPointerValue(data.Description)
 		state.Source = types.StringValue(data.Source)
 		state.Branch = types.StringValue(data.Branch)
 		state.Folder = types.StringValue(data.Folder)
-		state.TemplateID = types.StringValue(data.TemplateId)
+		state.TemplateID = types.StringValue(data.TemplateID)
 		state.IaCType = types.StringValue(data.IaCType)
 		state.IaCVersion = types.StringValue(data.IaCVersion)
 		state.ExecutionMode = types.StringValue(data.ExecutionMode)
@@ -285,16 +190,12 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 		if data.Vcs != nil {
 			state.VCSID = types.StringValue(data.Vcs.ID)
 		}
-		if data.Ssh != nil {
-			state.SSHID = types.StringValue(data.Ssh.ID)
+		if data.SSH != nil {
+			state.SSHID = types.StringValue(data.SSH.ID)
 		}
-		state.ModuleSshKey = types.StringPointerValue(data.ModuleSshKey)
-		state.PolicyComplianceStatus = types.StringValue(data.PolicyComplianceStatus)
+		state.ModuleSshKey = types.StringPointerValue(data.ModuleSSHKey)
+		state.PolicyComplianceStatus = types.StringValue(workspacePolicyComplianceStatus(data))
 	}
 
-	diags := resp.State.Set(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

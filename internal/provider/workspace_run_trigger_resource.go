@@ -28,34 +28,6 @@ type WorkspaceRunTriggerResourceModel struct {
 	Enabled                types.Bool   `tfsdk:"enabled"`
 }
 
-// workspaceRunTriggerData and the types below decode a run trigger as JSON. The resource now uses
-// terrakube-go; workspace_run_trigger_data_source.go still lists run triggers with them.
-type workspaceRunTriggerData struct {
-	Type          string                           `json:"type"`
-	ID            string                           `json:"id,omitempty"`
-	Attributes    workspaceRunTriggerAttributes    `json:"attributes"`
-	Relationships workspaceRunTriggerRelationships `json:"relationships"`
-}
-
-type workspaceRunTriggerAttributes struct {
-	Enabled bool `json:"enabled"`
-}
-
-type workspaceRunTriggerRelationships struct {
-	SourceWorkspace      workspaceRunTriggerRelationship `json:"sourceWorkspace"`
-	DestinationWorkspace workspaceRunTriggerRelationship `json:"destinationWorkspace"`
-	Template             workspaceRunTriggerRelationship `json:"template"`
-}
-
-type workspaceRunTriggerRelationship struct {
-	Data *workspaceRunTriggerResourceIdentifier `json:"data"`
-}
-
-type workspaceRunTriggerResourceIdentifier struct {
-	Type string `json:"type"`
-	ID   string `json:"id"`
-}
-
 func NewWorkspaceRunTriggerResource() resource.Resource { return &WorkspaceRunTriggerResource{} }
 
 func (r *WorkspaceRunTriggerResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {

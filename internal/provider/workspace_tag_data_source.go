@@ -2,20 +2,12 @@ package provider
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"reflect"
-	"strings"
-	"terraform-provider-terrakube/internal/client"
 
-	"github.com/google/jsonapi"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
+	terrakube "github.com/terrakube-io/terrakube-go"
 )
 
 var (
@@ -33,9 +25,7 @@ type WorkspaceTagDataSourceModel struct {
 }
 
 type WorkspaceTagDataSource struct {
-	client   *http.Client
-	endpoint string
-	token    string
+	client *terrakube.Client
 }
 
 func NewWorkspaceTagDataSource() datasource.DataSource {
@@ -78,36 +68,8 @@ func (d *WorkspaceTagDataSource) Schema(_ context.Context, _ datasource.SchemaRe
 	}
 }
 
-func (d *WorkspaceTagDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, res *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	providerData, ok := req.ProviderData.(*TerrakubeConnectionData)
-	if !ok {
-		res.Diagnostics.AddError(
-			"Unexpected Workspace Tag Data Source Configure Type",
-			fmt.Sprintf("Expected *TerrakubeConnectionData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
-		)
-		return
-	}
-
-	if providerData.InsecureHttpClient {
-		if custom, ok := http.DefaultTransport.(*http.Transport); ok {
-			customTransport := custom.Clone()
-			customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-			d.client = &http.Client{Transport: customTransport}
-		} else {
-			d.client = &http.Client{}
-		}
-	} else {
-		d.client = &http.Client{}
-	}
-
-	d.endpoint = providerData.Endpoint
-	d.token = providerData.Token
-
-	tflog.Info(ctx, "Configured Workspace Tag datasource", map[string]any{"success": true})
+func (d *WorkspaceTagDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics, "Workspace Tag Data Source")
 }
 
 func (d *WorkspaceTagDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
@@ -122,20 +84,14 @@ func (d *WorkspaceTagDataSource) Read(ctx context.Context, req datasource.ReadRe
 	name := state.Name.ValueString()
 
 	// 1. Resolve the organization tag id from the tag name
-	tagBody, ok := d.get(fmt.Sprintf("%s/api/v1/organization/%s/tag?filter[tag]=name==%s", d.endpoint, organizationId, url.QueryEscape(rsqlQuote(name))), "organization tag", resp)
-	if !ok {
-		return
-	}
-
-	tags, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(tagBody)), reflect.TypeOf(new(client.OrganizationTagEntity)))
+	tags, err := d.client.Tags.List(ctx, organizationId, &terrakube.ListOptions{Filter: "name==" + rsqlQuote(name)})
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal organization tag payload", fmt.Sprintf("Unable to unmarshal payload, error: %s, response body: %s", err, tagBody))
+		reportClientError(&resp.Diagnostics, "reading organization tag", err)
 		return
 	}
 
 	tagId := ""
-	for _, tag := range tags {
-		data, _ := tag.(*client.OrganizationTagEntity)
+	for _, data := range tags {
 		if data != nil && data.Name == name {
 			tagId = data.ID
 			break
@@ -148,19 +104,13 @@ func (d *WorkspaceTagDataSource) Read(ctx context.Context, req datasource.ReadRe
 
 	// 2. Find the workspace tag that references the organization tag.
 	// Filtering is done client side so it does not depend on server side filter support.
-	wsTagBody, ok := d.get(fmt.Sprintf("%s/api/v1/organization/%s/workspace/%s/workspaceTag", d.endpoint, organizationId, workspaceId), "workspace tag", resp)
-	if !ok {
-		return
-	}
-
-	workspaceTags, err := jsonapi.UnmarshalManyPayload(strings.NewReader(string(wsTagBody)), reflect.TypeOf(new(client.WorkspaceTagEntity)))
+	workspaceTags, err := d.client.WorkspaceTags.List(ctx, organizationId, workspaceId, nil)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to unmarshal workspace tag payload", fmt.Sprintf("Unable to unmarshal payload, error: %s, response body: %s", err, wsTagBody))
+		reportClientError(&resp.Diagnostics, "reading workspace tag", err)
 		return
 	}
 
-	for _, workspaceTag := range workspaceTags {
-		data, _ := workspaceTag.(*client.WorkspaceTagEntity)
+	for _, data := range workspaceTags {
 		if data != nil && data.TagID == tagId {
 			state.ID = types.StringValue(data.ID)
 			state.TagID = types.StringValue(data.TagID)
@@ -171,33 +121,4 @@ func (d *WorkspaceTagDataSource) Read(ctx context.Context, req datasource.ReadRe
 	}
 
 	resp.Diagnostics.AddError("Workspace Tag Not Found", fmt.Sprintf("Tag %s is not attached to workspace %s.", name, workspaceId))
-}
-
-func (d *WorkspaceTagDataSource) get(requestUrl string, kind string, resp *datasource.ReadResponse) ([]byte, bool) {
-	request, err := http.NewRequest(http.MethodGet, requestUrl, nil)
-	if err != nil {
-		resp.Diagnostics.AddError(fmt.Sprintf("Error creating %s datasource request", kind), fmt.Sprintf("Error creating %s datasource request: %s", kind, err))
-		return nil, false
-	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	request.Header.Add("Content-Type", "application/vnd.api+json")
-
-	response, err := d.client.Do(request)
-	if err != nil {
-		resp.Diagnostics.AddError(fmt.Sprintf("Error executing %s datasource request", kind), fmt.Sprintf("Error executing %s datasource request: %s", kind, err))
-		return nil, false
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		resp.Diagnostics.AddError(fmt.Sprintf("Error reading %s datasource response", kind), fmt.Sprintf("Error reading %s datasource response: %s", kind, err))
-		return nil, false
-	}
-
-	if reportAPIErrorStatus(&resp.Diagnostics, "reading "+kind, response, body) {
-		return nil, false
-	}
-
-	return body, true
 }
