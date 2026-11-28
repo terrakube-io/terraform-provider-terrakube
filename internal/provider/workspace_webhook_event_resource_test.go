@@ -145,11 +145,7 @@ func TestWorkspaceWebhookEventResource_Create_SendsPrToggles(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceWebhookEventResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceWebhookEventResource{client: newTestClient(server.Client(), server.URL)}
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"webhook_id":          tftypes.NewValue(tftypes.String, webhookID),
@@ -214,11 +210,7 @@ func TestWorkspaceWebhookEventResource_Create_ResolvesPriorityWhenUnset(t *testi
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceWebhookEventResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceWebhookEventResource{client: newTestClient(server.Client(), server.URL)}
 
 	planValue := buildObjectValue(objType, map[string]tftypes.Value{
 		"webhook_id":  tftypes.NewValue(tftypes.String, webhookID),
@@ -291,7 +283,7 @@ func TestWorkspaceWebhookEventResource_Update_RoundTripsPrToggles(t *testing.T) 
 		// values for the two fields catches a mix-up between them.
 		fmt.Fprintf(w, `{"data":[{"type":"webhook_event","id":%q,"attributes":{`+
 			`"branch":"main","path":"/","templateId":"tmpl-1","event":"PULL_REQUEST","priority":1,`+
-			`"createdBy":"x","createdDate":"x","updatedBy":"x","updatedDate":"x",`+
+			`"createdBy":"x","createdDate":"2024-01-01T00:00:00Z","updatedBy":"x","updatedDate":"2024-01-01T00:00:00Z",`+
 			`"prWorkflowEnabled":true,"prApplyEnabled":false},`+
 			`"relationships":{"webhook":{"data":{"type":"webhook","id":%q}}}}]}`, eventID, webhookID)
 	})
@@ -299,11 +291,7 @@ func TestWorkspaceWebhookEventResource_Update_RoundTripsPrToggles(t *testing.T) 
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceWebhookEventResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceWebhookEventResource{client: newTestClient(server.Client(), server.URL)}
 
 	base := map[string]tftypes.Value{
 		"id":          tftypes.NewValue(tftypes.String, eventID),
@@ -391,11 +379,7 @@ func TestWorkspaceWebhookEventResource_Read_DetectsDrift(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceWebhookEventResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceWebhookEventResource{client: newTestClient(server.Client(), server.URL)}
 
 	staleState := buildObjectValue(objType, map[string]tftypes.Value{
 		"id":                  tftypes.NewValue(tftypes.String, eventID),
@@ -453,11 +437,7 @@ func TestWorkspaceWebhookEventResource_Read_RemovesResourceWhenEventDeleted(t *t
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceWebhookEventResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceWebhookEventResource{client: newTestClient(server.Client(), server.URL)}
 
 	staleState := buildObjectValue(objType, map[string]tftypes.Value{
 		"id":         tftypes.NewValue(tftypes.String, eventID),
@@ -529,11 +509,7 @@ func TestWorkspaceWebhookEventResource_Update_UsesPlanWebhookIdNotStaleState(t *
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	r := &WorkspaceWebhookEventResource{
-		client:   server.Client(),
-		endpoint: server.URL,
-		token:    "test-token",
-	}
+	r := &WorkspaceWebhookEventResource{client: newTestClient(server.Client(), server.URL)}
 
 	base := map[string]tftypes.Value{
 		"id":                  tftypes.NewValue(tftypes.String, eventID),
@@ -574,5 +550,52 @@ func TestWorkspaceWebhookEventResource_Update_UsesPlanWebhookIdNotStaleState(t *
 	}
 	if result.WebhookId.ValueString() != newWebhookID {
 		t.Errorf("expected webhook_id in state to be the new webhook %q, got %q", newWebhookID, result.WebhookId.ValueString())
+	}
+}
+
+// TestWorkspaceWebhookEventResource_Delete_SendsAtomicRemove checks that Delete removes an event
+// its webhook still lists with an atomic remove, and leaves one the webhook no longer lists alone.
+func TestWorkspaceWebhookEventResource_Delete_SendsAtomicRemove(t *testing.T) {
+	ctx := context.Background()
+	s, objType := webhookEventSchemaAndType(t, ctx)
+
+	for _, listed := range []bool{true, false} {
+		var operations []string
+		mux := http.NewServeMux()
+		mux.HandleFunc("/api/v1/webhook/wh-1", func(w http.ResponseWriter, _ *http.Request) {
+			events := `[]`
+			if listed {
+				events = `[{"type":"webhook_event","id":"event-1"}]`
+			}
+			fmt.Fprintf(w, `{"data":{"type":"webhook","id":"wh-1","attributes":{},`+
+				`"relationships":{"workspace":{"data":{"type":"workspace","id":"ws-1"}},"events":{"data":%s}}}}`, events)
+		})
+		mux.HandleFunc("/api/v1/operations", func(w http.ResponseWriter, req *http.Request) {
+			body, _ := io.ReadAll(req.Body)
+			operations = append(operations, string(body))
+			fmt.Fprint(w, `{"atomic:results":[{}]}`)
+		})
+		server := httptest.NewServer(mux)
+
+		r := &WorkspaceWebhookEventResource{client: newTestClient(server.Client(), server.URL)}
+		state := buildObjectValue(objType, map[string]tftypes.Value{
+			"id":         tftypes.NewValue(tftypes.String, "event-1"),
+			"webhook_id": tftypes.NewValue(tftypes.String, "wh-1"),
+		})
+		resp := &resource.DeleteResponse{State: tfsdk.State{Schema: s, Raw: state}}
+		r.Delete(ctx, resource.DeleteRequest{State: tfsdk.State{Schema: s, Raw: state}}, resp)
+		server.Close()
+
+		if resp.Diagnostics.HasError() {
+			t.Fatalf("listed=%v: Delete returned diagnostics: %v", listed, resp.Diagnostics)
+		}
+		switch {
+		case !listed && len(operations) != 0:
+			t.Errorf("expected no atomic operation for an event the webhook no longer lists, got: %v", operations)
+		case listed && len(operations) != 1:
+			t.Errorf("expected one atomic operation, got: %v", operations)
+		case listed && (!strings.Contains(operations[0], `"op":"remove"`) || !strings.Contains(operations[0], `"href":"/webhook/wh-1/events/event-1"`)):
+			t.Errorf("expected a remove of /webhook/wh-1/events/event-1, got: %s", operations[0])
+		}
 	}
 }
